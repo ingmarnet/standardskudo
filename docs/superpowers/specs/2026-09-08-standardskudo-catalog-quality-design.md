@@ -1,6 +1,7 @@
-# Skudo — Plataforma de Calidad de Catálogo
+# StandardSkudo — Plataforma de Calidad de Catálogo
 
-**Producto:** Skudo (`SKU` + *escudo*; funciona igual en español y portugués)
+**Producto:** StandardSkudo (`Standard` + `SKU` + *escudo*; el juego funciona igual en
+español y portugués)
 **Fecha:** 2026-09-08
 **Estado:** diseño aprobado en sus secciones 1 y 2; pendiente de revisión completa
 
@@ -8,7 +9,7 @@
 
 ## 1. Resumen ejecutivo
 
-SaaS multitenant que evalúa y corrige la calidad del registro de productos en tiendas
+StandardSkudo es un SaaS multitenant que evalúa y corrige la calidad del registro de productos en tiendas
 Magento, a nivel de *store view*, combinando calidad de datos de catálogo, SEO y
 GEO-readiness en un único objeto de análisis, con remediación masiva bajo aprobación
 humana y verificación de que el cambio realmente se aplicó.
@@ -741,7 +742,7 @@ verificable, informes exportables.
    hasta ahora mejoró el diseño.
 6. Confirmar idiomas y monedas exactos por store view (PY / BR).
 7. Requisitos de residencia de datos de los 5 tenants objetivo.
-8. **Nombre: decidido — Skudo.** Pendiente de verificación, no bloqueante para el
+8. **Nombre: decidido — StandardSkudo.** Pendiente de verificación, no bloqueante para el
    diseño: disponibilidad de dominio, marca en DINAPI (Paraguay) e INPI (Brasil), y
    una lectura en voz alta por un hablante de portugués brasileño antes de imprimir
    nada.
