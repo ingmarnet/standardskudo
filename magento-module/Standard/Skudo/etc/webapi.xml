@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
+    <route url="/V1/skudo/environment" method="GET">
+        <service class="Standard\Skudo\Api\EnvironmentProbeInterface" method="getProfile"/>
+        <resources><resource ref="Standard_Skudo::read"/></resources>
+    </route>
+</routes>

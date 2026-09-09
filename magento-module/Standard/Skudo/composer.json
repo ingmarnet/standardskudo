@@ -1,0 +1,11 @@
+{
+  "name": "standard/module-skudo",
+  "description": "Conector de solo lectura para StandardSkudo",
+  "type": "magento2-module",
+  "license": "proprietary",
+  "require": {"php": "~8.2.0 || ~8.3.0"},
+  "autoload": {
+    "files": ["registration.php"],
+    "psr-4": {"Standard\\Skudo\\": ""}
+  }
+}

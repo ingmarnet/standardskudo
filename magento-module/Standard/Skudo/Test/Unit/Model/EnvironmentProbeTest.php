@@ -1,0 +1,84 @@
+<?php
+declare(strict_types=1);
+
+namespace Standard\Skudo\Test\Unit\Model;
+
+use Magento\Framework\App\ProductMetadataInterface;
+use Magento\Framework\App\ResourceConnection;
+use Magento\Framework\DB\Adapter\AdapterInterface;
+use Magento\Framework\Module\ModuleListInterface;
+use Magento\Store\Api\Data\StoreInterface;
+use Magento\Store\Model\StoreManagerInterface;
+use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\EnvironmentProbe;
+
+class EnvironmentProbeTest extends TestCase
+{
+    private function probe(bool $hasStaging, bool $hasRowId, bool $hasMsi): EnvironmentProbe
+    {
+        $metadata = $this->createMock(ProductMetadataInterface::class);
+        $metadata->method('getEdition')->willReturn($hasStaging ? 'Enterprise' : 'Community');
+        $metadata->method('getVersion')->willReturn('2.4.7-p3');
+
+        $modules = $this->createMock(ModuleListInterface::class);
+        $modules->method('has')->willReturnCallback(
+            static fn (string $name): bool => match ($name) {
+                'Magento_Staging' => $hasStaging,
+                'Magento_InventoryApi' => $hasMsi,
+                default => false,
+            }
+        );
+
+        $select = $this->createMock(\Magento\Framework\DB\Select::class);
+        $select->method('from')->willReturnSelf();
+
+        $connection = $this->createMock(AdapterInterface::class);
+        $connection->method('getTableName')->willReturnArgument(0);
+        $connection->method('tableColumnExists')
+            ->with('catalog_product_entity', 'row_id')
+            ->willReturn($hasRowId);
+        // getProfile() también arma los conteos (Step 5); el mock del
+        // adaptador necesita responder a select()/fetchOne() para no
+        // reventar antes de llegar a las aserciones sobre product_entity_key.
+        $connection->method('select')->willReturn($select);
+        $connection->method('fetchOne')->willReturn('0');
+
+        $resource = $this->createMock(ResourceConnection::class);
+        $resource->method('getConnection')->willReturn($connection);
+        $resource->method('getTableName')->willReturnArgument(0);
+
+        $storeManager = $this->createMock(StoreManagerInterface::class);
+        $storeManager->method('getWebsites')->willReturn([]);
+        $storeManager->method('getGroups')->willReturn([]);
+        $storeManager->method('getStores')->willReturn([]);
+
+        return new EnvironmentProbe($metadata, $modules, $resource, $storeManager);
+    }
+
+    public function testOpenSourceReportsEntityId(): void
+    {
+        $profile = $this->probe(hasStaging: false, hasRowId: false, hasMsi: true)->getProfile();
+
+        $this->assertSame('Community', $profile['edition']);
+        $this->assertSame('entity_id', $profile['product_entity_key']);
+        $this->assertFalse($profile['staging_enabled']);
+        $this->assertTrue($profile['msi_enabled']);
+    }
+
+    public function testCommerceWithStagingReportsRowId(): void
+    {
+        $profile = $this->probe(hasStaging: true, hasRowId: true, hasMsi: true)->getProfile();
+
+        $this->assertSame('row_id', $profile['product_entity_key']);
+        $this->assertTrue($profile['staging_enabled']);
+    }
+
+    public function testKeyIsDetectedFromTheSchemaNotFromTheEdition(): void
+    {
+        // Enterprise sin el módulo Staging instalado sigue usando entity_id.
+        $profile = $this->probe(hasStaging: false, hasRowId: false, hasMsi: false)->getProfile();
+
+        $this->assertSame('entity_id', $profile['product_entity_key']);
+        $this->assertFalse($profile['msi_enabled']);
+    }
+}
