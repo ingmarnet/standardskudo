@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -75,15 +76,39 @@ def set_category_store_state(
     session.flush()
 
 
-def assign_product(
-    session: Session, tenant_id: int, sku: str, category_magento_id: int
+def set_product_categories(
+    session: Session, tenant_id: int, sku: str, category_magento_ids: list[int]
 ) -> None:
-    stmt = insert(ProductCategoryAssignment).values(
-        tenant_id=tenant_id, sku=sku, category_magento_id=category_magento_id
-    )
-    session.execute(
-        stmt.on_conflict_do_nothing(
-            index_elements=["tenant_id", "sku", "category_magento_id"]
+    """Reemplaza el conjunto completo de categorías de un producto.
+
+    Es una operación de conjunto y no de alta suelta a propósito: dar de alta
+    sin contraparte deja al producto asignado a una categoría de la que ya
+    salió, y ni una recarga completa lo repara. El payload de Magento es la
+    verdad completa del conjunto, así que lo que no trae se revoca.
+
+    El alcance del borrado es (tenant, sku) porque en el core de Magento la
+    asignación no tiene store view: es global.
+    """
+    wanted = sorted(set(category_magento_ids))
+
+    stale = [
+        ProductCategoryAssignment.tenant_id == tenant_id,
+        ProductCategoryAssignment.sku == sku,
+    ]
+    if wanted:
+        stale.append(ProductCategoryAssignment.category_magento_id.notin_(wanted))
+    session.execute(delete(ProductCategoryAssignment).where(*stale))
+
+    if wanted:
+        stmt = insert(ProductCategoryAssignment).values(
+            [
+                {"tenant_id": tenant_id, "sku": sku, "category_magento_id": category_id}
+                for category_id in wanted
+            ]
         )
-    )
+        session.execute(
+            stmt.on_conflict_do_nothing(
+                index_elements=["tenant_id", "sku", "category_magento_id"]
+            )
+        )
     session.flush()

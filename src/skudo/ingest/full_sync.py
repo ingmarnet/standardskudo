@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from skudo.magento.client import MagentoClient
-from skudo.mirror.categories import assign_product
+from skudo.mirror.categories import set_product_categories
 from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
 from skudo.mirror.topology import sync_topology
 
@@ -60,8 +60,11 @@ def full_sync(
                     attribute_set_id=item.get("attribute_set_id"),
                     type_id=item.get("type_id"),
                 )
-                for category_id in item["category_ids"]:
-                    assign_product(session, tenant_id, item["sku"], category_id)
+                # Conjunto completo, no alta suelta: lo que el payload no trae
+                # deja de estar asignado.
+                set_product_categories(
+                    session, tenant_id, item["sku"], item["category_ids"]
+                )
                 report.records_written += 1
 
     session.commit()

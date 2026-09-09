@@ -7,9 +7,9 @@ from sqlalchemy import select
 from skudo.magento.environment import parse_environment
 from skudo.mirror.categories import (
     CategoryEffect,
-    assign_product,
     derive_category_effect,
     set_category_store_state,
+    set_product_categories,
     upsert_category,
 )
 from skudo.mirror.models import ProductCategoryAssignment, Tenant
@@ -74,7 +74,7 @@ def test_not_effective_when_product_is_not_in_the_store_website():
 def test_assignment_is_stored_without_store_scope(db_session, tenant):
     """La tabla de asignación NO lleva store view: en Magento es global."""
     upsert_category(db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización")
-    assign_product(db_session, tenant.id, "SKU1", 15)
+    set_product_categories(db_session, tenant.id, "SKU1", [15])
 
     rows = db_session.scalars(
         select(ProductCategoryAssignment).where(
@@ -165,3 +165,62 @@ def test_per_store_activity_also_discriminates_within_the_shared_tree():
     )
     assert br.is_effective is False
     assert br.reason == "categoria_inactiva_en_la_tienda"
+
+
+def _assigned(session, tenant_id, sku) -> list[int]:
+    return sorted(
+        session.scalars(
+            select(ProductCategoryAssignment.category_magento_id).where(
+                ProductCategoryAssignment.tenant_id == tenant_id,
+                ProductCategoryAssignment.sku == sku,
+            )
+        ).all()
+    )
+
+
+def test_a_category_the_product_left_is_revoked(db_session, tenant):
+    """El payload es la verdad completa del conjunto. Sin contraparte del alta,
+    un producto que sale de Secarropas queda en Secarropas para siempre, incluso
+    tras una carga completa."""
+    set_product_categories(db_session, tenant.id, "SKU1", [15, 20])
+    assert _assigned(db_session, tenant.id, "SKU1") == [15, 20]
+
+    set_product_categories(db_session, tenant.id, "SKU1", [20])
+    assert _assigned(db_session, tenant.id, "SKU1") == [20]
+
+
+def test_a_product_with_no_categories_ends_with_none(db_session, tenant):
+    set_product_categories(db_session, tenant.id, "SKU1", [15])
+    set_product_categories(db_session, tenant.id, "SKU1", [])
+
+    assert _assigned(db_session, tenant.id, "SKU1") == []
+
+
+def test_revoking_one_product_does_not_touch_another(db_session, tenant):
+    set_product_categories(db_session, tenant.id, "SKU1", [15, 20])
+    set_product_categories(db_session, tenant.id, "SKU2", [15])
+    set_product_categories(db_session, tenant.id, "SKU1", [20])
+
+    assert _assigned(db_session, tenant.id, "SKU1") == [20]
+    assert _assigned(db_session, tenant.id, "SKU2") == [15]
+
+
+def test_revoking_in_one_tenant_does_not_touch_the_other(db_session):
+    a = Tenant(code="a", name="A", base_url="https://a.test", token_env_var="X")
+    b = Tenant(code="b", name="B", base_url="https://b.test", token_env_var="Y")
+    db_session.add_all([a, b])
+    db_session.flush()
+
+    set_product_categories(db_session, a.id, "SKU1", [15, 20])
+    set_product_categories(db_session, b.id, "SKU1", [15, 20])
+    set_product_categories(db_session, a.id, "SKU1", [20])
+
+    assert _assigned(db_session, a.id, "SKU1") == [20]
+    assert _assigned(db_session, b.id, "SKU1") == [15, 20]
+
+
+def test_setting_the_same_set_twice_is_idempotent(db_session, tenant):
+    set_product_categories(db_session, tenant.id, "SKU1", [15, 20])
+    set_product_categories(db_session, tenant.id, "SKU1", [20, 15])
+
+    assert _assigned(db_session, tenant.id, "SKU1") == [15, 20]

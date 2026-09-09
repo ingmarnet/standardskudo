@@ -41,10 +41,17 @@ def _without_classification(page: dict) -> dict:
     return {**page, "items": items}
 
 
-def make_client(with_classification: bool = True) -> MagentoClient:
+def make_client(
+    with_classification: bool = True, categories_of_0074: list[int] | None = None
+) -> MagentoClient:
     environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
     page_1 = PAGE_1 if with_classification else _without_classification(PAGE_1)
     page_2 = PAGE_2 if with_classification else _without_classification(PAGE_2)
+    if categories_of_0074 is not None:
+        page_1 = {
+            **page_1,
+            "items": [{**page_1["items"][0], "category_ids": categories_of_0074}],
+        }
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/environment"):
@@ -136,3 +143,29 @@ def test_an_unreported_attribute_set_is_unknown_not_zero(db_session, tenant):
     row = get_record(db_session, tenant.id, "0074", 1)
     assert row.attribute_set_id is None
     assert row.type_id is None
+
+
+def test_a_full_sync_revokes_a_category_the_product_left(db_session, tenant):
+    """La carga completa aplica semántica de conjunto: lo que el payload no trae
+    deja de estar asignado. Antes, una recarga completa no reparaba esto."""
+    from sqlalchemy import select
+
+    from skudo.mirror.models import ProductCategoryAssignment
+
+    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    # El estado de partida: 0074 está en la 15 según PAGE_1.
+    assert db_session.scalars(
+        select(ProductCategoryAssignment.category_magento_id).where(
+            ProductCategoryAssignment.tenant_id == tenant.id,
+            ProductCategoryAssignment.sku == "0074",
+        )
+    ).all() == [15]
+
+    full_sync(db_session, make_client(categories_of_0074=[]), tenant.id, store_view_ids=[1])
+
+    assert db_session.scalars(
+        select(ProductCategoryAssignment.category_magento_id).where(
+            ProductCategoryAssignment.tenant_id == tenant.id,
+            ProductCategoryAssignment.sku == "0074",
+        )
+    ).all() == []
