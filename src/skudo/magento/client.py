@@ -4,6 +4,12 @@ import httpx
 
 from skudo.magento.environment import EnvironmentProfile, parse_environment
 
+# Cuántos SKUs se piden por petición a /products-by-sku. `delta_sync` puede
+# traer 1000 cambios en una página; mandarlos juntos es un cuerpo grande y una
+# consulta `IN (...)` de 1000 elementos en el módulo. 100 mantiene las dos
+# cosas en tamaños que Magento y Postgres manejan sin sorpresas.
+PRODUCTS_BY_SKU_CHUNK = 100
+
 
 class MagentoClient:
     """Cliente del módulo Standard_Skudo. Solo lectura en S0."""
@@ -89,14 +95,34 @@ class MagentoClient:
 
     def products_by_sku(self, store_id: int, skus: list[str]) -> list[dict]:
         """Relee un conjunto concreto de SKUs. Complemento del endpoint de deltas:
-        la cola dice QUÉ cambió, esto trae el estado nuevo."""
-        if not skus:
-            return []
-        response = self._client.get(
-            "/products-by-sku", params={"storeId": store_id, "skus": ",".join(skus)}
-        )
-        response.raise_for_status()
-        return response.json()["items"]
+        la cola dice QUÉ cambió, esto trae el estado nuevo.
+
+        POST con cuerpo JSON y en lotes de `PRODUCTS_BY_SKU_CHUNK`, por dos
+        motivos independientes:
+
+        1. Los SKUs viajaban como `",".join(skus)` en la query string, así que
+           un SKU que contiene una coma se partía en dos lookups y el producto
+           real no se refrescaba nunca, en silencio. En esta rama la identidad
+           es texto: 'ABC,123' es un SKU, no dos. Una lista JSON no tiene
+           separador que colisione con el contenido.
+        2. `delta_sync` pasa hasta 1000 SKUs de una vez: en un GET son unos
+           20 KB de URL, que nginx rechaza con 414 mucho antes de que la
+           petición llegue a PHP.
+
+        Contrato del módulo:
+            POST {base_url}/rest/V1/skudo/products-by-sku
+            body: {"storeId": <int>, "skus": [<str>, ...]}   (<= 100 SKUs)
+            200:  {"items": [ <mismo item que /products>, ... ]}
+        """
+        items: list[dict] = []
+        for start in range(0, len(skus), PRODUCTS_BY_SKU_CHUNK):
+            chunk = skus[start : start + PRODUCTS_BY_SKU_CHUNK]
+            response = self._client.post(
+                "/products-by-sku", json={"storeId": store_id, "skus": chunk}
+            )
+            response.raise_for_status()
+            items.extend(response.json()["items"])
+        return items
 
     def checksums(self, store_id: int) -> dict:
         response = self._client.get("/checksums", params={"storeId": store_id})

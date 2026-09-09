@@ -7,6 +7,8 @@ vacíos lanza un `TypeError` que no dice nada de lo que pasó. Un bucle infinito
 en un ingestor no se nota: se nota semanas después, como espejo desactualizado.
 """
 
+import json
+
 import httpx
 import pytest
 
@@ -83,3 +85,71 @@ def test_iter_products_aborts_when_the_cursor_repeats():
 
     with pytest.raises(RuntimeError, match="no avanza"):
         list(make_client(handler).iter_products(1))
+
+
+def _capturing_client(response_items=None):
+    """Cliente que registra el cuerpo de cada petición a /products-by-sku."""
+    captured: list[dict] = []
+
+    def handler(request):
+        captured.append(
+            {
+                "method": request.method,
+                "body": json.loads(request.content),
+                "url": str(request.url),
+            }
+        )
+        return httpx.Response(200, json={"items": response_items or []})
+
+    return make_client(handler), captured
+
+
+def test_a_sku_containing_a_comma_is_not_split_into_two_lookups():
+    """`",".join(skus)` partía en dos un SKU con coma: el producto real nunca se
+    refrescaba, y en silencio. Viola la regla de identidad como texto de esta
+    misma rama, donde 'ABC,123' es un SKU y no dos."""
+    client, captured = _capturing_client()
+
+    client.products_by_sku(1, ["ABC,123", "PLANO"])
+
+    assert captured[0]["body"]["skus"] == ["ABC,123", "PLANO"]
+
+
+def test_the_lookup_travels_as_a_post_with_a_json_body():
+    """`delta_sync` pasa hasta 1000 SKUs. En un GET son ~20 KB de query string,
+    que nginx rechaza con 414 mucho antes de llegar a PHP."""
+    client, captured = _capturing_client()
+
+    client.products_by_sku(1, ["SKU1"])
+
+    assert captured[0]["method"] == "POST"
+    assert captured[0]["body"] == {"storeId": 1, "skus": ["SKU1"]}
+    assert "skus=" not in captured[0]["url"]
+
+
+def test_skus_are_chunked_to_at_most_one_hundred_per_request():
+    client, captured = _capturing_client()
+    skus = [f"SKU{i}" for i in range(250)]
+
+    client.products_by_sku(1, skus)
+
+    assert [len(c["body"]["skus"]) for c in captured] == [100, 100, 50]
+    # Cada SKU se pide exactamente una vez: ni se pierde ni se duplica.
+    requested = [sku for c in captured for sku in c["body"]["skus"]]
+    assert requested == skus
+
+
+def test_items_from_every_chunk_are_returned():
+    client, captured = _capturing_client(response_items=[{"sku": "X"}])
+
+    items = client.products_by_sku(1, [f"SKU{i}" for i in range(150)])
+
+    assert len(captured) == 2
+    assert len(items) == 2
+
+
+def test_an_empty_sku_list_makes_no_request():
+    client, captured = _capturing_client()
+
+    assert client.products_by_sku(1, []) == []
+    assert captured == []
