@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from skudo.config import Settings
-from skudo.ingest.reconcile import reconcile
+from skudo.ingest.reconcile import DriftReport, reconcile
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import distinct_option_ids, option_labels
 from skudo.mirror.models import Attribute, ProductRecord, Tenant
@@ -24,15 +24,13 @@ class CriterionResult(BaseModel):
     detail: str
 
 
-def _espejo_sincronizado(session, source, store_view_ids) -> CriterionResult:
-    drifted = []
-    for store_id in store_view_ids:
-        report = reconcile(session, source, store_id)
-        if report.needs_full_sync:
-            drifted.append(
-                f"store {store_id}: magento={report.magento_count} "
-                f"espejo={report.mirror_count} digest_ok={report.digest_matches}"
-            )
+def _espejo_sincronizado(drift: dict[int, DriftReport]) -> CriterionResult:
+    drifted = [
+        f"store {store_id}: magento={report.magento_count} "
+        f"espejo={report.mirror_count} digest_ok={report.digest_matches}"
+        for store_id, report in drift.items()
+        if report.needs_full_sync
+    ]
     return CriterionResult(
         name="espejo_sincronizado",
         passed=not drifted,
@@ -40,11 +38,20 @@ def _espejo_sincronizado(session, source, store_view_ids) -> CriterionResult:
     )
 
 
-def _score_por_store_view(session, tenant_id, store_view_ids) -> CriterionResult:
-    """Todo SKU del espejo debe existir en todas las store views declaradas.
+def _score_por_store_view(
+    session, tenant_id, store_view_ids, drift: dict[int, DriftReport]
+) -> CriterionResult:
+    """Toda store view declarada tiene registros, y el conteo de cada una cuadra
+    con el de SU misma tienda en Magento.
 
-    Si falta en una, el sistema no podría dar dos grados distintos para el mismo
-    producto, que es el requisito central del objeto evaluable.
+    Lo que NO se exige es que todas tengan el mismo número de productos. Esa
+    versión invertía el principio rector del spec: en cuanto un tenant tiene un
+    producto solo-PY o solo-BR —un website al que el producto no pertenece, algo
+    legítimo y corriente en el tenant piloto, cuyas dos tiendas viven en
+    websites distintos—, una ausencia válida se reportaba como defecto.
+
+    La referencia de "población completa" es el conteo de esa tienda en Magento,
+    que `reconcile` ya trae, y no el de la tienda de al lado.
     """
     counts = dict(
         session.execute(
@@ -53,15 +60,19 @@ def _score_por_store_view(session, tenant_id, store_view_ids) -> CriterionResult
             .group_by(ProductRecord.store_view_magento_id)
         ).all()
     )
-    missing = [s for s in store_view_ids if s not in counts]
-    uneven = len(set(counts.values())) > 1
+    empty = [s for s in store_view_ids if not counts.get(s)]
+    short = [
+        f"store {s}: espejo={counts.get(s, 0)} magento={drift[s].magento_count}"
+        for s in store_view_ids
+        if s in drift and counts.get(s, 0) != drift[s].magento_count
+    ]
 
     return CriterionResult(
         name="score_por_store_view",
-        passed=not missing and not uneven,
+        passed=not empty and not short,
         detail=f"conteos por store view: {counts}"
-        + (f"; faltan {missing}" if missing else "")
-        + ("; conteos desiguales entre tiendas" if uneven else ""),
+        + (f"; sin registros: {empty}" if empty else "")
+        + ("; conteo distinto al de Magento: " + "; ".join(short) if short else ""),
     )
 
 
@@ -110,9 +121,15 @@ def run_s0_acceptance(
     session: Session, source: TenantSource, store_view_ids: list[int]
 ) -> list[CriterionResult]:
     tenant_id = source.tenant_id
+    # Se reconcilia una sola vez y los dos primeros criterios comparten el
+    # resultado: el segundo necesita el conteo de Magento por tienda, que es
+    # justo lo que el primero acaba de pedir.
+    drift = {
+        store_id: reconcile(session, source, store_id) for store_id in store_view_ids
+    }
     return [
-        _espejo_sincronizado(session, source, store_view_ids),
-        _score_por_store_view(session, tenant_id, store_view_ids),
+        _espejo_sincronizado(drift),
+        _score_por_store_view(session, tenant_id, store_view_ids, drift),
         _procedencia_de_scope(session, tenant_id),
         _identidad_de_opciones(session, tenant_id),
     ]
