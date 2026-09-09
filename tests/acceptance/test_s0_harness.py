@@ -38,7 +38,7 @@ def prepared(db_session):
     db_session.add(tenant)
     db_session.flush()
 
-    for store_id in (1, 2):
+    for store_id in (1, 3):
         upsert_record(db_session, tenant.id, store_id, ProductIdentity(sku="SKU1"),
                       {"name": "N"}, {"name": "store"},
                       datetime(2026, 9, 1, tzinfo=UTC))
@@ -48,13 +48,13 @@ def prepared(db_session):
         "declared_scope": "store", "is_filterable": True, "is_required": False,
         "attribute_set_ids": [4],
     })
-    upsert_option(db_session, tenant.id, "color", 17, {1: "Negro", 2: "Preto"})
+    upsert_option(db_session, tenant.id, "color", 17, {1: "Negro", 3: "Preto"})
     db_session.flush()
     return tenant
 
 
 def test_all_four_criteria_pass_on_a_healthy_mirror(db_session, prepared):
-    results = run_s0_acceptance(db_session, make_client(["SKU1"]), prepared.id, [1, 2])
+    results = run_s0_acceptance(db_session, make_client(["SKU1"]), prepared.id, [1, 3])
 
     assert [r.name for r in results] == [
         "espejo_sincronizado", "score_por_store_view",
@@ -65,7 +65,7 @@ def test_all_four_criteria_pass_on_a_healthy_mirror(db_session, prepared):
 
 def test_drift_makes_the_first_criterion_fail(db_session, prepared):
     results = run_s0_acceptance(
-        db_session, make_client(["SKU1", "SKU-FANTASMA"]), prepared.id, [1, 2]
+        db_session, make_client(["SKU1", "SKU-FANTASMA"]), prepared.id, [1, 3]
     )
 
     failed = {r.name: r for r in results if not r.passed}

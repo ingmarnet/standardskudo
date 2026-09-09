@@ -35,14 +35,16 @@ def test_sync_stores_the_two_store_views(db_session, tenant, profile):
     codes = db_session.scalars(
         select(StoreView.code).where(StoreView.tenant_id == tenant.id).order_by(StoreView.code)
     ).all()
-    assert codes == ["br_pt", "py_es"]
+    assert codes == ["br", "py"]
 
 
 def test_root_category_is_resolved_per_store_view(db_session, tenant, profile):
+    """En el tenant piloto las dos store views comparten root (2). El espejo
+    debe reproducir eso tal cual, no inventar un árbol por tienda."""
     sync_topology(db_session, tenant.id, profile)
 
     assert root_category_id(db_session, tenant.id, 1) == 2
-    assert root_category_id(db_session, tenant.id, 2) == 3
+    assert root_category_id(db_session, tenant.id, 3) == 2
 
 
 def test_sync_is_idempotent(db_session, tenant, profile):

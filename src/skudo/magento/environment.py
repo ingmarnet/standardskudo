@@ -66,12 +66,24 @@ class EnvironmentProfile(BaseModel):
                 return view
         raise KeyError(f"store view desconocida: {store_id}")
 
-    def root_category_id_for(self, store_id: int) -> int:
+    def _store_group(self, store_id: int) -> StoreGroup:
         group_id = self.store_view(store_id).group_id
         for group in self.store_groups:
             if group.id == group_id:
-                return group.root_category_id
+                return group
         raise KeyError(f"store group desconocido: {group_id}")
+
+    def root_category_id_for(self, store_id: int) -> int:
+        return self._store_group(store_id).root_category_id
+
+    def website_id_for(self, store_id: int) -> int:
+        """El website de una store view, heredado de su grupo.
+
+        Cuando dos store views comparten root category —el caso del tenant
+        piloto— el website es lo único que distingue qué producto aparece en
+        cada una, así que `derive_category_effect` lo necesita.
+        """
+        return self._store_group(store_id).website_id
 
 
 def parse_environment(payload: dict) -> EnvironmentProfile:

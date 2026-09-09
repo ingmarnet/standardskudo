@@ -44,20 +44,20 @@ def test_one_option_with_two_translations_is_one_option(db_session, tenant, colo
     sistema: consolidar dos etiquetas que en realidad son una traducción.
     """
     upsert_option(
-        db_session, tenant.id, "color", option_id=17, labels={0: "Negro", 1: "Negro", 2: "Preto"}
+        db_session, tenant.id, "color", option_id=17, labels={0: "Negro", 1: "Negro", 3: "Preto"}
     )
 
     assert distinct_option_ids(db_session, tenant.id, "color") == [17]
     assert option_labels(db_session, tenant.id, "color", 17) == {
         0: "Negro",
         1: "Negro",
-        2: "Preto",
+        3: "Preto",
     }
 
 
 def test_two_real_options_stay_separate(db_session, tenant, color_attribute):
-    upsert_option(db_session, tenant.id, "color", 17, {0: "Negro", 2: "Preto"})
-    upsert_option(db_session, tenant.id, "color", 18, {0: "Blanco", 2: "Branco"})
+    upsert_option(db_session, tenant.id, "color", 17, {0: "Negro", 3: "Preto"})
+    upsert_option(db_session, tenant.id, "color", 18, {0: "Blanco", 3: "Branco"})
 
     assert distinct_option_ids(db_session, tenant.id, "color") == [17, 18]
 
@@ -72,12 +72,12 @@ def test_same_label_in_two_options_is_not_merged(db_session, tenant, color_attri
 
 
 def test_relabeling_an_option_updates_in_place(db_session, tenant, color_attribute):
-    upsert_option(db_session, tenant.id, "color", 17, {0: "Negro", 2: "Preto"})
-    upsert_option(db_session, tenant.id, "color", 17, {0: "Negro mate", 2: "Preto mate"})
+    upsert_option(db_session, tenant.id, "color", 17, {0: "Negro", 3: "Preto"})
+    upsert_option(db_session, tenant.id, "color", 17, {0: "Negro mate", 3: "Preto mate"})
 
     assert option_labels(db_session, tenant.id, "color", 17) == {
         0: "Negro mate",
-        2: "Preto mate",
+        3: "Preto mate",
     }
 
 

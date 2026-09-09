@@ -50,12 +50,12 @@ def test_identity_preserves_leading_zeros_and_suffixes(db_session, tenant):
 
 def test_the_same_product_has_one_record_per_store_view(db_session, tenant):
     identity = ProductIdentity(sku="SKU1", mpn=None, model=None, gtin=None)
-    for store_id, name in ((1, "Aire Acondicionado"), (2, "Ar Condicionado")):
+    for store_id, name in ((1, "Aire Acondicionado"), (3, "Ar Condicionado")):
         upsert_record(db_session, tenant.id, store_id, identity, {"name": name},
                       {"name": "store"}, datetime(2026, 9, 1, tzinfo=UTC))
 
     assert get_record(db_session, tenant.id, "SKU1", 1).attributes["name"] == "Aire Acondicionado"
-    assert get_record(db_session, tenant.id, "SKU1", 2).attributes["name"] == "Ar Condicionado"
+    assert get_record(db_session, tenant.id, "SKU1", 3).attributes["name"] == "Ar Condicionado"
 
 
 def test_upsert_replaces_and_updates_the_content_hash(db_session, tenant):

@@ -1,6 +1,10 @@
+import json
+from pathlib import Path
+
 import pytest
 from sqlalchemy import select
 
+from skudo.magento.environment import parse_environment
 from skudo.mirror.categories import (
     CategoryEffect,
     assign_product,
@@ -10,8 +14,15 @@ from skudo.mirror.categories import (
 )
 from skudo.mirror.models import ProductCategoryAssignment, Tenant
 
-# Escenario: categoría 15 cuelga del árbol 2 (root de PY). El árbol de BR es 3.
-PATH_UNDER_PY_ROOT = [1, 2, 15]
+FIXTURES = Path(__file__).parent.parent / "fixtures"
+
+# Topología verificada del tenant piloto: store views 1 (`py`, website 1) y
+# 3 (`br`, website 2), AMBAS con root_category_id = 2. La categoría 15 cuelga de
+# ese árbol único, así que la condición de árbol vale igual para las dos tiendas.
+PATH_UNDER_THE_SHARED_ROOT = [1, 2, 15]
+PILOT_ROOT = 2
+PY_WEBSITE = 1
+BR_WEBSITE = 2
 
 
 @pytest.fixture
@@ -24,16 +35,18 @@ def tenant(db_session):
 
 def test_effective_when_all_four_conditions_hold():
     effect = derive_category_effect(
-        assignment_path=PATH_UNDER_PY_ROOT, root_category_id=2,
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT, root_category_id=2,
         is_active_in_store=True, product_website_ids=[1], store_website_id=1,
     )
     assert effect.is_effective is True
 
 
 def test_not_effective_when_category_is_outside_the_store_root():
-    """La asignación existe, pero la categoría no cuelga del árbol de esa tienda."""
+    """La asignación existe, pero la categoría no cuelga del árbol de esa tienda.
+    En el tenant piloto ninguna de las dos tiendas está en este caso —comparten
+    root—, pero un tenant con un root por tienda sí lo estaría."""
     effect = derive_category_effect(
-        assignment_path=PATH_UNDER_PY_ROOT, root_category_id=3,
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT, root_category_id=47,
         is_active_in_store=True, product_website_ids=[1], store_website_id=1,
     )
     assert effect.is_effective is False
@@ -42,7 +55,7 @@ def test_not_effective_when_category_is_outside_the_store_root():
 
 def test_not_effective_when_category_is_inactive_in_that_store():
     effect = derive_category_effect(
-        assignment_path=PATH_UNDER_PY_ROOT, root_category_id=2,
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT, root_category_id=2,
         is_active_in_store=False, product_website_ids=[1], store_website_id=1,
     )
     assert effect.is_effective is False
@@ -51,7 +64,7 @@ def test_not_effective_when_category_is_inactive_in_that_store():
 
 def test_not_effective_when_product_is_not_in_the_store_website():
     effect = derive_category_effect(
-        assignment_path=PATH_UNDER_PY_ROOT, root_category_id=2,
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT, root_category_id=2,
         is_active_in_store=True, product_website_ids=[2], store_website_id=1,
     )
     assert effect.is_effective is False
@@ -60,7 +73,7 @@ def test_not_effective_when_product_is_not_in_the_store_website():
 
 def test_assignment_is_stored_without_store_scope(db_session, tenant):
     """La tabla de asignación NO lleva store view: en Magento es global."""
-    upsert_category(db_session, tenant.id, 15, PATH_UNDER_PY_ROOT, "Climatización")
+    upsert_category(db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización")
     assign_product(db_session, tenant.id, "SKU1", 15)
 
     rows = db_session.scalars(
@@ -73,9 +86,9 @@ def test_assignment_is_stored_without_store_scope(db_session, tenant):
 
 
 def test_category_name_and_activity_are_per_store_view(db_session, tenant):
-    upsert_category(db_session, tenant.id, 15, PATH_UNDER_PY_ROOT, "Climatización")
+    upsert_category(db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización")
     set_category_store_state(db_session, tenant.id, 15, 1, True, "Climatización")
-    set_category_store_state(db_session, tenant.id, 15, 2, False, "Climatização")
+    set_category_store_state(db_session, tenant.id, 15, 3, False, "Climatização")
 
     from skudo.mirror.models import CategoryStoreState
 
@@ -85,7 +98,7 @@ def test_category_name_and_activity_are_per_store_view(db_session, tenant):
             select(CategoryStoreState).where(CategoryStoreState.tenant_id == tenant.id)
         ).all()
     }
-    assert states == {1: (True, "Climatización"), 2: (False, "Climatização")}
+    assert states == {1: (True, "Climatización"), 3: (False, "Climatização")}
 
 
 def test_the_effect_carries_no_unfilled_identity_fields():
@@ -94,3 +107,61 @@ def test_the_effect_carries_no_unfilled_identity_fields():
     aspecto confiable. Quien los necesite debe pasarlos, no heredar un default."""
     assert "category_magento_id" not in CategoryEffect.model_fields
     assert "store_view_magento_id" not in CategoryEffect.model_fields
+
+
+def test_the_tree_condition_cannot_discriminate_py_from_br_in_the_pilot_tenant():
+    """Las dos store views del tenant piloto comparten root, así que la primera
+    condición de `derive_category_effect` da el mismo veredicto para las dos:
+    si se confiara solo en el árbol, un producto solo-PY parecería visible en BR."""
+    profile = parse_environment(
+        json.loads((FIXTURES / "environment_opensource.json").read_text())
+    )
+    assert profile.root_category_id_for(1) == profile.root_category_id_for(3) == PILOT_ROOT
+
+
+def test_the_website_is_the_discriminating_condition_in_the_pilot_tenant():
+    """Un producto asignado solo al website de PY: misma categoría, mismo árbol,
+    activa en las dos tiendas, y aun así no aparece en BR. El motivo devuelto
+    tiene que ser el website, no un 'fuera del árbol' que sería falso."""
+    profile = parse_environment(
+        json.loads((FIXTURES / "environment_opensource.json").read_text())
+    )
+    only_in_py = [profile.website_id_for(1)]
+
+    py = derive_category_effect(
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT,
+        root_category_id=profile.root_category_id_for(1),
+        is_active_in_store=True,
+        product_website_ids=only_in_py,
+        store_website_id=profile.website_id_for(1),
+    )
+    br = derive_category_effect(
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT,
+        root_category_id=profile.root_category_id_for(3),
+        is_active_in_store=True,
+        product_website_ids=only_in_py,
+        store_website_id=profile.website_id_for(3),
+    )
+
+    assert py.is_effective is True
+    assert br.is_effective is False
+    assert br.reason == "producto_fuera_del_website"
+
+
+def test_per_store_activity_also_discriminates_within_the_shared_tree():
+    """La otra condición que sí distingue las dos tiendas del tenant piloto:
+    la misma categoría puede estar desactivada en una y activa en la otra."""
+    profile = parse_environment(
+        json.loads((FIXTURES / "environment_opensource.json").read_text())
+    )
+    in_both_websites = [profile.website_id_for(1), profile.website_id_for(3)]
+
+    br = derive_category_effect(
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT,
+        root_category_id=profile.root_category_id_for(3),
+        is_active_in_store=False,
+        product_website_ids=in_both_websites,
+        store_website_id=profile.website_id_for(3),
+    )
+    assert br.is_effective is False
+    assert br.reason == "categoria_inactiva_en_la_tienda"

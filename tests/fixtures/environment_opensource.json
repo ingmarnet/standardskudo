@@ -5,15 +5,18 @@
   "staging_enabled": false,
   "msi_enabled": true,
   "default_stock_id": 1,
-  "websites": [{"id": 1, "code": "base", "name": "Main Website"}],
+  "websites": [
+    {"id": 1, "code": "base", "name": "Main Website"},
+    {"id": 2, "code": "website_br", "name": "Website Brasil"}
+  ],
   "store_groups": [
     {"id": 1, "website_id": 1, "code": "py", "name": "Paraguay", "root_category_id": 2},
-    {"id": 2, "website_id": 1, "code": "br", "name": "Brasil", "root_category_id": 3}
+    {"id": 2, "website_id": 2, "code": "br", "name": "Brasil", "root_category_id": 2}
   ],
   "store_views": [
-    {"id": 1, "group_id": 1, "code": "py_es", "name": "PY Español",
+    {"id": 1, "group_id": 1, "code": "py", "name": "PY Español",
      "is_active": true, "locale": "es_PY", "currency": "PYG"},
-    {"id": 2, "group_id": 2, "code": "br_pt", "name": "BR Português",
+    {"id": 3, "group_id": 2, "code": "br", "name": "BR Português",
      "is_active": true, "locale": "pt_BR", "currency": "BRL"}
   ],
   "counts": {"products": 214883, "attribute_sets": 97, "attributes": 612, "categories": 1840},
