@@ -45,7 +45,21 @@ Rigen todas las de este plan, además de las del plan original:
   `app/code`, ejecutar `setup:upgrade`, `setup:di:compile`, `cache:flush`, cualquier
   `INSERT`/`UPDATE`/`DELETE`/`ALTER`, y cualquier comando `bin/magento` que escriba.
   Las lecturas `SELECT` para verificar un supuesto están permitidas.
-- **Instancia de referencia** (verificada, solo lectura):
+- **Un tenant puede ser Community o Enterprise, y el módulo debe funcionar en las dos.**
+  La instancia de referencia es Enterprise, pero eso es una circunstancia del piloto, no
+  una premisa del producto. Reglas duras que se derivan de ello:
+  - **Ninguna clase `Magento\Staging\*` puede importarse ni referenciarse.** No existen
+    en Community y el módulo dejaría de cargar. Lo mismo para cualquier clase exclusiva
+    de Adobe Commerce (`Magento\CatalogStaging\*`, `Magento\SharedCatalog\*`, B2B).
+  - **Nada se decide por la cadena de edición.** Ni la clave de entidad, ni el
+    versionado, ni MSI. Todo se detecta del esquema o de la lista de módulos, y el
+    comportamiento se deriva de lo detectado.
+  - Todo camino que dependa de una columna que solo existe con Staging debe comprobar
+    su presencia con `tableColumnExists` y tener rama de Community.
+  - Los fixtures cubren las dos ediciones: `environment_opensource.json` (Community,
+    `entity_id`, sin Staging) y `environment_commerce_staging.json` (Enterprise,
+    `row_id`, con Staging). Ninguna tarea puede dejar la primera sin usar.
+- **Instancia de referencia del piloto** (verificada, solo lectura):
   `/var/www/casanissei.com/v248` — Adobe Commerce **Enterprise 2.4.8-p3**,
   `Magento_Staging` **activo** (por tanto `row_id`, no `entity_id`),
   `Magento_InventoryApi` activo, 228.881 productos, **422 attribute sets**,
@@ -237,6 +251,35 @@ dos correcciones globales que la instancia real impone:
   usado por `EnvironmentProbe` y por `ProductReader`, en lugar de llamar a
   `getProfile()` por página — `getProfile()` ejecuta cuatro `COUNT(*)` y en 228.881
   productos serían cientos de conteos de tabla completa.
+
+  **Y debe filtrar la versión vigente.** Con `Magento_Staging`,
+  `catalog_product_entity` no tiene una fila por producto: tiene una por **versión**,
+  con `created_in` y `updated_in` delimitando su ventana de validez. Verificado en la
+  instancia real: 228.881 filas para 228.517 productos, **181 productos con más de una
+  versión** y **394 filas que no son la vigente**. El SKU `NGO-T2092` tiene tres.
+
+  Sin el filtro el bug no es aleatorio, es determinista y va en la peor dirección: la
+  paginación recorre por clave **ascendente**, y una versión programada a futuro siempre
+  tiene la clave más alta, así que **la versión futura siempre gana el upsert**. Un
+  producto con un cambio agendado entraría al espejo con valores que todavía no están
+  vivos, y S1 lo puntuaría contra datos que ningún cliente ve. Es exactamente el error
+  que el principio rector del spec nombra: juzgar un producto contra un valor que no es
+  el real.
+
+  El filtro debe ser **compatible con las dos ediciones**, porque un tenant puede ser
+  Community:
+  - Detectar la **presencia de las columnas** `created_in` / `updated_in` con
+    `tableColumnExists`, igual que se detecta `row_id`. Nunca decidirlo por la edición
+    ni por la lista de módulos.
+  - Si existen, añadir `created_in <= UNIX_TIMESTAMP() AND updated_in > UNIX_TIMESTAMP()`.
+  - Si no existen (Community), no añadir nada: referenciarlas sería un error de SQL.
+  - **Prohibido importar cualquier clase `Magento\Staging\*`** —`VersionManager`,
+    `RetrieverInterface`, cualquiera—: no existen en Community y el módulo dejaría de
+    cargar ahí. El filtro se construye con SQL sobre columnas detectadas.
+
+  Los tests deben cubrir los dos casos por separado: con columnas de versionado
+  presentes, la consulta lleva el filtro; sin ellas, no lo lleva. Y un test que
+  demuestre que, dadas dos versiones del mismo SKU, solo la vigente entra.
 - **Task 10** — cola de cambios y deltas (`ChangeLog`, `ProductChanged`, `DeltaReader`).
 - **Task 12 (mitad PHP)** — `SignalReader` con `usesMsi` y el fallback de inventario.
 - **Task 13 (mitad PHP)** — `ChecksumReader`. **Contrato crítico:** debe ordenar en PHP
