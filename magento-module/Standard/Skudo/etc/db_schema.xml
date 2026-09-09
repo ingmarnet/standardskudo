@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+    <table name="standard_skudo_change_log" resource="default" engine="innodb"
+           comment="Cola de cambios de catálogo para StandardSkudo">
+        <column xsi:type="int" name="change_id" unsigned="true" nullable="false"
+                identity="true" comment="Id incremental del cambio"/>
+        <column xsi:type="varchar" name="sku" length="255" nullable="false"/>
+        <column xsi:type="varchar" name="event" length="16" nullable="false"
+                comment="save|delete"/>
+        <column xsi:type="timestamp" name="changed_at" on_update="false"
+                default="CURRENT_TIMESTAMP" nullable="false"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="change_id"/>
+        </constraint>
+        <index referenceId="STANDARD_SKUDO_CHANGE_LOG_SKU" indexType="btree">
+            <column name="sku"/>
+        </index>
+    </table>
+</schema>

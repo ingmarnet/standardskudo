@@ -5,4 +5,6 @@
                 type="Standard\Skudo\Model\EnvironmentProbe"/>
     <preference for="Standard\Skudo\Api\ProductReaderInterface"
                 type="Standard\Skudo\Model\ProductReader"/>
+    <preference for="Standard\Skudo\Api\DeltaReaderInterface"
+                type="Standard\Skudo\Model\DeltaReader"/>
 </config>
