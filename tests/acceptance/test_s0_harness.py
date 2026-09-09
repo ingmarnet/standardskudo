@@ -6,7 +6,7 @@ import pytest
 
 from skudo.acceptance.s0 import run_s0_acceptance
 from skudo.ingest.reconcile import sku_digest
-from skudo.magento.client import MagentoClient
+from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import upsert_attribute, upsert_option
 from skudo.mirror.models import Tenant
 from skudo.mirror.products import ProductIdentity, upsert_record
@@ -14,7 +14,7 @@ from skudo.mirror.products import ProductIdentity, upsert_record
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
-def make_client(skus: list[str]) -> MagentoClient:
+def make_source(tenant_id: int, skus: list[str]) -> TenantSource:
     environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -26,7 +26,12 @@ def make_client(skus: list[str]) -> MagentoClient:
             )
         return httpx.Response(404)
 
-    return MagentoClient("https://x.test", "t", transport=httpx.MockTransport(handler))
+    return TenantSource(
+        tenant_id=tenant_id,
+        base_url="https://x.test",
+        token="t",
+        transport=httpx.MockTransport(handler),
+    )
 
 
 @pytest.fixture
@@ -54,7 +59,9 @@ def prepared(db_session):
 
 
 def test_all_four_criteria_pass_on_a_healthy_mirror(db_session, prepared):
-    results = run_s0_acceptance(db_session, make_client(["SKU1"]), prepared.id, [1, 3])
+    results = run_s0_acceptance(
+        db_session, make_source(prepared.id, ["SKU1"]), [1, 3]
+    )
 
     assert [r.name for r in results] == [
         "espejo_sincronizado", "score_por_store_view",
@@ -65,7 +72,7 @@ def test_all_four_criteria_pass_on_a_healthy_mirror(db_session, prepared):
 
 def test_drift_makes_the_first_criterion_fail(db_session, prepared):
     results = run_s0_acceptance(
-        db_session, make_client(["SKU1", "SKU-FANTASMA"]), prepared.id, [1, 3]
+        db_session, make_source(prepared.id, ["SKU1", "SKU-FANTASMA"]), [1, 3]
     )
 
     failed = {r.name: r for r in results if not r.passed}

@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from skudo.magento.client import MagentoClient
+from skudo.ingest.source import TenantSource
 from skudo.mirror.models import ProductRecord
 
 
@@ -27,9 +27,12 @@ def sku_digest(skus: list[str]) -> str:
 
 
 def reconcile(
-    session: Session, client: MagentoClient, tenant_id: int, store_view_magento_id: int
+    session: Session, source: TenantSource, store_view_magento_id: int
 ) -> DriftReport:
-    remote = client.checksums(store_view_magento_id)
+    """Recibe un `TenantSource` y no `(client, tenant_id)` para que los conteos
+    que se comparan sean del mismo tenant en los dos lados."""
+    tenant_id = source.tenant_id
+    remote = source.client.checksums(store_view_magento_id)
 
     local_skus = list(
         session.scalars(

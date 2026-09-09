@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import Sequence, delete, select
 from sqlalchemy.orm import Session
 
-from skudo.magento.client import MagentoClient
+from skudo.ingest.source import TenantSource
 from skudo.mirror.categories import set_product_categories
 from skudo.mirror.models import ProductRecord
 from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
@@ -59,15 +59,19 @@ def note_unreadable_timestamp(report, sku: str) -> None:
 
 def full_sync(
     session: Session,
-    client: MagentoClient,
-    tenant_id: int,
+    source: TenantSource,
     store_view_ids: list[int],
 ) -> FullSyncReport:
     """Carga completa del catálogo, una pasada por store view.
 
     Se recorre por store view porque los valores de override viven en ese scope:
     una sola pasada global no permitiría saber qué heredó cada tienda.
+
+    Recibe un `TenantSource` y no `(client, tenant_id)` para que el catálogo que
+    se lee y el espejo en el que se escribe no puedan ser de tenants distintos.
     """
+    tenant_id = source.tenant_id
+    client = source.client
     profile = client.environment()
     sync_topology(session, tenant_id, profile)
 

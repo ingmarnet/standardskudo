@@ -4,7 +4,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from skudo.ingest.full_sync import note_unreadable_timestamp, parse_magento_datetime
-from skudo.magento.client import MagentoClient
+from skudo.ingest.source import TenantSource
 from skudo.mirror.models import ProductRecord, SyncWatermark
 from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
 
@@ -53,8 +53,7 @@ def _write_watermark(session: Session, tenant_id: int, change_id: int) -> None:
 
 def delta_sync(
     session: Session,
-    client: MagentoClient,
-    tenant_id: int,
+    source: TenantSource,
     store_view_ids: list[int],
 ) -> DeltaSyncReport:
     """Aplica los cambios pendientes desde el último watermark.
@@ -63,7 +62,12 @@ def delta_sync(
     falla a mitad, el reintento vuelve a traer esos cambios. Reaplicar un cambio
     es inofensivo porque todo el camino es upsert por
     (tenant, sku, store_view).
+
+    Recibe un `TenantSource` y no `(client, tenant_id)` para que el catálogo que
+    se lee y el espejo en el que se escribe no puedan ser de tenants distintos.
     """
+    tenant_id = source.tenant_id
+    client = source.client
     report = DeltaSyncReport(watermark=_read_watermark(session, tenant_id))
 
     for page in client.iter_deltas(report.watermark):

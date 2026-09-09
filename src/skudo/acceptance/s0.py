@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from skudo.config import Settings
 from skudo.ingest.reconcile import reconcile
-from skudo.magento.client import MagentoClient
+from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import distinct_option_ids, option_labels
 from skudo.mirror.models import Attribute, ProductRecord, Tenant
 
@@ -24,10 +24,10 @@ class CriterionResult(BaseModel):
     detail: str
 
 
-def _espejo_sincronizado(session, client, tenant_id, store_view_ids) -> CriterionResult:
+def _espejo_sincronizado(session, source, store_view_ids) -> CriterionResult:
     drifted = []
     for store_id in store_view_ids:
-        report = reconcile(session, client, tenant_id, store_id)
+        report = reconcile(session, source, store_id)
         if report.needs_full_sync:
             drifted.append(
                 f"store {store_id}: magento={report.magento_count} "
@@ -107,10 +107,11 @@ def _identidad_de_opciones(session, tenant_id) -> CriterionResult:
 
 
 def run_s0_acceptance(
-    session: Session, client: MagentoClient, tenant_id: int, store_view_ids: list[int]
+    session: Session, source: TenantSource, store_view_ids: list[int]
 ) -> list[CriterionResult]:
+    tenant_id = source.tenant_id
     return [
-        _espejo_sincronizado(session, client, tenant_id, store_view_ids),
+        _espejo_sincronizado(session, source, store_view_ids),
         _score_por_store_view(session, tenant_id, store_view_ids),
         _procedencia_de_scope(session, tenant_id),
         _identidad_de_opciones(session, tenant_id),
@@ -121,7 +122,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Verifica los criterios de S0")
     parser.add_argument("--tenant", required=True, help="código del tenant")
     parser.add_argument("--stores", required=True,
-                        help="ids de store view separados por coma, p.ej. 1,2")
+                        help="ids de store view separados por coma, p.ej. 1,3")
     args = parser.parse_args()
 
     settings = Settings()
@@ -133,10 +134,13 @@ def main() -> int:
             print(f"tenant desconocido: {args.tenant}", file=sys.stderr)
             return 2
 
-        client = MagentoClient(tenant.base_url, settings.tenant_token(tenant.code))
-        results = run_s0_acceptance(
-            session, client, tenant.id, [int(s) for s in args.stores.split(",")]
-        )
+        source = TenantSource.from_tenant(tenant, settings.tenant_token(tenant.code))
+        try:
+            results = run_s0_acceptance(
+                session, source, [int(s) for s in args.stores.split(",")]
+            )
+        finally:
+            source.close()
 
     for result in results:
         print(f"[{'OK ' if result.passed else 'FALLA'}] {result.name}: {result.detail}")

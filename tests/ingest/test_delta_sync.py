@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from skudo.ingest.delta_sync import delta_sync
-from skudo.magento.client import MagentoClient
+from skudo.ingest.source import TenantSource
 from skudo.mirror.models import SyncWatermark, Tenant
 from skudo.mirror.products import ProductIdentity, get_record, upsert_record
 
@@ -52,7 +52,7 @@ DELETE_THEN_SAVE_SAME_SKU = {
 }
 
 
-def make_client(changes=CHANGES, refreshed=None) -> MagentoClient:
+def make_source(tenant_id: int, changes=CHANGES, refreshed=None) -> TenantSource:
     environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -68,7 +68,12 @@ def make_client(changes=CHANGES, refreshed=None) -> MagentoClient:
             return httpx.Response(200, json={"items": refreshed or REFRESHED})
         return httpx.Response(404)
 
-    return MagentoClient("https://x.test", "t", transport=httpx.MockTransport(handler))
+    return TenantSource(
+        tenant_id=tenant_id,
+        base_url="https://x.test",
+        token="t",
+        transport=httpx.MockTransport(handler),
+    )
 
 
 @pytest.fixture
@@ -92,20 +97,20 @@ def seeded(db_session, tenant):
 
 
 def test_saved_product_is_refreshed(db_session, seeded):
-    delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
 
     assert get_record(db_session, seeded.id, "SKU1", 1).attributes["name"] == "Notebook corregido"
 
 
 def test_deleted_product_is_removed_from_the_mirror(db_session, seeded):
-    report = delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+    report = delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
 
     assert get_record(db_session, seeded.id, "SKU9", 1) is None
     assert report.records_deleted == 1
 
 
 def test_watermark_advances_and_persists(db_session, seeded):
-    delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
 
     stored = db_session.scalar(
         select(SyncWatermark.last_change_id).where(SyncWatermark.tenant_id == seeded.id)
@@ -114,8 +119,8 @@ def test_watermark_advances_and_persists(db_session, seeded):
 
 
 def test_second_run_sees_no_changes(db_session, seeded):
-    delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
-    second = delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
+    second = delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
 
     assert second.changes_seen == 0
     assert second.watermark == 42
@@ -123,7 +128,7 @@ def test_second_run_sees_no_changes(db_session, seeded):
 
 def test_save_then_delete_same_sku_in_one_page_ends_deleted(db_session, seeded):
     delta_sync(
-        db_session, make_client(changes=SAVE_THEN_DELETE_SAME_SKU), seeded.id,
+        db_session, make_source(seeded.id, changes=SAVE_THEN_DELETE_SAME_SKU),
         store_view_ids=[1],
     )
 
@@ -132,7 +137,7 @@ def test_save_then_delete_same_sku_in_one_page_ends_deleted(db_session, seeded):
 
 def test_delete_then_save_same_sku_in_one_page_ends_refreshed(db_session, seeded):
     delta_sync(
-        db_session, make_client(changes=DELETE_THEN_SAVE_SAME_SKU), seeded.id,
+        db_session, make_source(seeded.id, changes=DELETE_THEN_SAVE_SAME_SKU),
         store_view_ids=[1],
     )
 
@@ -144,14 +149,14 @@ def test_a_replayed_change_does_not_duplicate_records(db_session, seeded):
 
     from skudo.mirror.models import ProductRecord
 
-    delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
     # Se fuerza el rebobinado del watermark para simular un reintento.
     db_session.execute(
         SyncWatermark.__table__.update()
         .where(SyncWatermark.tenant_id == seeded.id)
         .values(last_change_id=40)
     )
-    delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
 
     total = db_session.scalar(
         select(func.count()).select_from(ProductRecord).where(
@@ -165,7 +170,7 @@ def test_refresh_carries_the_attribute_set_and_type(db_session, seeded):
     """Los dos campos tienen que sobrevivir también al camino incremental: si
     solo los leyera `full_sync`, un producto que cambia de set quedaría con el
     set viejo hasta la siguiente carga completa."""
-    delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
 
     row = get_record(db_session, seeded.id, "SKU1", 1)
     assert row.attribute_set_id == 4
@@ -207,7 +212,7 @@ def test_a_poison_pill_date_does_not_block_the_watermark(db_session, seeded):
     watermark no avanza y NINGUNA sincronización posterior puede progresar. El
     cambio se aplica con la fecha desconocida y el watermark avanza."""
     report = delta_sync(
-        db_session, make_client(refreshed=BAD_DATE_REFRESHED), seeded.id,
+        db_session, make_source(seeded.id, refreshed=BAD_DATE_REFRESHED),
         store_view_ids=[1],
     )
 

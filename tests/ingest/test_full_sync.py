@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from skudo.ingest.full_sync import full_sync
-from skudo.magento.client import MagentoClient
+from skudo.ingest.source import TenantSource
 from skudo.mirror.models import Tenant
 from skudo.mirror.products import get_record
 
@@ -41,11 +41,12 @@ def _without_classification(page: dict) -> dict:
     return {**page, "items": items}
 
 
-def make_client(
+def make_source(
+    tenant_id: int,
     with_classification: bool = True,
     categories_of_0074: list[int] | None = None,
     updated_at_of_0074: str | None = None,
-) -> MagentoClient:
+) -> TenantSource:
     environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
     page_1 = PAGE_1 if with_classification else _without_classification(PAGE_1)
     page_2 = PAGE_2 if with_classification else _without_classification(PAGE_2)
@@ -68,8 +69,11 @@ def make_client(
             return httpx.Response(200, json=page_2 if cursor else page_1)
         return httpx.Response(404)
 
-    return MagentoClient(
-        "https://x.test", "token", transport=httpx.MockTransport(handler)
+    return TenantSource(
+        tenant_id=tenant_id,
+        base_url="https://x.test",
+        token="token",
+        transport=httpx.MockTransport(handler),
     )
 
 
@@ -82,14 +86,14 @@ def tenant(db_session):
 
 
 def test_full_sync_walks_every_page(db_session, tenant):
-    report = full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    report = full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     assert report.pages_fetched == 2
     assert report.records_written == 2
 
 
 def test_global_value_is_mirrored_with_global_provenance(db_session, tenant):
-    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     row = get_record(db_session, tenant.id, "0074", 1)
     assert row.attributes["name"] == "Notebook"
@@ -97,7 +101,7 @@ def test_global_value_is_mirrored_with_global_provenance(db_session, tenant):
 
 
 def test_store_override_is_mirrored_with_store_provenance(db_session, tenant):
-    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     row = get_record(db_session, tenant.id, "SKU2", 1)
     assert row.attributes["name"] == "Ar Condicionado"
@@ -105,7 +109,7 @@ def test_store_override_is_mirrored_with_store_provenance(db_session, tenant):
 
 
 def test_identity_survives_the_round_trip(db_session, tenant):
-    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     row = get_record(db_session, tenant.id, "0074", 1)
     assert row.sku == "0074"
@@ -113,8 +117,8 @@ def test_identity_survives_the_round_trip(db_session, tenant):
 
 
 def test_full_sync_is_idempotent(db_session, tenant):
-    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
-    second = full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
+    second = full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     from sqlalchemy import func, select
 
@@ -134,7 +138,7 @@ def test_attribute_set_and_type_survive_the_round_trip(db_session, tenant):
     'este atributo aplica a este producto y está vacío' (defecto) de 'este
     atributo no pertenece al set de este producto' (no_aplica), que es
     exactamente la confusión que el spec nombra como riesgo mayor."""
-    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     row = get_record(db_session, tenant.id, "0074", 1)
     assert row.attribute_set_id == 4
@@ -144,7 +148,7 @@ def test_attribute_set_and_type_survive_the_round_trip(db_session, tenant):
 def test_an_unreported_attribute_set_is_unknown_not_zero(db_session, tenant):
     """Si la sonda no informa el set, la columna queda NULL. Un 0 sería un id de
     set creíble y falso."""
-    full_sync(db_session, make_client(with_classification=False), tenant.id,
+    full_sync(db_session, make_source(tenant.id, with_classification=False),
               store_view_ids=[1])
 
     row = get_record(db_session, tenant.id, "0074", 1)
@@ -159,7 +163,7 @@ def test_a_full_sync_revokes_a_category_the_product_left(db_session, tenant):
 
     from skudo.mirror.models import ProductCategoryAssignment
 
-    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
     # El estado de partida: 0074 está en la 15 según PAGE_1.
     assert db_session.scalars(
         select(ProductCategoryAssignment.category_magento_id).where(
@@ -168,7 +172,8 @@ def test_a_full_sync_revokes_a_category_the_product_left(db_session, tenant):
         )
     ).all() == [15]
 
-    full_sync(db_session, make_client(categories_of_0074=[]), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id, categories_of_0074=[]),
+              store_view_ids=[1])
 
     assert db_session.scalars(
         select(ProductCategoryAssignment.category_magento_id).where(
@@ -192,11 +197,11 @@ def test_a_stale_sku_is_dropped_by_the_next_full_sync(db_session, tenant):
     """Una fila que el espejo tiene y el origen ya no ofrece debe desaparecer.
     Sin barrido, `full_sync` no podía soltarla nunca y `reconcile` detectaba una
     deriva que su propio remedio no reparaba."""
-    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
     _seed_stale(db_session, tenant.id, "RANCIO", 1)
     assert get_record(db_session, tenant.id, "RANCIO", 1) is not None
 
-    report = full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    report = full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     assert get_record(db_session, tenant.id, "RANCIO", 1) is None
     assert report.records_deleted == 1
@@ -210,7 +215,7 @@ def test_the_sweep_only_touches_the_store_views_of_this_pass(db_session, tenant)
     3, que esta pasada no ha mirado."""
     _seed_stale(db_session, tenant.id, "SOLO_BR", 3)
 
-    report = full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    report = full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
 
     assert get_record(db_session, tenant.id, "SOLO_BR", 3) is not None
     assert report.records_deleted == 0
@@ -225,7 +230,7 @@ def test_the_sweep_does_not_cross_tenants(db_session):
     db_session.flush()
     _seed_stale(db_session, b.id, "0074", 1)
 
-    full_sync(db_session, make_client(), a.id, store_view_ids=[1])
+    full_sync(db_session, make_source(a.id), store_view_ids=[1])
 
     assert get_record(db_session, b.id, "0074", 1) is not None
 
@@ -234,8 +239,9 @@ def test_a_poison_pill_date_does_not_abort_the_page(db_session, tenant):
     """Un `0000-00-00 00:00:00` en un producto no puede tirar la página entera.
     Se guarda el registro con la fecha desconocida y se reporta el caso."""
     report = full_sync(
-        db_session, make_client(updated_at_of_0074="0000-00-00 00:00:00"),
-        tenant.id, store_view_ids=[1],
+        db_session,
+        make_source(tenant.id, updated_at_of_0074="0000-00-00 00:00:00"),
+        store_view_ids=[1],
     )
 
     row = get_record(db_session, tenant.id, "0074", 1)
