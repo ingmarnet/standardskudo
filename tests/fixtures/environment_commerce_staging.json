@@ -1,0 +1,18 @@
+{
+  "edition": "Enterprise",
+  "version": "2.4.7-p3",
+  "product_entity_key": "row_id",
+  "staging_enabled": true,
+  "msi_enabled": true,
+  "default_stock_id": 1,
+  "websites": [{"id": 1, "code": "base", "name": "Main Website"}],
+  "store_groups": [
+    {"id": 1, "website_id": 1, "code": "py", "name": "Paraguay", "root_category_id": 2}
+  ],
+  "store_views": [
+    {"id": 1, "group_id": 1, "code": "py_es", "name": "PY Español",
+     "is_active": true, "locale": "es_PY", "currency": "PYG"}
+  ],
+  "counts": {"products": 214883, "attribute_sets": 97, "attributes": 612, "categories": 1840},
+  "module_version": "1.0.0"
+}
