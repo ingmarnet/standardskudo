@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import select
 
 from skudo.mirror.categories import (
+    CategoryEffect,
     assign_product,
     derive_category_effect,
     set_category_store_state,
@@ -85,3 +86,11 @@ def test_category_name_and_activity_are_per_store_view(db_session, tenant):
         ).all()
     }
     assert states == {1: (True, "Climatización"), 2: (False, "Climatização")}
+
+
+def test_the_effect_carries_no_unfilled_identity_fields():
+    """`category_magento_id` y `store_view_magento_id` eran `int = 0` que ningún
+    código rellenaba: el primer consumidor que los leyera recibiría un cero de
+    aspecto confiable. Quien los necesite debe pasarlos, no heredar un default."""
+    assert "category_magento_id" not in CategoryEffect.model_fields
+    assert "store_view_magento_id" not in CategoryEffect.model_fields

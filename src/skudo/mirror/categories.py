@@ -6,8 +6,13 @@ from skudo.mirror.models import Category, CategoryStoreState, ProductCategoryAss
 
 
 class CategoryEffect(BaseModel):
-    category_magento_id: int = 0
-    store_view_magento_id: int = 0
+    """Solo el veredicto y su motivo.
+
+    No lleva `category_magento_id` ni `store_view_magento_id`: quien pregunta ya
+    sabe por qué par preguntó, y un campo de identidad con default 0 que nadie
+    rellena solo sirve para que el primer consumidor lea un cero creíble.
+    """
+
     is_effective: bool
     reason: str
 

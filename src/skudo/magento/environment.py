@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class Website(BaseModel):
@@ -30,8 +30,14 @@ class StoreView(BaseModel):
 class EnvironmentProfile(BaseModel):
     """Lo que el sistema descubrió del Magento del tenant.
 
-    Nada aquí se asume: todo lo reporta la sonda del módulo.
+    Nada aquí se asume: todo lo reporta la sonda del módulo. De ahí
+    `extra="forbid"`: es el único payload cuyo propósito entero es que cada
+    campo venga de la sonda, así que un campo no modelado significa que el
+    módulo informa algo que el ingestor no lee. Aceptarlo en silencio dejaría
+    creer que ese dato ya viaja; fallar ruidosamente obliga a modelarlo.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     edition: str
     version: str

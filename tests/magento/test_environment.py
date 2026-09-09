@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from skudo.magento.environment import parse_environment
 
@@ -42,4 +43,15 @@ def test_staging_without_row_id_is_rejected_as_inconsistent():
     payload = load("environment_commerce_staging.json")
     payload["product_entity_key"] = "entity_id"
     with pytest.raises(ValueError, match="staging"):
+        parse_environment(payload)
+
+
+def test_an_unmodelled_field_is_rejected_instead_of_swallowed():
+    """El propósito entero de este payload es 'nada se asume, todo lo reporta la
+    sonda'. Tragarse en silencio un campo no modelado es exactamente la trampa
+    que el modelo existe para evitar: el módulo creería haber informado algo que
+    el ingestor nunca leyó."""
+    payload = load("environment_opensource.json")
+    payload["msi_stock_resolver"] = "algo que el ingestor no conoce"
+    with pytest.raises(ValidationError, match="msi_stock_resolver"):
         parse_environment(payload)
