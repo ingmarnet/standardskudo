@@ -3,7 +3,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from skudo.ingest.full_sync import parse_magento_datetime
+from skudo.ingest.full_sync import note_unreadable_timestamp, parse_magento_datetime
 from skudo.magento.client import MagentoClient
 from skudo.mirror.models import ProductRecord, SyncWatermark
 from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
@@ -14,6 +14,8 @@ class DeltaSyncReport(BaseModel):
     records_updated: int = 0
     records_deleted: int = 0
     watermark: int = 0
+    records_without_timestamp: int = 0
+    skus_without_timestamp: list[str] = []
 
 
 def _read_watermark(session: Session, tenant_id: int) -> int:
@@ -101,9 +103,12 @@ def delta_sync(
                 effective, provenance = resolve_scope(
                     item["global_values"], item["store_values"]
                 )
+                magento_updated_at = parse_magento_datetime(item.get("updated_at"))
+                if magento_updated_at is None:
+                    note_unreadable_timestamp(report, item["sku"])
                 upsert_record(
                     session, tenant_id, store_id, identity, effective, provenance,
-                    parse_magento_datetime(item["updated_at"]),
+                    magento_updated_at,
                     attribute_set_id=item.get("attribute_set_id"),
                     type_id=item.get("type_id"),
                 )

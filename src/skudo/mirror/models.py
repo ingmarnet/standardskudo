@@ -181,7 +181,12 @@ class ProductRecord(Base):
     sync_generation: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default=text("0")
     )
-    magento_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Nullable porque los catálogos heredados traen '0000-00-00 00:00:00' y
+    # cadenas vacías. Una fecha de relleno sería un dato falso con aspecto
+    # confiable; NULL dice 'el origen no informó cuándo cambió'.
+    magento_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     mirrored_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

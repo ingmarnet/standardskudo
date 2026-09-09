@@ -42,7 +42,9 @@ def _without_classification(page: dict) -> dict:
 
 
 def make_client(
-    with_classification: bool = True, categories_of_0074: list[int] | None = None
+    with_classification: bool = True,
+    categories_of_0074: list[int] | None = None,
+    updated_at_of_0074: str | None = None,
 ) -> MagentoClient:
     environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
     page_1 = PAGE_1 if with_classification else _without_classification(PAGE_1)
@@ -51,6 +53,11 @@ def make_client(
         page_1 = {
             **page_1,
             "items": [{**page_1["items"][0], "category_ids": categories_of_0074}],
+        }
+    if updated_at_of_0074 is not None:
+        page_1 = {
+            **page_1,
+            "items": [{**page_1["items"][0], "updated_at": updated_at_of_0074}],
         }
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -221,3 +228,21 @@ def test_the_sweep_does_not_cross_tenants(db_session):
     full_sync(db_session, make_client(), a.id, store_view_ids=[1])
 
     assert get_record(db_session, b.id, "0074", 1) is not None
+
+
+def test_a_poison_pill_date_does_not_abort_the_page(db_session, tenant):
+    """Un `0000-00-00 00:00:00` en un producto no puede tirar la página entera.
+    Se guarda el registro con la fecha desconocida y se reporta el caso."""
+    report = full_sync(
+        db_session, make_client(updated_at_of_0074="0000-00-00 00:00:00"),
+        tenant.id, store_view_ids=[1],
+    )
+
+    row = get_record(db_session, tenant.id, "0074", 1)
+    assert row is not None
+    assert row.magento_updated_at is None
+    assert report.records_without_timestamp == 1
+    assert report.skus_without_timestamp == ["0074"]
+    # El resto de la pasada se guardó igual.
+    assert get_record(db_session, tenant.id, "SKU2", 1) is not None
+    assert report.records_written == 2

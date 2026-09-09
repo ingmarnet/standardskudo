@@ -52,7 +52,7 @@ DELETE_THEN_SAVE_SAME_SKU = {
 }
 
 
-def make_client(changes=CHANGES) -> MagentoClient:
+def make_client(changes=CHANGES, refreshed=None) -> MagentoClient:
     environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -65,7 +65,7 @@ def make_client(changes=CHANGES) -> MagentoClient:
                 return httpx.Response(200, json={"items": [], "last_change_id": None})
             return httpx.Response(200, json=changes)
         if path.endswith("/products-by-sku"):
-            return httpx.Response(200, json={"items": REFRESHED})
+            return httpx.Response(200, json={"items": refreshed or REFRESHED})
         return httpx.Response(404)
 
     return MagentoClient("https://x.test", "t", transport=httpx.MockTransport(handler))
@@ -195,3 +195,25 @@ def test_the_watermark_records_when_we_last_synced_well(db_session, tenant):
     _write_watermark(db_session, tenant.id, 20)
 
     assert updated_at() > first
+
+
+BAD_DATE_REFRESHED = [
+    {**REFRESHED[0], "updated_at": "0000-00-00 00:00:00"},
+]
+
+
+def test_a_poison_pill_date_does_not_block_the_watermark(db_session, seeded):
+    """Este es el caso grave: si una fecha ilegible aborta la página, el
+    watermark no avanza y NINGUNA sincronización posterior puede progresar. El
+    cambio se aplica con la fecha desconocida y el watermark avanza."""
+    report = delta_sync(
+        db_session, make_client(refreshed=BAD_DATE_REFRESHED), seeded.id,
+        store_view_ids=[1],
+    )
+
+    row = get_record(db_session, seeded.id, "SKU1", 1)
+    assert row.attributes["name"] == "Notebook corregido"
+    assert row.magento_updated_at is None
+    assert report.watermark == 42
+    assert report.records_without_timestamp == 1
+    assert report.skus_without_timestamp == ["SKU1"]

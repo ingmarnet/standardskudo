@@ -16,15 +16,45 @@ from skudo.mirror.topology import sync_topology
 SYNC_GENERATION_SEQUENCE = Sequence("product_sync_generation_seq")
 
 
+# Cuántos SKUs con fecha ilegible se nombran en el reporte. Un conteo solo dice
+# que hay filas afectadas; una muestra acotada dice cuáles mirar.
+UNTIMESTAMPED_SAMPLE_SIZE = 20
+
+
 class FullSyncReport(BaseModel):
     records_written: int = 0
     records_deleted: int = 0
     pages_fetched: int = 0
+    records_without_timestamp: int = 0
+    skus_without_timestamp: list[str] = []
 
 
-def parse_magento_datetime(raw: str) -> datetime:
-    """Magento devuelve 'YYYY-MM-DD HH:MM:SS' en UTC, sin zona explícita."""
-    return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+def parse_magento_datetime(raw: str | None) -> datetime | None:
+    """Magento devuelve 'YYYY-MM-DD HH:MM:SS' en UTC, sin zona explícita.
+
+    Política explícita para lo que no se puede interpretar —la cadena vacía y el
+    '0000-00-00 00:00:00' que MySQL admite y los catálogos heredados contienen—:
+    es DESCONOCIDO, y se devuelve None. Ni una excepción, que abortaría la
+    página entera y en `delta_sync` bloquearía el avance del watermark y con él
+    toda sincronización posterior; ni una fecha de relleno, que sería un dato
+    falso con aspecto confiable. Quien llama reporta el caso.
+    """
+    if raw is None:
+        return None
+    candidate = raw.strip()
+    if not candidate or candidate.startswith("0000-00-00"):
+        return None
+    try:
+        return datetime.strptime(candidate, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def note_unreadable_timestamp(report, sku: str) -> None:
+    """Anota en el reporte que un SKU llegó sin fecha interpretable."""
+    report.records_without_timestamp += 1
+    if len(report.skus_without_timestamp) < UNTIMESTAMPED_SAMPLE_SIZE:
+        report.skus_without_timestamp.append(sku)
 
 
 def full_sync(
@@ -58,6 +88,9 @@ def full_sync(
                 effective, provenance = resolve_scope(
                     item["global_values"], item["store_values"]
                 )
+                magento_updated_at = parse_magento_datetime(item.get("updated_at"))
+                if magento_updated_at is None:
+                    note_unreadable_timestamp(report, item["sku"])
                 upsert_record(
                     session,
                     tenant_id,
@@ -65,7 +98,7 @@ def full_sync(
                     identity,
                     effective,
                     provenance,
-                    parse_magento_datetime(item["updated_at"]),
+                    magento_updated_at,
                     attribute_set_id=item.get("attribute_set_id"),
                     type_id=item.get("type_id"),
                     sync_generation=generation,

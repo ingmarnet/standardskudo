@@ -69,7 +69,7 @@ def upsert_record(
     identity: ProductIdentity,
     effective: dict,
     provenance: dict,
-    magento_updated_at: datetime,
+    magento_updated_at: datetime | None,
     *,
     attribute_set_id: int | None = None,
     type_id: str | None = None,
