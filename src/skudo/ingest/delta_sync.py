@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -24,11 +24,26 @@ def _read_watermark(session: Session, tenant_id: int) -> int:
 
 
 def _write_watermark(session: Session, tenant_id: int, change_id: int) -> None:
-    stmt = insert(SyncWatermark).values(tenant_id=tenant_id, last_change_id=change_id)
+    """`updated_at` se escribe explícitamente en los `values` y en el `set_`.
+
+    Un `onupdate=` del modelo NO se aplica a un `insert().on_conflict_do_update()`
+    de Core, así que declararlo allí y confiar en él dejaba la columna congelada
+    en la hora del primer insert. Y es `clock_timestamp()` y no `now()` porque
+    `now()` es de alcance transaccional en Postgres: dos avances de watermark en
+    la misma transacción registrarían la misma hora.
+    """
+    stmt = insert(SyncWatermark).values(
+        tenant_id=tenant_id,
+        last_change_id=change_id,
+        updated_at=func.clock_timestamp(),
+    )
     session.execute(
         stmt.on_conflict_do_update(
             index_elements=["tenant_id"],
-            set_={"last_change_id": stmt.excluded.last_change_id},
+            set_={
+                "last_change_id": stmt.excluded.last_change_id,
+                "updated_at": func.clock_timestamp(),
+            },
         )
     )
     session.flush()

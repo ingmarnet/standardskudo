@@ -70,3 +70,36 @@ def test_upsert_replaces_and_updates_the_content_hash(db_session, tenant):
 
     assert row.attributes["name"] == "B"
     assert row.content_hash != first
+
+
+def test_upsert_refreshes_mirrored_at(db_session, tenant):
+    """`mirrored_at` es 'cuándo lo vimos por última vez'. Si no se refresca,
+    miente sobre la frescura del espejo.
+
+    La desigualdad es estricta y el test corre dentro de una sola transacción:
+    eso solo lo puede satisfacer `clock_timestamp()`. Con `func.now()`, que en
+    Postgres es de alcance transaccional, los dos valores serían idénticos y el
+    test pasaría o fallaría por la razón equivocada.
+    """
+    from sqlalchemy import select
+
+    from skudo.mirror.models import ProductRecord
+
+    def mirrored_at():
+        return db_session.scalar(
+            select(ProductRecord.mirrored_at).where(
+                ProductRecord.tenant_id == tenant.id,
+                ProductRecord.sku == "SKU1",
+                ProductRecord.store_view_magento_id == 1,
+            )
+        )
+
+    identity = ProductIdentity(sku="SKU1")
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "A"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC))
+    first = mirrored_at()
+
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "B"}, {"name": "global"},
+                  datetime(2026, 9, 2, tzinfo=UTC))
+
+    assert mirrored_at() > first

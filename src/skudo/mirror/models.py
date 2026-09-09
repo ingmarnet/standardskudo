@@ -239,8 +239,12 @@ class SyncWatermark(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
     last_change_id: Mapped[int] = mapped_column(Integer, default=0)
+    # Sin `onupdate=`: no se aplica a un insert().on_conflict_do_update() de
+    # Core, que es el único camino que escribe esta tabla, y declararlo aquí
+    # hacía creer al que lee el modelo que la columna se refrescaba sola.
+    # El refresco es explícito en `_write_watermark`.
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now()
     )
 
 

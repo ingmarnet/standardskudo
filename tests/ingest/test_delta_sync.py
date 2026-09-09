@@ -170,3 +170,28 @@ def test_refresh_carries_the_attribute_set_and_type(db_session, seeded):
     row = get_record(db_session, seeded.id, "SKU1", 1)
     assert row.attribute_set_id == 4
     assert row.type_id == "simple"
+
+
+def test_the_watermark_records_when_we_last_synced_well(db_session, tenant):
+    """`sync_watermark.updated_at` es el único registro de 'cuándo sincronizamos
+    bien por última vez', justo la magnitud del criterio de SLA de delta. El
+    modelo declaraba `onupdate=func.now()`, que NO se aplica a un
+    `insert().on_conflict_do_update()` de Core: el valor tiene que ir en el
+    `set_` del statement.
+
+    Desigualdad estricta dentro de una sola transacción: solo la satisface
+    `clock_timestamp()`. `func.now()` daría dos valores idénticos.
+    """
+    from skudo.ingest.delta_sync import _write_watermark
+
+    def updated_at():
+        return db_session.scalar(
+            select(SyncWatermark.updated_at).where(SyncWatermark.tenant_id == tenant.id)
+        )
+
+    _write_watermark(db_session, tenant.id, 10)
+    first = updated_at()
+
+    _write_watermark(db_session, tenant.id, 20)
+
+    assert updated_at() > first

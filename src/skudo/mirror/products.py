@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -84,10 +84,15 @@ def upsert_record(
         "scope_provenance": provenance,
         "content_hash": content_hash(identity, effective),
         "magento_updated_at": magento_updated_at,
+        # clock_timestamp() y no now(): now() es de alcance transaccional en
+        # Postgres, así que dos upserts en la misma transacción escribirían la
+        # misma hora y `mirrored_at` mentiría sobre la frescura del espejo.
+        "mirrored_at": func.clock_timestamp(),
     }
     updatable = [
         "mpn", "model", "gtin", "variant_key", "attribute_set_id", "type_id",
         "attributes", "scope_provenance", "content_hash", "magento_updated_at",
+        "mirrored_at",
     ]
     if sync_generation is not None:
         values["sync_generation"] = sync_generation
