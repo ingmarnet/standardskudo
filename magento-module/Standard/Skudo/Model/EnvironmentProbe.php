@@ -13,12 +13,16 @@ class EnvironmentProbe implements EnvironmentProbeInterface
 {
     private const MODULE_VERSION = '1.0.0';
 
+    private readonly EntityKeyResolver $keyResolver;
+
     public function __construct(
         private readonly ProductMetadataInterface $metadata,
         private readonly ModuleListInterface $modules,
         private readonly ResourceConnection $resource,
         private readonly StoreManagerInterface $storeManager,
     ) {
+        // Un único lugar decide row_id vs. entity_id; ver EntityKeyResolver.
+        $this->keyResolver = new EntityKeyResolver($resource);
     }
 
     public function getProfile(): array
@@ -30,7 +34,7 @@ class EnvironmentProbe implements EnvironmentProbeInterface
             'version' => $this->metadata->getVersion(),
             // La clave se detecta del esquema, no de la edición: Commerce sin
             // Staging instalado sigue usando entity_id.
-            'product_entity_key' => $this->detectProductEntityKey(),
+            'product_entity_key' => $this->keyResolver->resolve(),
             'staging_enabled' => $hasStaging,
             'msi_enabled' => $this->modules->has('Magento_InventoryApi'),
             'default_stock_id' => $this->modules->has('Magento_InventoryApi') ? 1 : null,
@@ -40,14 +44,6 @@ class EnvironmentProbe implements EnvironmentProbeInterface
             'counts' => $this->counts(),
             'module_version' => self::MODULE_VERSION,
         ];
-    }
-
-    private function detectProductEntityKey(): string
-    {
-        $connection = $this->resource->getConnection();
-        $table = $this->resource->getTableName('catalog_product_entity');
-
-        return $connection->tableColumnExists($table, 'row_id') ? 'row_id' : 'entity_id';
     }
 
     private function websites(): array

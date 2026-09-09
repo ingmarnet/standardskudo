@@ -5,4 +5,12 @@
         <service class="Standard\Skudo\Api\EnvironmentProbeInterface" method="getProfile"/>
         <resources><resource ref="Standard_Skudo::read"/></resources>
     </route>
+    <route url="/V1/skudo/products" method="GET">
+        <service class="Standard\Skudo\Api\ProductReaderInterface" method="getPage"/>
+        <resources><resource ref="Standard_Skudo::read"/></resources>
+    </route>
+    <route url="/V1/skudo/products-by-sku" method="POST">
+        <service class="Standard\Skudo\Api\ProductReaderInterface" method="getBySku"/>
+        <resources><resource ref="Standard_Skudo::read"/></resources>
+    </route>
 </routes>

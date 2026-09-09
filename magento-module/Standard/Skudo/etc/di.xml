@@ -3,4 +3,6 @@
         xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
     <preference for="Standard\Skudo\Api\EnvironmentProbeInterface"
                 type="Standard\Skudo\Model\EnvironmentProbe"/>
+    <preference for="Standard\Skudo\Api\ProductReaderInterface"
+                type="Standard\Skudo\Model\ProductReader"/>
 </config>

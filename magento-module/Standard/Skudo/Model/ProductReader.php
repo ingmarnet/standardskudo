@@ -1,0 +1,257 @@
+<?php
+declare(strict_types=1);
+
+namespace Standard\Skudo\Model;
+
+use Magento\Framework\App\ResourceConnection;
+use Magento\Framework\DB\Adapter\AdapterInterface;
+use Magento\Framework\Exception\InputException;
+use Standard\Skudo\Api\ProductReaderInterface;
+
+class ProductReader implements ProductReaderInterface
+{
+    private const MAX_LIMIT = 1000;
+
+    /** Tope de SKUs por llamada a getBySku(). Ver ProductReaderInterface. */
+    private const MAX_SKUS = 100;
+
+    /**
+     * Si `catalog_product_entity` tiene created_in/updated_in (Magento_Staging).
+     * Memoizado: probarlo en cada página costaría lo mismo que no memoizar
+     * EntityKeyResolver, ver esa clase.
+     */
+    private ?bool $hasVersioningColumns = null;
+
+    public function __construct(
+        private readonly ResourceConnection $resource,
+        private readonly Cursor $cursor,
+        private readonly EntityKeyResolver $entityKeyResolver,
+    ) {
+    }
+
+    public function getPage(int $storeId, int $limit = 500, ?string $cursor = null): array
+    {
+        $limit = max(1, min($limit, self::MAX_LIMIT));
+        $after = $this->cursor->decode($cursor);
+        $keyColumn = $this->entityKeyResolver->resolve();
+
+        $connection = $this->resource->getConnection();
+        $entity = $this->resource->getTableName('catalog_product_entity');
+
+        $select = $connection->select()
+            ->from(['e' => $entity], [
+                'key' => 'e.' . $keyColumn,
+                'sku' => 'e.sku',
+                'attribute_set_id' => 'e.attribute_set_id',
+                'type_id' => 'e.type_id',
+                'updated_at' => 'e.updated_at',
+            ])
+            ->where('e.' . $keyColumn . ' > ?', $after)
+            ->order('e.' . $keyColumn . ' ASC')
+            ->limit($limit);
+
+        $this->applyActiveVersionFilter($select, $connection, $entity);
+
+        $rows = $connection->fetchAll($select);
+        if ($rows === []) {
+            return ['items' => [], 'next_cursor' => null];
+        }
+
+        $items = $this->projectRows($rows, $keyColumn, $storeId);
+        $keys = array_column($rows, 'key');
+
+        return [
+            'items' => $items,
+            'next_cursor' => count($rows) < $limit
+                ? null
+                : $this->cursor->encode((int) $keys[array_key_last($keys)]),
+        ];
+    }
+
+    public function getBySku(int $storeId, array $skus): array
+    {
+        if (count($skus) > self::MAX_SKUS) {
+            throw new InputException(__(
+                'no se pueden pedir más de %1 SKUs por llamada (se recibieron %2)',
+                self::MAX_SKUS,
+                count($skus)
+            ));
+        }
+
+        if ($skus === []) {
+            return ['items' => []];
+        }
+
+        $keyColumn = $this->entityKeyResolver->resolve();
+        $connection = $this->resource->getConnection();
+        $entity = $this->resource->getTableName('catalog_product_entity');
+
+        $select = $connection->select()
+            ->from(['e' => $entity], [
+                'key' => 'e.' . $keyColumn,
+                'sku' => 'e.sku',
+                'attribute_set_id' => 'e.attribute_set_id',
+                'type_id' => 'e.type_id',
+                'updated_at' => 'e.updated_at',
+            ])
+            // Identidad como texto, sin normalizar: 'sku' viaja tal cual.
+            ->where('e.sku IN (?)', $skus);
+
+        $this->applyActiveVersionFilter($select, $connection, $entity);
+
+        $rows = $connection->fetchAll($select);
+
+        return ['items' => $this->projectRows($rows, $keyColumn, $storeId)];
+    }
+
+    /**
+     * Restringe la consulta de entidad a la versión activa cuando el esquema
+     * la soporta (Magento_Staging: created_in/updated_in acotan la ventana de
+     * validez de cada versión de un mismo producto).
+     *
+     * Sin este filtro, `catalog_product_entity` no tiene una fila por
+     * producto sino una por versión, y como la paginación recorre la clave
+     * de forma ascendente, una versión programada a futuro siempre tiene la
+     * clave más alta: ganaría el upsert sobre la versión vigente.
+     *
+     * En Community estas columnas no existen; referenciarlas sería un error
+     * de SQL, así que ahí no se agrega nada.
+     *
+     * Como las tablas EAV se indexan por la misma clave que la fila de
+     * entidad, acotar la entidad a la versión activa ya deja solo esos
+     * valores: las tablas EAV no se filtran aparte.
+     */
+    private function applyActiveVersionFilter($select, AdapterInterface $connection, string $entityTable): void
+    {
+        if ($this->hasVersioningColumns === null) {
+            $this->hasVersioningColumns = $connection->tableColumnExists($entityTable, 'created_in')
+                && $connection->tableColumnExists($entityTable, 'updated_in');
+        }
+
+        if ($this->hasVersioningColumns) {
+            $select->where('e.created_in <= UNIX_TIMESTAMP()')
+                ->where('e.updated_in > UNIX_TIMESTAMP()');
+        }
+    }
+
+    /**
+     * @param mixed[] $rows
+     * @return mixed[]
+     */
+    private function projectRows(array $rows, string $keyColumn, int $storeId): array
+    {
+        if ($rows === []) {
+            return [];
+        }
+
+        $keys = array_column($rows, 'key');
+        $globals = $this->eavValues($keyColumn, $keys, 0);
+        $stores = $this->eavValues($keyColumn, $keys, $storeId);
+        $websites = $this->websiteIds($keys, $keyColumn);
+        $categories = $this->categoryIds(array_column($rows, 'sku'));
+
+        $items = [];
+        foreach ($rows as $row) {
+            $key = (int) $row['key'];
+            $globalValues = $globals[$key] ?? [];
+            $items[] = [
+                'sku' => (string) $row['sku'],
+                // Identidad desglosada; todo texto, sin normalizar.
+                'mpn' => $globalValues['mpn'] ?? null,
+                'model' => $globalValues['model'] ?? null,
+                'gtin' => $globalValues['gtin'] ?? null,
+                'variant_key' => $globalValues['variant_key'] ?? null,
+                'attribute_set_id' => (int) $row['attribute_set_id'],
+                'type_id' => (string) $row['type_id'],
+                'global_values' => $globalValues,
+                'store_values' => $stores[$key] ?? [],
+                'website_ids' => $websites[$key] ?? [],
+                'category_ids' => $categories[(string) $row['sku']] ?? [],
+                'updated_at' => (string) $row['updated_at'],
+            ];
+        }
+
+        return $items;
+    }
+
+    /**
+     * Valores EAV de un scope concreto, agrupados por clave de entidad.
+     *
+     * store_id = 0 es el valor global; store_id = N el override de esa store view.
+     * La ausencia de fila en N es lo que significa "hereda"; por eso los dos
+     * scopes se leen por separado y se resuelven en el ingestor, no aquí.
+     *
+     * @param int[] $keys
+     * @return array<int, array<string, string>>
+     */
+    private function eavValues(string $keyColumn, array $keys, int $storeId): array
+    {
+        $connection = $this->resource->getConnection();
+        $attribute = $this->resource->getTableName('eav_attribute');
+        $out = [];
+
+        foreach (['varchar', 'int', 'decimal', 'text', 'datetime'] as $type) {
+            $table = $this->resource->getTableName('catalog_product_entity_' . $type);
+            $select = $connection->select()
+                ->from(['v' => $table], ['entity' => 'v.' . $keyColumn, 'value' => 'v.value'])
+                ->join(['a' => $attribute], 'a.attribute_id = v.attribute_id', ['code' => 'a.attribute_code'])
+                ->where('v.' . $keyColumn . ' IN (?)', $keys)
+                ->where('v.store_id = ?', $storeId);
+
+            foreach ($connection->fetchAll($select) as $row) {
+                $out[(int) $row['entity']][(string) $row['code']] = $row['value'] === null
+                    ? null
+                    : (string) $row['value'];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param int[] $keys
+     * @return array<int, int[]>
+     */
+    private function websiteIds(array $keys, string $keyColumn): array
+    {
+        $connection = $this->resource->getConnection();
+        $table = $this->resource->getTableName('catalog_product_website');
+        $entity = $this->resource->getTableName('catalog_product_entity');
+
+        // catalog_product_website siempre referencia entity_id, incluso con Staging.
+        $select = $connection->select()
+            ->from(['w' => $table], ['website_id' => 'w.website_id'])
+            ->join(['e' => $entity], 'e.entity_id = w.product_id', ['key' => 'e.' . $keyColumn])
+            ->where('e.' . $keyColumn . ' IN (?)', $keys);
+
+        $out = [];
+        foreach ($connection->fetchAll($select) as $row) {
+            $out[(int) $row['key']][] = (int) $row['website_id'];
+        }
+        return $out;
+    }
+
+    /**
+     * @param string[] $skus
+     * @return array<string, int[]>
+     */
+    private function categoryIds(array $skus): array
+    {
+        $connection = $this->resource->getConnection();
+        $link = $this->resource->getTableName('catalog_category_product');
+        $entity = $this->resource->getTableName('catalog_product_entity');
+
+        // Sin store_id: la asignación es global. El efecto por tienda lo deriva
+        // el ingestor con derive_category_effect.
+        $select = $connection->select()
+            ->from(['l' => $link], ['category_id' => 'l.category_id'])
+            ->join(['e' => $entity], 'e.entity_id = l.product_id', ['sku' => 'e.sku'])
+            ->where('e.sku IN (?)', $skus);
+
+        $out = [];
+        foreach ($connection->fetchAll($select) as $row) {
+            $out[(string) $row['sku']][] = (int) $row['category_id'];
+        }
+        return $out;
+    }
+}
