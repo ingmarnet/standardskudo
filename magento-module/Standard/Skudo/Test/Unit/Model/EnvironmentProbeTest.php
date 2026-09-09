@@ -7,17 +7,20 @@ use Magento\Framework\App\ProductMetadataInterface;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
-use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Model\EnvironmentProbe;
 
 class EnvironmentProbeTest extends TestCase
 {
-    private function probe(bool $hasStaging, bool $hasRowId, bool $hasMsi): EnvironmentProbe
-    {
+    private function probe(
+        bool $hasStaging,
+        bool $hasRowId,
+        bool $hasMsi,
+        string $edition = 'Community',
+    ): EnvironmentProbe {
         $metadata = $this->createMock(ProductMetadataInterface::class);
-        $metadata->method('getEdition')->willReturn($hasStaging ? 'Enterprise' : 'Community');
+        $metadata->method('getEdition')->willReturn($edition);
         $metadata->method('getVersion')->willReturn('2.4.7-p3');
 
         $modules = $this->createMock(ModuleListInterface::class);
@@ -57,7 +60,12 @@ class EnvironmentProbeTest extends TestCase
 
     public function testOpenSourceReportsEntityId(): void
     {
-        $profile = $this->probe(hasStaging: false, hasRowId: false, hasMsi: true)->getProfile();
+        $profile = $this->probe(
+            hasStaging: false,
+            hasRowId: false,
+            hasMsi: true,
+            edition: 'Community',
+        )->getProfile();
 
         $this->assertSame('Community', $profile['edition']);
         $this->assertSame('entity_id', $profile['product_entity_key']);
@@ -67,7 +75,12 @@ class EnvironmentProbeTest extends TestCase
 
     public function testCommerceWithStagingReportsRowId(): void
     {
-        $profile = $this->probe(hasStaging: true, hasRowId: true, hasMsi: true)->getProfile();
+        $profile = $this->probe(
+            hasStaging: true,
+            hasRowId: true,
+            hasMsi: true,
+            edition: 'Enterprise',
+        )->getProfile();
 
         $this->assertSame('row_id', $profile['product_entity_key']);
         $this->assertTrue($profile['staging_enabled']);
@@ -75,10 +88,21 @@ class EnvironmentProbeTest extends TestCase
 
     public function testKeyIsDetectedFromTheSchemaNotFromTheEdition(): void
     {
-        // Enterprise sin el módulo Staging instalado sigue usando entity_id.
-        $profile = $this->probe(hasStaging: false, hasRowId: false, hasMsi: false)->getProfile();
+        // Enterprise SIN el módulo Staging instalado (edición y bandera de
+        // staging desacopladas de la clave): sigue usando entity_id porque
+        // la columna row_id no existe en el esquema. Si la detección
+        // mirara getEdition() en vez de tableColumnExists(), este caso
+        // reportaría row_id incorrectamente y el test fallaría.
+        $profile = $this->probe(
+            hasStaging: false,
+            hasRowId: false,
+            hasMsi: false,
+            edition: 'Enterprise',
+        )->getProfile();
 
+        $this->assertSame('Enterprise', $profile['edition']);
         $this->assertSame('entity_id', $profile['product_entity_key']);
+        $this->assertFalse($profile['staging_enabled']);
         $this->assertFalse($profile['msi_enabled']);
     }
 }
