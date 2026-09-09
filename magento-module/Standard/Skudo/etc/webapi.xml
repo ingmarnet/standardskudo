@@ -17,4 +17,8 @@
         <service class="Standard\Skudo\Api\DeltaReaderInterface" method="getChanges"/>
         <resources><resource ref="Standard_Skudo::read"/></resources>
     </route>
+    <route url="/V1/skudo/signals" method="GET">
+        <service class="Standard\Skudo\Api\SignalReaderInterface" method="getSignals"/>
+        <resources><resource ref="Standard_Skudo::read"/></resources>
+    </route>
 </routes>

@@ -7,4 +7,6 @@
                 type="Standard\Skudo\Model\ProductReader"/>
     <preference for="Standard\Skudo\Api\DeltaReaderInterface"
                 type="Standard\Skudo\Model\DeltaReader"/>
+    <preference for="Standard\Skudo\Api\SignalReaderInterface"
+                type="Standard\Skudo\Model\SignalReader"/>
 </config>
