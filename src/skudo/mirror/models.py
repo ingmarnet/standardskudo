@@ -127,3 +127,35 @@ class AttributeOptionLabel(Base):
     # 0 = etiqueta por defecto (admin), N = etiqueta de esa store view.
     store_view_magento_id: Mapped[int] = mapped_column(Integer)
     label: Mapped[str] = mapped_column(String(512))
+
+
+class ProductRecord(Base):
+    """El objeto central del sistema: (tenant, producto, store view).
+
+    Nunca (tenant, producto). Un producto tiene un registro por store view
+    porque su calidad puede ser distinta en PY y en BR.
+    """
+
+    __tablename__ = "product_record"
+    __table_args__ = (UniqueConstraint("tenant_id", "sku", "store_view_magento_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    store_view_magento_id: Mapped[int] = mapped_column(Integer, index=True)
+
+    # Identidad desglosada, toda como texto: 0074 != 74, ABC-123/B != ABC-123.
+    sku: Mapped[str] = mapped_column(String(255), index=True)
+    mpn: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    gtin: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    variant_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    attributes: Mapped[dict] = mapped_column(JSON)
+    # {codigo_atributo: "global"|"store"} — de dónde salió cada valor efectivo.
+    scope_provenance: Mapped[dict] = mapped_column(JSON)
+
+    content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    magento_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    mirrored_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
