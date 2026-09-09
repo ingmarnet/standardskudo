@@ -29,6 +29,28 @@ REFRESHED = [
      "website_ids": [1], "category_ids": [], "updated_at": "2026-09-05 08:00:00"},
 ]
 
+# Mismo SKU dos veces en una página: cubre las dos direcciones de la colisión
+# para probar que gana el último evento (last-event-wins), no "delete" absoluto.
+SAVE_THEN_DELETE_SAME_SKU = {
+    "items": [
+        {"change_id": 41, "sku": "SKU1", "event": "save",
+         "changed_at": "2026-09-05 08:00:00"},
+        {"change_id": 42, "sku": "SKU1", "event": "delete",
+         "changed_at": "2026-09-05 08:01:00"},
+    ],
+    "last_change_id": 42,
+}
+
+DELETE_THEN_SAVE_SAME_SKU = {
+    "items": [
+        {"change_id": 41, "sku": "SKU1", "event": "delete",
+         "changed_at": "2026-09-05 08:00:00"},
+        {"change_id": 42, "sku": "SKU1", "event": "save",
+         "changed_at": "2026-09-05 08:01:00"},
+    ],
+    "last_change_id": 42,
+}
+
 
 def make_client(changes=CHANGES) -> MagentoClient:
     environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
@@ -97,6 +119,24 @@ def test_second_run_sees_no_changes(db_session, seeded):
 
     assert second.changes_seen == 0
     assert second.watermark == 42
+
+
+def test_save_then_delete_same_sku_in_one_page_ends_deleted(db_session, seeded):
+    delta_sync(
+        db_session, make_client(changes=SAVE_THEN_DELETE_SAME_SKU), seeded.id,
+        store_view_ids=[1],
+    )
+
+    assert get_record(db_session, seeded.id, "SKU1", 1) is None
+
+
+def test_delete_then_save_same_sku_in_one_page_ends_refreshed(db_session, seeded):
+    delta_sync(
+        db_session, make_client(changes=DELETE_THEN_SAVE_SAME_SKU), seeded.id,
+        store_view_ids=[1],
+    )
+
+    assert get_record(db_session, seeded.id, "SKU1", 1).attributes["name"] == "Notebook corregido"
 
 
 def test_a_replayed_change_does_not_duplicate_records(db_session, seeded):

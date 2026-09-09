@@ -51,7 +51,12 @@ def delta_sync(
 
     for page in client.iter_deltas(report.watermark):
         # Un SKU puede aparecer varias veces en la misma página; solo interesa
-        # su último estado, y un delete posterior gana a cualquier save previo.
+        # su último estado, y gana el último evento, sea cual sea (last-event-wins),
+        # no "delete" de forma absoluta: un delete seguido de un save significa que
+        # el SKU se borró y se volvió a crear, y ahí debe ganar el save. Esto solo
+        # es correcto porque el endpoint de deltas garantiza los items en orden
+        # ascendente de change_id; no se ordena aquí a propósito, para que una
+        # regresión real de esa garantía se note en vez de quedar oculta.
         last_event: dict[str, str] = {}
         for change in page["items"]:
             report.changes_seen += 1
