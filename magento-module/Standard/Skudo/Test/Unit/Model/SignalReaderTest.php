@@ -24,12 +24,30 @@ use Standard\Skudo\Model\SignalReader;
  *
  * Como en ProductReaderTest/DeltaReaderTest, un `SignalFakeSelect` (abajo)
  * registra la tabla de cada `select()->from()` real que arma SignalReader;
- * el doble de conexión despacha `fetchAll()` según esa tabla contra filas de
- * fixture provistas por cada prueba. Las cinco consultas de SignalReader
- * (ventas, stock físico, stock vendible MSI, costo/precio, search_query)
- * tienen tablas primarias distintas entre sí, así que un fixture vacío para
- * una tabla es indistinguible de "esta consulta no encontró fila" — que es
- * exactamente el escenario que Ruling 2 exige cubrir.
+ * el doble de conexión despacha `fetchAll()`/`fetchOne()` según esa tabla
+ * contra filas de fixture provistas por cada prueba. Las consultas de
+ * SignalReader (ventas, stock físico, resolución de stock MSI, stock
+ * vendible, costo/precio, search_query) tienen tablas primarias distintas
+ * entre sí, así que un fixture vacío para una tabla es indistinguible de
+ * "esta consulta no encontró fila" — que es exactamente el escenario que
+ * Ruling 2 exige cubrir.
+ *
+ * Fix de revisión (ronda 1): dos hallazgos verificados contra la instancia
+ * de referencia, ninguno teórico:
+ *   - `margin` se leía SIEMPRE en scope global (store_id 0), pero
+ *     `catalog/price/scope` está en Website ahí y 165.610 filas de precio
+ *     tienen store_id distinto de 0 — la gran mayoría del catálogo. Ahora
+ *     se resuelve por scope: override de la store view solicitada si SU
+ *     FILA EXISTE (aunque el valor sea vacío — la presencia manda, no si
+ *     el valor es truthy), si no el valor global.
+ *   - `salable_qty` se leía siempre de `inventory_stock_1`, pero en la
+ *     instancia de referencia el Stock 1 (Default Stock) no está asignado
+ *     a ningún sitio: los sitios reales usan los stocks 2 y 3
+ *     (`inventory_stock_sales_channel`: base -> 2, website_br -> 3). Ahora
+ *     se resuelve el stock real siguiendo store -> website -> canal de
+ *     venta -> stock_id, y una store view sin canal mapeado da
+ *     `salable_qty: null`, no el Stock 1 por defecto (ver
+ *     `resolveStockId()`).
  */
 class SignalReaderTest extends TestCase
 {
@@ -94,6 +112,11 @@ class SignalReaderTest extends TestCase
                 'cataloginventory_stock_item' => [
                     ['sku' => 'SKU1', 'qty' => '9.0000'],
                 ],
+                // store 1 -> website 1 ('base') -> stock 1, resuelto igual
+                // que en la instancia de referencia (ver resolveStockId()).
+                'store' => [['website_id' => 1]],
+                'store_website' => [['code' => 'base']],
+                'inventory_stock_sales_channel' => [['stock_id' => 1]],
             ],
             salableTableExists: false,
         );
@@ -121,6 +144,9 @@ class SignalReaderTest extends TestCase
                 'cataloginventory_stock_item' => [
                     ['sku' => 'SKU1', 'qty' => '9.0000'],
                 ],
+                'store' => [['website_id' => 1]],
+                'store_website' => [['code' => 'base']],
+                'inventory_stock_sales_channel' => [['stock_id' => 1]],
                 'inventory_stock_1' => [
                     ['sku' => 'SKU1', 'qty' => '4.0000'],
                 ],
@@ -171,7 +197,7 @@ class SignalReaderTest extends TestCase
                 ],
                 // Solo llega 'price': 'cost' nunca se cargó para este SKU.
                 'catalog_product_entity' => [
-                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000'],
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000', 'store_id' => 0],
                 ],
             ],
         );
@@ -195,8 +221,8 @@ class SignalReaderTest extends TestCase
                     ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
                 ],
                 'catalog_product_entity' => [
-                    ['sku' => 'SKU1', 'code' => 'cost', 'value' => '15.0000'],
-                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000'],
+                    ['sku' => 'SKU1', 'code' => 'cost', 'value' => '15.0000', 'store_id' => 0],
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000', 'store_id' => 0],
                 ],
             ],
         );
@@ -221,8 +247,8 @@ class SignalReaderTest extends TestCase
                     ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
                 ],
                 'catalog_product_entity' => [
-                    ['sku' => 'SKU1', 'code' => 'cost', 'value' => ''],
-                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000'],
+                    ['sku' => 'SKU1', 'code' => 'cost', 'value' => '', 'store_id' => 0],
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000', 'store_id' => 0],
                 ],
             ],
         );
@@ -230,6 +256,158 @@ class SignalReaderTest extends TestCase
         $item = $this->onlyItem($reader->getSignals(storeId: 1));
 
         $this->assertNull($item['margin']);
+    }
+
+    /**
+     * Finding 1 de revisión: `catalog/price/scope` está en Website en la
+     * instancia de referencia, y 165.610 filas de precio tienen store_id
+     * distinto de 0 — leer siempre store_id 0 da el precio equivocado para
+     * casi todo el catálogo en al menos uno de los dos sitios. Cada store
+     * view debe usar SU propio override de precio (cost queda global acá,
+     * a propósito, para aislar qué está cambiando).
+     */
+    public function testMarginUsesTheStoreViewsOwnPriceOverrideNotTheGlobalPrice(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                ],
+                'catalog_product_entity' => [
+                    ['sku' => 'SKU1', 'code' => 'cost', 'value' => '10.0000', 'store_id' => 0],
+                    // Precio de lista global: NINGUNA de las dos store
+                    // views debe terminar usando este valor, cada una
+                    // tiene su propio override.
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000', 'store_id' => 0],
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '16.0000', 'store_id' => 1],
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '25.0000', 'store_id' => 3],
+                ],
+            ],
+        );
+
+        $store1 = $this->onlyItem($reader->getSignals(storeId: 1));
+        $store3 = $this->onlyItem($reader->getSignals(storeId: 3));
+
+        // (16 - 10) / 16 = 0.375, no (20 - 10) / 20 = 0.5
+        $this->assertSame(0.375, $store1['margin'], 'store view 1 debe usar SU override de precio (16), no el global (20)');
+        // (25 - 10) / 25 = 0.6, distinto del de la store view 1
+        $this->assertSame(0.6, $store3['margin'], 'store view 3 debe usar SU PROPIO override (25), no el de la store view 1');
+    }
+
+    /**
+     * Finding 1 de revisión, la regla de procedencia explícita: si la fila
+     * de override de la store view EXISTE pero su valor es vacío, eso es
+     * "esta store view no tiene precio cargado" — no debe caer de nuevo al
+     * valor global. Es la misma regla de presencia-no-verdad que ya se
+     * aplica a `cost` vacío, ahora aplicada a la resolución por scope.
+     */
+    public function testMarginStoreOverrideThatIsEmptyDoesNotFallBackToGlobalPrice(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                ],
+                'catalog_product_entity' => [
+                    ['sku' => 'SKU1', 'code' => 'cost', 'value' => '10.0000', 'store_id' => 0],
+                    // La fila de la store view EXISTE, con valor vacío, y
+                    // se lista ANTES que la global a propósito: una
+                    // implementación que solo mire "el último valor visto
+                    // para ese código" (en vez de resolver por scope de
+                    // verdad) terminaría usando el global (20) por orden de
+                    // llegada, no por regla. Con resolución real por scope,
+                    // el orden de las filas no debe importar.
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '', 'store_id' => 1],
+                    ['sku' => 'SKU1', 'code' => 'price', 'value' => '20.0000', 'store_id' => 0],
+                ],
+            ],
+        );
+
+        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+
+        $this->assertNull(
+            $item['margin'],
+            'un override vacío no debe caer al precio global: la store view no tiene precio, punto'
+        );
+    }
+
+    /**
+     * Finding 2 de revisión, el caso positivo: la store view 3 (br) mapea,
+     * vía su website, al stock 3 (verificado contra la instancia de
+     * referencia: website_br -> stock 3). El fixture también incluye una
+     * fila señuelo en `inventory_stock_1` con un valor distinto: si la
+     * resolución de stock se rompiera y volviera a asumir el Stock 1, esta
+     * prueba fallaría con un valor concreto (999), no solo con null.
+     */
+    public function testSalableQtyIsReadFromTheStockResolvedFromTheStoreViewsWebsite(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: true,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                ],
+                'cataloginventory_stock_item' => [
+                    ['sku' => 'SKU1', 'qty' => '9.0000'],
+                ],
+                'store' => [['website_id' => 2]],
+                'store_website' => [['code' => 'website_br']],
+                'inventory_stock_sales_channel' => [['stock_id' => 3]],
+                'inventory_stock_3' => [
+                    ['sku' => 'SKU1', 'qty' => '7.0000'],
+                ],
+                // Señuelo: si el código volviera a asumir el Stock 1, la
+                // prueba vería 999.0 en vez de fallar silenciosamente.
+                'inventory_stock_1' => [
+                    ['sku' => 'SKU1', 'qty' => '999.0000'],
+                ],
+            ],
+            salableTableExists: true,
+        );
+
+        $item = $this->onlyItem($reader->getSignals(storeId: 3));
+
+        $this->assertSame(7.0, $item['salable_qty'], 'debía leer inventory_stock_3, no el Stock 1 por defecto');
+    }
+
+    /**
+     * Finding 2 de revisión, el caso negativo: un sitio sin fila en
+     * `inventory_stock_sales_channel` (el Stock 1/"Default Stock" de la
+     * instancia de referencia no está asignado a ningún sitio) no tiene de
+     * dónde saber qué stock lo sirve. salable_qty debe ser NULL — nunca el
+     * Stock 1 por defecto, que es precisamente el bug que este fix corrige.
+     */
+    public function testSalableQtyIsNullWhenTheWebsiteHasNoSalesChannelMapping(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: true,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                ],
+                'cataloginventory_stock_item' => [
+                    ['sku' => 'SKU1', 'qty' => '9.0000'],
+                ],
+                'store' => [['website_id' => 0]],
+                'store_website' => [['code' => 'admin']],
+                // Sin fila para 'admin': ningún stock lo sirve.
+                'inventory_stock_sales_channel' => [],
+                // Señuelo: sin resolución real de stock, un código que
+                // siguiera asumiendo el Stock 1 encontraría esta fila y
+                // devolvería 42.0 en vez de null.
+                'inventory_stock_1' => [
+                    ['sku' => 'SKU1', 'qty' => '42.0000'],
+                ],
+            ],
+            salableTableExists: true,
+        );
+
+        $item = $this->onlyItem($reader->getSignals(storeId: 0));
+
+        $this->assertNull($item['salable_qty']);
+        $this->assertSame(9.0, $item['physical_qty'], 'physical_qty no depende de la resolución de stock MSI');
     }
 
     /** @param mixed[] $result */
@@ -255,8 +433,27 @@ class SignalReaderTest extends TestCase
         $connection->method('fetchAll')->willReturnCallback(
             static fn (SignalFakeSelect $select): array => $fixtures[$select->table] ?? []
         );
+        // resolveStockId() encadena tres fetchOne(): store -> store_website
+        // -> inventory_stock_sales_channel, cada uno pidiendo una sola
+        // columna. Como con fetchAll, se despacha por tabla primaria contra
+        // la fixture de esa prueba; sin fila (o tabla ausente), false — lo
+        // mismo que devolvería Zend_Db_Adapter cuando la consulta no
+        // encuentra nada, y es lo que hace que la cadena corte a null.
+        $connection->method('fetchOne')->willReturnCallback(
+            static function (SignalFakeSelect $select) use ($fixtures) {
+                $tableRows = $fixtures[$select->table] ?? [];
+                if ($tableRows === []) {
+                    return false;
+                }
+                $column = $select->columns[0] ?? null;
+                $row = $tableRows[0];
+                return $column !== null && array_key_exists($column, $row) ? $row[$column] : false;
+            }
+        );
+        // El nombre de tabla ya no es siempre 'inventory_stock_1': ahora
+        // depende del stock resuelto (ver resolveStockId()).
         $connection->method('isTableExists')->willReturnCallback(
-            static fn (string $table): bool => $table === 'inventory_stock_1' && $salableTableExists
+            static fn (string $table): bool => str_starts_with($table, 'inventory_stock_') && $salableTableExists
         );
         // Sin versionado en estos fixtures: EntityKeyResolver resuelve a
         // entity_id y ActiveVersionResolver no agrega ningún where. Esa
@@ -290,6 +487,9 @@ final class SignalFakeSelect extends \Magento\Framework\DB\Select
 {
     public string $table = '';
 
+    /** @var list<string> Columnas planas pedidas por from(), para fetchOne(). */
+    public array $columns = [];
+
     public function __construct()
     {
     }
@@ -302,6 +502,7 @@ final class SignalFakeSelect extends \Magento\Framework\DB\Select
     public function from($tables, $columns = '*', $schema = null): self
     {
         $this->table = (string) array_values((array) $tables)[0];
+        $this->columns = is_array($columns) ? array_values($columns) : [(string) $columns];
         return $this;
     }
 

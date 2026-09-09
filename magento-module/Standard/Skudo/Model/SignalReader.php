@@ -28,6 +28,22 @@ use Standard\Skudo\Api\SignalReaderInterface;
  * EntityKeyResolver y ActiveVersionResolver, ya usadas por ProductReader
  * (Task 8) y DeltaReader (Task 10), son las únicas que responden esas dos
  * preguntas de esquema.
+ *
+ * Fix de revisión (ronda 1), dos hallazgos verificados contra la instancia
+ * de referencia (no teóricos):
+ *   - `margin` se leía siempre en scope global. `catalog/price/scope` está
+ *     en Website ahí, y la mayoría del catálogo tiene overrides de precio
+ *     por store view (165.610 filas con store_id distinto de 0). Ahora
+ *     attachMargin() resuelve cost/price por scope: el override de la
+ *     store view pedida SI SU FILA EXISTE (aunque el valor sea vacío — la
+ *     presencia manda, no si el valor es truthy), si no el global.
+ *   - `salable_qty` se leía siempre de `inventory_stock_1`, pero en la
+ *     instancia de referencia el Stock 1 (Default Stock) no está asignado
+ *     a ningún sitio — los sitios reales usan los stocks 2 y 3. Ahora
+ *     resolveStockId() sigue la cadena real store -> website ->
+ *     inventory_stock_sales_channel -> stock_id; sin una fila de canal de
+ *     venta para ese sitio, salable_qty es null, nunca un stock que no le
+ *     corresponde.
  */
 class SignalReader implements SignalReaderInterface
 {
@@ -67,8 +83,8 @@ class SignalReader implements SignalReaderInterface
 
         $rows = $this->salesRows($connection, $storeId, $days, $usesMsi);
 
-        $this->attachInventory($rows, $usesMsi);
-        $this->attachMargin($rows);
+        $this->attachInventory($rows, $usesMsi, $storeId);
+        $this->attachMargin($rows, $storeId);
         $this->attachSearchDemand($rows, $storeId, $days);
 
         return ['items' => array_values($rows)];
@@ -129,7 +145,7 @@ class SignalReader implements SignalReaderInterface
      * pedidos pendientes — y priorizar por la física haría enriquecer
      * productos que en realidad no se pueden vender.
      */
-    private function attachInventory(array &$rows, bool $usesMsi): void
+    private function attachInventory(array &$rows, bool $usesMsi, int $storeId): void
     {
         if ($rows === []) {
             return;
@@ -166,14 +182,18 @@ class SignalReader implements SignalReaderInterface
             return;
         }
 
-        // Asume el Stock por defecto (id 1): el indexador de MSI nombra su
-        // tabla de vendible por stock (`inventory_stock_<id>`), y resolver
-        // el stock real de cada sitio/canal de venta de $storeId excede el
-        // alcance de esta tarea (Task 12 solo pide "vendible vs. física",
-        // no multi-stock). Con un solo Stock configurado (el caso común),
-        // esta suposición es correcta; documentarla acá es preferible a
-        // que quede implícita.
-        $salableTable = $this->resource->getTableName('inventory_stock_1');
+        $stockId = $this->resolveStockId($storeId);
+        if ($stockId === null) {
+            // Ruling 2: sin canal de venta mapeado para el sitio de esta
+            // store view, no hay de dónde saber qué stock la sirve. null,
+            // NUNCA un stock por defecto que no le corresponde — eso es
+            // precisamente el bug que resolveStockId() corrige (ver ahí:
+            // el Stock 1/"Default Stock" de la instancia de referencia no
+            // está asignado a ningún sitio).
+            return;
+        }
+
+        $salableTable = $this->resource->getTableName('inventory_stock_' . $stockId);
         if (!$connection->isTableExists($salableTable)) {
             // Ruling 1: MSI puede figurar "instalado" y aun así no tener su
             // tabla de índice (o al revés, como en la instancia de
@@ -195,25 +215,74 @@ class SignalReader implements SignalReaderInterface
     }
 
     /**
+     * Resuelve el stock de MSI que sirve a esta store view, siguiendo la
+     * cadena real: store -> website -> `inventory_stock_sales_channel`
+     * (type "website", code = código de ese website) -> stock_id.
+     *
+     * Nunca se asume el Stock por defecto (id 1): en la instancia de
+     * referencia ese stock no está asignado a ningún sitio (los sitios
+     * reales los sirven los stocks 2 y 3, vía sus propias filas de canal de
+     * venta), así que cualquier atajo a "stock 1" devolvería una cantidad
+     * vendible de un almacén del que nadie vende — exactamente el bug que
+     * este método corrige.
+     *
+     * Devuelve null en cuanto un eslabón de la cadena no tiene fila: "no sé
+     * qué stock sirve este sitio" es tan desconocido como "no hay MSI", y
+     * debe viajar igual — null, nunca el Stock 1 por defecto.
+     */
+    private function resolveStockId(int $storeId): ?int
+    {
+        $connection = $this->resource->getConnection();
+
+        $websiteId = $connection->fetchOne(
+            $connection->select()
+                ->from($this->resource->getTableName('store'), ['website_id'])
+                ->where('store_id = ?', $storeId)
+        );
+        if ($websiteId === false) {
+            return null;
+        }
+
+        $websiteCode = $connection->fetchOne(
+            $connection->select()
+                ->from($this->resource->getTableName('store_website'), ['code'])
+                ->where('website_id = ?', (int) $websiteId)
+        );
+        if ($websiteCode === false || $websiteCode === null) {
+            return null;
+        }
+
+        $stockId = $connection->fetchOne(
+            $connection->select()
+                ->from($this->resource->getTableName('inventory_stock_sales_channel'), ['stock_id'])
+                ->where('type = ?', 'website')
+                ->where('code = ?', (string) $websiteCode)
+        );
+
+        return $stockId === false ? null : (int) $stockId;
+    }
+
+    /**
      * Margen = (price - cost) / price, como fracción (0.25 = 25%), la misma
      * forma que ProductSignal.margin espera del lado Python.
      *
-     * Ruling 2: si `cost` no tiene fila EAV para ese SKU, o la tiene con
-     * valor vacío, margin se queda en NULL — nunca se calcula como si el
-     * costo fuera 0, porque "nadie cargó el costo" y "el costo es cero" son
-     * hechos comerciales distintos y colapsarlos falsearía la
-     * priorización (ver Ruling 2 del brief).
+     * Ruling 2: si `cost` (resuelto, ver abajo) no tiene fila EAV para ese
+     * SKU, o la tiene con valor vacío, margin se queda en NULL — nunca se
+     * calcula como si el costo fuera 0, porque "nadie cargó el costo" y "el
+     * costo es cero" son hechos comerciales distintos y colapsarlos
+     * falsearía la priorización (ver Ruling 2 del brief).
      *
-     * Se lee en scope global (store_id = 0), que es donde `cost` vive
-     * siempre en el catálogo de referencia (is_global = 2, Global) y donde
-     * `price` vive salvo que "Catalog Price Scope" esté en Website — en ese
-     * caso el valor por sitio se guarda bajo el store_id de la store view
-     * por defecto de ese website, no bajo 0. Esta implementación no resuelve
-     * esa variante (leería el precio de lista global en vez del de sitio);
-     * documentado acá como simplificación conocida, no como parte de la
-     * Ruling 2 (que es sobre null-vs-cero, no sobre scope de atributo).
+     * `cost` y `price` se resuelven POR SCOPE, no siempre en global: se lee
+     * store_id 0 (global) Y store_id = $storeId en la misma consulta, y
+     * scopedValue() se queda con el override de la store view SI SU FILA
+     * EXISTE (aunque el valor sea vacío — la presencia manda, no si el
+     * valor es truthy; ver ese método), si no con el global. Sin esto, con
+     * `catalog/price/scope` en Website (el caso de la instancia de
+     * referencia, donde la mayoría de las filas de precio tienen store_id
+     * distinto de 0) el margen saldría mal para casi todo el catálogo en
+     * al menos uno de los sitios.
      */
-    private function attachMargin(array &$rows): void
+    private function attachMargin(array &$rows, int $storeId): void
     {
         if ($rows === []) {
             return;
@@ -227,7 +296,7 @@ class SignalReader implements SignalReaderInterface
 
         $select = $connection->select()
             ->from(['e' => $entity], ['sku' => 'e.sku'])
-            ->join(['v' => $decimal], "v.{$keyColumn} = e.{$keyColumn}", [])
+            ->join(['v' => $decimal], "v.{$keyColumn} = e.{$keyColumn}", ['store_id' => 'v.store_id'])
             ->join(
                 ['a' => $attribute],
                 'a.attribute_id = v.attribute_id',
@@ -235,29 +304,56 @@ class SignalReader implements SignalReaderInterface
             )
             ->where('e.sku IN (?)', array_keys($rows))
             ->where('a.attribute_code IN (?)', ['cost', 'price'])
-            ->where('v.store_id = ?', 0);
+            // Global Y el scope pedido en la misma pasada: scopedValue()
+            // decide después cuál gana, fila por fila (ver docblock).
+            ->where('v.store_id IN (?)', array_unique([0, $storeId]));
         $this->activeVersionResolver->applyToSelect($select, 'e.');
 
+        // bySku[sku][code][store_id] = value. Se indexa por store_id (no se
+        // sobreescribe "el último visto") justamente para que el orden en
+        // que la fixture/el motor de base de datos entregue las filas sea
+        // irrelevante: la resolución por scope depende de qué store_ids
+        // tienen fila, no de cuál llegó última.
         $bySku = [];
         foreach ($connection->fetchAll($select) as $row) {
-            $bySku[(string) $row['sku']][(string) $row['code']] = $row['value'];
+            $bySku[(string) $row['sku']][(string) $row['code']][(int) $row['store_id']] = $row['value'];
         }
 
-        foreach ($bySku as $sku => $values) {
+        foreach ($bySku as $sku => $byCode) {
             if (!isset($rows[$sku])) {
                 continue;
             }
 
-            $cost = $values['cost'] ?? null;
-            $price = $values['price'] ?? null;
+            $cost = $this->scopedValue($byCode['cost'] ?? [], $storeId);
+            $price = $this->scopedValue($byCode['price'] ?? [], $storeId);
             // "" cuenta como ausente, no como 0: una fila EAV con valor
-            // vacío nunca tuvo un costo real cargado.
+            // vacío nunca tuvo un costo/precio real cargado para ese scope.
             if ($cost === null || $cost === '' || $price === null || $price === '' || (float) $price <= 0.0) {
                 continue;
             }
 
             $rows[$sku]['margin'] = round(((float) $price - (float) $cost) / (float) $price, 4);
         }
+    }
+
+    /**
+     * Resuelve un valor EAV por scope: el override de la store view
+     * solicitada SI SU FILA EXISTE — aunque el valor sea una cadena vacía,
+     * porque la presencia de la fila es lo que importa, no si el valor es
+     * truthy (la misma regla de procedencia que el lado Python aplica: un
+     * override cargado-pero-vacío significa "esta store view no tiene
+     * valor", no "usá el global"). Si no existe fila para $storeId, cae al
+     * global (store_id 0); si tampoco hay fila global, null.
+     *
+     * @param array<int, string|null> $valuesByStore
+     */
+    private function scopedValue(array $valuesByStore, int $storeId): ?string
+    {
+        if (array_key_exists($storeId, $valuesByStore)) {
+            return $valuesByStore[$storeId];
+        }
+
+        return $valuesByStore[0] ?? null;
     }
 
     /**
