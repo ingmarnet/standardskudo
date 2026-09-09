@@ -39,10 +39,23 @@ def resolve_scope(
     return effective, provenance
 
 
-def content_hash(identity: ProductIdentity, effective: dict) -> str:
-    """Hash estable del contenido relevante. Base del caché de la capa IA en S6."""
+def content_hash(
+    identity: ProductIdentity, effective: dict, store_view_magento_id: int
+) -> str:
+    """Hash estable del contenido relevante. Base del caché de la capa IA en S6.
+
+    La store view entra en el material hasheado porque el veredicto sobre un
+    mismo texto depende de la tienda: texto idéntico en PY y BR es exactamente
+    el defecto de "nombre sin traducir". Sin ella, un caché con esta clave
+    devolvería el veredicto de la tienda española para la portuguesa, justo en
+    la población que más hay que juzgar.
+    """
     material = json.dumps(
-        {"identity": identity.model_dump(), "attributes": effective},
+        {
+            "store_view_magento_id": store_view_magento_id,
+            "identity": identity.model_dump(),
+            "attributes": effective,
+        },
         sort_keys=True,
         ensure_ascii=False,
     )
@@ -82,7 +95,7 @@ def upsert_record(
         "type_id": type_id,
         "attributes": effective,
         "scope_provenance": provenance,
-        "content_hash": content_hash(identity, effective),
+        "content_hash": content_hash(identity, effective, store_view_magento_id),
         "magento_updated_at": magento_updated_at,
         # clock_timestamp() y no now(): now() es de alcance transaccional en
         # Postgres, así que dos upserts en la misma transacción escribirían la

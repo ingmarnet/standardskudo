@@ -3,7 +3,13 @@ from datetime import UTC, datetime
 import pytest
 
 from skudo.mirror.models import Tenant
-from skudo.mirror.products import ProductIdentity, get_record, resolve_scope, upsert_record
+from skudo.mirror.products import (
+    ProductIdentity,
+    content_hash,
+    get_record,
+    resolve_scope,
+    upsert_record,
+)
 
 
 @pytest.fixture
@@ -103,3 +109,27 @@ def test_upsert_refreshes_mirrored_at(db_session, tenant):
                   datetime(2026, 9, 2, tzinfo=UTC))
 
     assert mirrored_at() > first
+
+
+def test_identical_content_in_two_store_views_hashes_differently(db_session, tenant):
+    """Texto idéntico en PY y BR es precisamente el defecto de "nombre sin
+    traducir", y el veredicto correcto difiere por store view. Un caché de la
+    capa IA con la misma clave para las dos devolvería el veredicto de la tienda
+    española para la portuguesa, justo en la población que más hay que juzgar.
+    """
+    identity = ProductIdentity(sku="SKU1")
+    for store_id in (1, 3):
+        upsert_record(db_session, tenant.id, store_id, identity, {"name": "Notebook"},
+                      {"name": "global"}, datetime(2026, 9, 1, tzinfo=UTC))
+
+    py = get_record(db_session, tenant.id, "SKU1", 1).content_hash
+    br = get_record(db_session, tenant.id, "SKU1", 3).content_hash
+    assert py != br
+
+
+def test_the_hash_is_stable_for_the_same_store_view_and_content():
+    """Sigue siendo un caché: mismo contenido y misma tienda, misma clave."""
+    identity = ProductIdentity(sku="SKU1")
+    assert content_hash(identity, {"name": "Notebook"}, 1) == content_hash(
+        identity, {"name": "Notebook"}, 1
+    )
