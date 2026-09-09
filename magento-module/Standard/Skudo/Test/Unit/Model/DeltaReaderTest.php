@@ -6,6 +6,7 @@ namespace Standard\Skudo\Test\Unit\Model;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\DeltaReader;
 
 /**
@@ -49,12 +50,19 @@ class DeltaReaderTest extends TestCase
     }
 
     /**
-     * Ruling 2: columnas ausentes (Community, o Commerce sin Staging). Si se
-     * quitara por completo el código de activación de versión, esta prueba
-     * seguiría pasando en el resultado final (nada extra), pero fallaría
-     * igual porque ya no se llamaría tableColumnExists(): eso es lo que
-     * prueba que la rama realmente se evaluó y se descartó, no que nunca
-     * existió.
+     * Ruling 2: columnas ausentes (Community, o Commerce sin Staging).
+     *
+     * Fix de revisión (ronda 1): la versión anterior de esta prueba solo
+     * comprobaba el resultado final (nada agregado, ninguna consulta sobre
+     * catalog_product_entity), lo cual es indistinguible de que la rama de
+     * activación de versión nunca hubiera existido — si se borrara el
+     * bloque entero, esta prueba habría seguido pasando sin cambios. Ahora
+     * se exige explícitamente que tableColumnExists() se haya invocado
+     * exactamente una vez, con los argumentos exactos que prueban la
+     * columna que decide la rama, y que devuelva false: eso es lo único que
+     * distingue "la detección corrió y dijo que no" de "la detección nunca
+     * corrió". Ver el reporte de fix para la comprobación por sabotaje
+     * (se borró la llamada a hasVersioning() y esta prueba falló).
      */
     public function testNoVersionActivationQueryWhenVersioningColumnsAreAbsent(): void
     {
@@ -66,7 +74,18 @@ class DeltaReaderTest extends TestCase
         ];
 
         $selects = [];
-        $reader = $this->makeReader(hasVersioning: false, queueRows: [], entityRows: $entityRows, selects: $selects);
+        $connection = $this->makeConnection(queueRows: [], entityRows: $entityRows, selects: $selects);
+        // Corta-circuito: created_in && updated_in — si created_in ya da
+        // false, updated_in nunca se evalúa. Por eso "exactamente una vez"
+        // (no dos) es la aserción correcta acá, y forzarla con `->once()`
+        // (en vez de un simple stub) es lo que hace fallar la prueba si se
+        // borra la llamada a la detección.
+        $connection->expects($this->once())
+            ->method('tableColumnExists')
+            ->with('catalog_product_entity', 'created_in')
+            ->willReturn(false);
+
+        $reader = $this->readerFor($connection);
 
         $result = $reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 200);
 
@@ -146,13 +165,31 @@ class DeltaReaderTest extends TestCase
         array $entityRows,
         array &$selects
     ): DeltaReader {
-        $connection = $this->createMock(AdapterInterface::class);
+        $connection = $this->makeConnection($queueRows, $entityRows, $selects);
         $connection->method('tableColumnExists')->willReturnCallback(
             static fn (string $table, string $column): bool => match ($column) {
                 'created_in', 'updated_in' => $hasVersioning,
                 default => false,
             }
         );
+
+        return $this->readerFor($connection);
+    }
+
+    /**
+     * Arma el doble de AdapterInterface con select()/fetchAll() cableados a
+     * las filas de fixture, SIN tocar tableColumnExists(): cada caller lo
+     * configura por su cuenta (el `makeReader()` de arriba con un stub
+     * simple; la prueba de columnas ausentes con una expectativa estricta,
+     * ver más abajo por qué).
+     *
+     * @param mixed[] $queueRows
+     * @param mixed[] $entityRows
+     * @param list<DeltaFakeSelect> $selects
+     */
+    private function makeConnection(array $queueRows, array $entityRows, array &$selects): AdapterInterface
+    {
+        $connection = $this->createMock(AdapterInterface::class);
         $connection->method('select')->willReturnCallback(static function () use (&$selects): DeltaFakeSelect {
             $select = new DeltaFakeSelect();
             $selects[] = $select;
@@ -162,11 +199,16 @@ class DeltaReaderTest extends TestCase
             fn (DeltaFakeSelect $select): array => $this->evaluateSelect($select, $queueRows, $entityRows)
         );
 
+        return $connection;
+    }
+
+    private function readerFor(AdapterInterface $connection): DeltaReader
+    {
         $resource = $this->createMock(ResourceConnection::class);
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new DeltaReader($resource);
+        return new DeltaReader($resource, new ActiveVersionResolver($resource));
     }
 
     /** @param list<DeltaFakeSelect> $selects */

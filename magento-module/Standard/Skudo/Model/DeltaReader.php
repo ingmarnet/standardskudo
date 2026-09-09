@@ -11,16 +11,14 @@ class DeltaReader implements DeltaReaderInterface
 {
     private const MAX_LIMIT = 5000;
 
-    /**
-     * Si `catalog_product_entity` tiene created_in/updated_in
-     * (Magento_Staging). Memoizado por la misma razón que
-     * EntityKeyResolver/ProductReader: se prueba una sola vez por instancia,
-     * nunca a partir de la edición.
-     */
-    private ?bool $versioningColumnsPresent = null;
-
-    public function __construct(private readonly ResourceConnection $resource)
-    {
+    public function __construct(
+        private readonly ResourceConnection $resource,
+        // Inyectado, no instanciado con `new`: es la MISMA clase que usa
+        // ProductReader (Task 8) para la misma pregunta de esquema y la
+        // misma ventana de versión activa. Ver ActiveVersionResolver para
+        // el porqué de tener un único lugar que la responda.
+        private readonly ActiveVersionResolver $activeVersionResolver,
+    ) {
     }
 
     public function getChanges(int $sinceId = 0, int $limit = 1000, ?int $sinceTimestamp = null): array
@@ -53,8 +51,11 @@ class DeltaReader implements DeltaReaderInterface
         // deben moverlo, así que last_change_id se calcula ANTES de unirlas.
         $lastChangeId = $rows === [] ? null : (int) end($rows)['change_id'];
 
-        if ($sinceTimestamp !== null && $this->hasVersioningColumns($connection)) {
+        if ($sinceTimestamp !== null && $this->activeVersionResolver->hasVersioning()) {
             foreach ($this->activatedVersions($connection, $sinceTimestamp) as $row) {
+                // change_id 0 es un centinela seguro SOLO porque la columna
+                // se declara `identity="true"` en db_schema.xml, y MySQL
+                // arranca AUTO_INCREMENT en 1: change_id real nunca es 0.
                 $items[] = [
                     'change_id' => 0,
                     'sku' => (string) $row['sku'],
@@ -87,29 +88,16 @@ class DeltaReader implements DeltaReaderInterface
     private function activatedVersions(AdapterInterface $connection, int $sinceTimestamp): array
     {
         $entity = $this->resource->getTableName('catalog_product_entity');
+        // La ventana de versión activa (created_in <= ahora, updated_in >
+        // ahora) es la MISMA que usa ProductReader, vía ActiveVersionResolver
+        // — solo el "created_in > sinceTimestamp" de abajo es propio de esta
+        // consulta: acota a lo que se activó DESPUÉS de la última lectura,
+        // no a "toda la versión activa" en general.
         $select = $connection->select()
             ->from($entity, ['sku', 'created_in'])
-            ->where('created_in > ?', $sinceTimestamp)
-            ->where('created_in <= UNIX_TIMESTAMP()')
-            ->where('updated_in > UNIX_TIMESTAMP()');
+            ->where('created_in > ?', $sinceTimestamp);
+        $this->activeVersionResolver->applyToSelect($select);
 
         return $connection->fetchAll($select);
-    }
-
-    /**
-     * Detección SIEMPRE por tableColumnExists(), nunca por edición ni por
-     * lista de módulos: en Community estas columnas no existen y
-     * referenciarlas sería un error de SQL, así que esa rama debe ser real,
-     * no solo una condición que nunca se toma.
-     */
-    private function hasVersioningColumns(AdapterInterface $connection): bool
-    {
-        if ($this->versioningColumnsPresent === null) {
-            $entity = $this->resource->getTableName('catalog_product_entity');
-            $this->versioningColumnsPresent = $connection->tableColumnExists($entity, 'created_in')
-                && $connection->tableColumnExists($entity, 'updated_in');
-        }
-
-        return $this->versioningColumnsPresent;
     }
 }

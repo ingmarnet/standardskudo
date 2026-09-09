@@ -15,17 +15,16 @@ class ProductReader implements ProductReaderInterface
     /** Tope de SKUs por llamada a getBySku(). Ver ProductReaderInterface. */
     private const MAX_SKUS = 100;
 
-    /**
-     * Si `catalog_product_entity` tiene created_in/updated_in (Magento_Staging).
-     * Memoizado: probarlo en cada página costaría lo mismo que no memoizar
-     * EntityKeyResolver, ver esa clase.
-     */
-    private ?bool $hasVersioningColumns = null;
-
     public function __construct(
         private readonly ResourceConnection $resource,
         private readonly Cursor $cursor,
         private readonly EntityKeyResolver $entityKeyResolver,
+        // Inyectado, no instanciado con `new`, por la misma razón que
+        // EntityKeyResolver: DeltaReader (Task 10) inyecta la MISMA clase,
+        // así que ambos comparten una única instancia memoizada del
+        // esquema y una única definición de la regla de versión activa.
+        // Ver ActiveVersionResolver.
+        private readonly ActiveVersionResolver $activeVersionResolver,
     ) {
     }
 
@@ -115,8 +114,8 @@ class ProductReader implements ProductReaderInterface
      * de forma ascendente, una versión programada a futuro siempre tiene la
      * clave más alta: ganaría el upsert sobre la versión vigente.
      *
-     * En Community estas columnas no existen; referenciarlas sería un error
-     * de SQL, así que ahí no se agrega nada.
+     * La detección del esquema y la definición de la ventana viven en
+     * ActiveVersionResolver, no acá: ver esa clase para el porqué.
      *
      * Como las tablas EAV se indexan por la misma clave que la fila de
      * entidad, acotar la entidad a la versión activa ya deja solo esos
@@ -124,17 +123,7 @@ class ProductReader implements ProductReaderInterface
      */
     private function applyActiveVersionFilter(Select $select): void
     {
-        if ($this->hasVersioningColumns === null) {
-            $connection = $this->resource->getConnection();
-            $entityTable = $this->resource->getTableName('catalog_product_entity');
-            $this->hasVersioningColumns = $connection->tableColumnExists($entityTable, 'created_in')
-                && $connection->tableColumnExists($entityTable, 'updated_in');
-        }
-
-        if ($this->hasVersioningColumns) {
-            $select->where('e.created_in <= UNIX_TIMESTAMP()')
-                ->where('e.updated_in > UNIX_TIMESTAMP()');
-        }
+        $this->activeVersionResolver->applyToSelect($select, 'e.');
     }
 
     /**

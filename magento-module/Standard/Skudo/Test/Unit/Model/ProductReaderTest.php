@@ -7,6 +7,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Exception\InputException;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
 use Standard\Skudo\Model\ProductReader;
@@ -213,7 +214,12 @@ class ProductReaderTest extends TestCase
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new ProductReader($resource, new Cursor(), new EntityKeyResolver($resource));
+        return new ProductReader(
+            $resource,
+            new Cursor(),
+            new EntityKeyResolver($resource),
+            new ActiveVersionResolver($resource)
+        );
     }
 
     /**
