@@ -89,6 +89,8 @@ def delta_sync(
                 upsert_record(
                     session, tenant_id, store_id, identity, effective, provenance,
                     parse_magento_datetime(item["updated_at"]),
+                    attribute_set_id=item.get("attribute_set_id"),
+                    type_id=item.get("type_id"),
                 )
                 report.records_updated += 1
 

@@ -57,7 +57,12 @@ def upsert_record(
     effective: dict,
     provenance: dict,
     magento_updated_at: datetime,
+    *,
+    attribute_set_id: int | None = None,
+    type_id: str | None = None,
 ) -> None:
+    """`attribute_set_id` y `type_id` son opcionales porque su ausencia es un
+    hecho legítimo: la sonda puede no informarlos y NULL dice 'desconocido'."""
     stmt = insert(ProductRecord).values(
         tenant_id=tenant_id,
         store_view_magento_id=store_view_magento_id,
@@ -66,6 +71,8 @@ def upsert_record(
         model=identity.model,
         gtin=identity.gtin,
         variant_key=identity.variant_key,
+        attribute_set_id=attribute_set_id,
+        type_id=type_id,
         attributes=effective,
         scope_provenance=provenance,
         content_hash=content_hash(identity, effective),
@@ -79,6 +86,8 @@ def upsert_record(
                 "model": stmt.excluded.model,
                 "gtin": stmt.excluded.gtin,
                 "variant_key": stmt.excluded.variant_key,
+                "attribute_set_id": stmt.excluded.attribute_set_id,
+                "type_id": stmt.excluded.type_id,
                 "attributes": stmt.excluded.attributes,
                 "scope_provenance": stmt.excluded.scope_provenance,
                 "content_hash": stmt.excluded.content_hash,

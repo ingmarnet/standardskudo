@@ -57,6 +57,8 @@ def full_sync(
                     effective,
                     provenance,
                     parse_magento_datetime(item["updated_at"]),
+                    attribute_set_id=item.get("attribute_set_id"),
+                    type_id=item.get("type_id"),
                 )
                 for category_id in item["category_ids"]:
                     assign_product(session, tenant_id, item["sku"], category_id)

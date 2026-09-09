@@ -159,3 +159,14 @@ def test_a_replayed_change_does_not_duplicate_records(db_session, seeded):
         )
     )
     assert total == 1
+
+
+def test_refresh_carries_the_attribute_set_and_type(db_session, seeded):
+    """Los dos campos tienen que sobrevivir también al camino incremental: si
+    solo los leyera `full_sync`, un producto que cambia de set quedaría con el
+    set viejo hasta la siguiente carga completa."""
+    delta_sync(db_session, make_client(), seeded.id, store_view_ids=[1])
+
+    row = get_record(db_session, seeded.id, "SKU1", 1)
+    assert row.attribute_set_id == 4
+    assert row.type_id == "simple"

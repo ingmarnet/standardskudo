@@ -160,6 +160,13 @@ class ProductRecord(Base):
     gtin: Mapped[str | None] = mapped_column(String(64), nullable=True)
     variant_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # Clasificación del producto en Magento. `attribute_set_id` es lo que
+    # permite distinguir "el atributo aplica y está vacío" (defecto) de "el
+    # atributo no pertenece al set de este producto" (no_aplica). NULL significa
+    # que la sonda no lo informó: un 0 sería un id de set creíble y falso.
+    attribute_set_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    type_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     attributes: Mapped[dict] = mapped_column(JSON)
     # {codigo_atributo: "global"|"store"} — de dónde salió cada valor efectivo.
     scope_provenance: Mapped[dict] = mapped_column(JSON)
