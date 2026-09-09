@@ -53,3 +53,13 @@ def test_upsert_replaces_previous_window(db_session, tenant):
     upsert_signals(db_session, tenant.id, 1, [{**ROWS[0], "units_sold": 400}])
 
     assert get_signal(db_session, tenant.id, "SKU1", 1).units_sold == 400
+
+
+def test_upsert_refreshes_observed_at(db_session, tenant):
+    upsert_signals(db_session, tenant.id, 1, ROWS)
+    first_observed_at = get_signal(db_session, tenant.id, "SKU1", 1).observed_at
+
+    upsert_signals(db_session, tenant.id, 1, [{**ROWS[0], "units_sold": 400}])
+    second_observed_at = get_signal(db_session, tenant.id, "SKU1", 1).observed_at
+
+    assert second_observed_at > first_observed_at

@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ def upsert_signals(
             "tenant_id": tenant_id,
             "store_view_magento_id": store_view_magento_id,
             "sku": row["sku"],
+            "observed_at": func.clock_timestamp(),
             **{key: row.get(key) for key in _UPDATABLE},
         }
         for row in rows
@@ -29,7 +30,10 @@ def upsert_signals(
     session.execute(
         stmt.on_conflict_do_update(
             index_elements=["tenant_id", "sku", "store_view_magento_id"],
-            set_={key: getattr(stmt.excluded, key) for key in _UPDATABLE},
+            set_={
+                "observed_at": func.clock_timestamp(),
+                **{key: getattr(stmt.excluded, key) for key in _UPDATABLE},
+            },
         )
     )
     session.flush()
