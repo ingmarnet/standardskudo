@@ -63,5 +63,10 @@ class MagentoClient:
         response.raise_for_status()
         return response.json()["items"]
 
+    def checksums(self, store_id: int) -> dict:
+        response = self._client.get("/checksums", params={"storeId": store_id})
+        response.raise_for_status()
+        return response.json()
+
     def close(self) -> None:
         self._client.close()
