@@ -38,5 +38,30 @@ class MagentoClient:
             if not cursor:
                 return
 
+    def iter_deltas(self, since_id: int, limit: int = 1000) -> Iterator[dict]:
+        """Recorre la cola de cambios desde un watermark, página a página."""
+        cursor = since_id
+        while True:
+            response = self._client.get("/deltas", params={"sinceId": cursor, "limit": limit})
+            response.raise_for_status()
+            page = response.json()
+
+            if not page["items"]:
+                return
+
+            yield page
+            cursor = page["last_change_id"]
+
+    def products_by_sku(self, store_id: int, skus: list[str]) -> list[dict]:
+        """Relee un conjunto concreto de SKUs. Complemento del endpoint de deltas:
+        la cola dice QUÉ cambió, esto trae el estado nuevo."""
+        if not skus:
+            return []
+        response = self._client.get(
+            "/products-by-sku", params={"storeId": store_id, "skus": ",".join(skus)}
+        )
+        response.raise_for_status()
+        return response.json()["items"]
+
     def close(self) -> None:
         self._client.close()

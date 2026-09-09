@@ -202,3 +202,17 @@ class ProductCategoryAssignment(Base):
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
     sku: Mapped[str] = mapped_column(String(255), index=True)
     category_magento_id: Mapped[int] = mapped_column(Integer, index=True)
+
+
+class SyncWatermark(Base):
+    """Último change_id consumido por tenant. Es lo que hace incremental la sync."""
+
+    __tablename__ = "sync_watermark"
+    __table_args__ = (UniqueConstraint("tenant_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    last_change_id: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

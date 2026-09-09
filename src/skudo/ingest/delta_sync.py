@@ -1,0 +1,94 @@
+from pydantic import BaseModel
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+
+from skudo.ingest.full_sync import parse_magento_datetime
+from skudo.magento.client import MagentoClient
+from skudo.mirror.models import ProductRecord, SyncWatermark
+from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
+
+
+class DeltaSyncReport(BaseModel):
+    changes_seen: int = 0
+    records_updated: int = 0
+    records_deleted: int = 0
+    watermark: int = 0
+
+
+def _read_watermark(session: Session, tenant_id: int) -> int:
+    value = session.scalar(
+        select(SyncWatermark.last_change_id).where(SyncWatermark.tenant_id == tenant_id)
+    )
+    return value or 0
+
+
+def _write_watermark(session: Session, tenant_id: int, change_id: int) -> None:
+    stmt = insert(SyncWatermark).values(tenant_id=tenant_id, last_change_id=change_id)
+    session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["tenant_id"],
+            set_={"last_change_id": stmt.excluded.last_change_id},
+        )
+    )
+    session.flush()
+
+
+def delta_sync(
+    session: Session,
+    client: MagentoClient,
+    tenant_id: int,
+    store_view_ids: list[int],
+) -> DeltaSyncReport:
+    """Aplica los cambios pendientes desde el último watermark.
+
+    El watermark solo avanza cuando la página se aplicó por completo: si algo
+    falla a mitad, el reintento vuelve a traer esos cambios. Reaplicar un cambio
+    es inofensivo porque todo el camino es upsert por
+    (tenant, sku, store_view).
+    """
+    report = DeltaSyncReport(watermark=_read_watermark(session, tenant_id))
+
+    for page in client.iter_deltas(report.watermark):
+        # Un SKU puede aparecer varias veces en la misma página; solo interesa
+        # su último estado, y un delete posterior gana a cualquier save previo.
+        last_event: dict[str, str] = {}
+        for change in page["items"]:
+            report.changes_seen += 1
+            last_event[change["sku"]] = change["event"]
+
+        to_delete = [sku for sku, event in last_event.items() if event == "delete"]
+        to_refresh = [sku for sku, event in last_event.items() if event != "delete"]
+
+        if to_delete:
+            result = session.execute(
+                delete(ProductRecord).where(
+                    ProductRecord.tenant_id == tenant_id,
+                    ProductRecord.sku.in_(to_delete),
+                )
+            )
+            report.records_deleted += result.rowcount or 0
+
+        for store_id in store_view_ids:
+            for item in client.products_by_sku(store_id, to_refresh):
+                identity = ProductIdentity(
+                    sku=item["sku"],
+                    mpn=item.get("mpn"),
+                    model=item.get("model"),
+                    gtin=item.get("gtin"),
+                    variant_key=item.get("variant_key"),
+                )
+                effective, provenance = resolve_scope(
+                    item["global_values"], item["store_values"]
+                )
+                upsert_record(
+                    session, tenant_id, store_id, identity, effective, provenance,
+                    parse_magento_datetime(item["updated_at"]),
+                )
+                report.records_updated += 1
+
+        report.watermark = page["last_change_id"]
+        _write_watermark(session, tenant_id, report.watermark)
+        session.commit()
+
+    return report
