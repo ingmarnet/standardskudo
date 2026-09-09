@@ -8,5 +8,5 @@ lint:
 	uv run ruff check src tests
 
 migrate: up
-	SKUDO_DATABASE_URL=postgresql+psycopg://skudo:skudo@localhost:55432/skudo \
+	SKUDO_DATABASE_URL=postgresql+psycopg://skudo:skudo@localhost:55432/skudo_test \
 		uv run alembic upgrade head
