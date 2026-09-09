@@ -5,3 +5,4 @@ __pycache__/
 node_modules/
 .venv/
 .DS_Store
+magento-module/.phpunit.cache/
