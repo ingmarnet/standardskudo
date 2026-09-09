@@ -159,3 +159,46 @@ class ProductRecord(Base):
     mirrored_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class Category(Base):
+    __tablename__ = "category"
+    __table_args__ = (UniqueConstraint("tenant_id", "magento_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    magento_id: Mapped[int] = mapped_column(Integer)
+    # Ruta completa de ids desde la raíz. Permite decidir el árbol sin recursión.
+    path: Mapped[list] = mapped_column(JSON)
+    default_name: Mapped[str] = mapped_column(String(512))
+
+
+class CategoryStoreState(Base):
+    """Nombre y actividad de la categoría EN una store view. Esto sí tiene scope."""
+
+    __tablename__ = "category_store_state"
+    __table_args__ = (UniqueConstraint("tenant_id", "category_magento_id",
+                                       "store_view_magento_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    category_magento_id: Mapped[int] = mapped_column(Integer, index=True)
+    store_view_magento_id: Mapped[int] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean)
+    name: Mapped[str] = mapped_column(String(512))
+
+
+class ProductCategoryAssignment(Base):
+    """Asignación producto-categoría: GLOBAL, sin store view.
+
+    En el core de Magento `catalog_category_product` no tiene store_id. El efecto
+    por tienda se deriva (ver derive_category_effect), nunca se guarda aquí.
+    """
+
+    __tablename__ = "product_category_assignment"
+    __table_args__ = (UniqueConstraint("tenant_id", "sku", "category_magento_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    sku: Mapped[str] = mapped_column(String(255), index=True)
+    category_magento_id: Mapped[int] = mapped_column(Integer, index=True)
