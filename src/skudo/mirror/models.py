@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -215,4 +225,30 @@ class SyncWatermark(Base):
     last_change_id: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProductSignal(Base):
+    """Señales comerciales por (tenant, sku, store view).
+
+    `margin` y `salable_qty` admiten NULL a propósito: 'desconocido' no es 'cero'.
+    """
+
+    __tablename__ = "product_signal"
+    __table_args__ = (UniqueConstraint("tenant_id", "sku", "store_view_magento_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    sku: Mapped[str] = mapped_column(String(255), index=True)
+    store_view_magento_id: Mapped[int] = mapped_column(Integer, index=True)
+
+    units_sold: Mapped[int] = mapped_column(Integer, default=0)
+    revenue: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    salable_qty: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    physical_qty: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
+    uses_msi: Mapped[bool] = mapped_column(Boolean, default=False)
+    margin: Mapped[float | None] = mapped_column(Numeric(9, 4), nullable=True)
+    search_demand: Mapped[int] = mapped_column(Integer, default=0)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
     )
