@@ -60,39 +60,44 @@ def upsert_record(
     *,
     attribute_set_id: int | None = None,
     type_id: str | None = None,
+    sync_generation: int | None = None,
 ) -> None:
     """`attribute_set_id` y `type_id` son opcionales porque su ausencia es un
-    hecho legítimo: la sonda puede no informarlos y NULL dice 'desconocido'."""
-    stmt = insert(ProductRecord).values(
-        tenant_id=tenant_id,
-        store_view_magento_id=store_view_magento_id,
-        sku=identity.sku,
-        mpn=identity.mpn,
-        model=identity.model,
-        gtin=identity.gtin,
-        variant_key=identity.variant_key,
-        attribute_set_id=attribute_set_id,
-        type_id=type_id,
-        attributes=effective,
-        scope_provenance=provenance,
-        content_hash=content_hash(identity, effective),
-        magento_updated_at=magento_updated_at,
-    )
+    hecho legítimo: la sonda puede no informarlos y NULL dice 'desconocido'.
+
+    `sync_generation` solo lo pasa una pasada completa, que necesita sellar lo
+    que tocó para poder barrer lo que no. Sin él, la fila conserva el sello que
+    tuviera: una escritura incremental no puede hacer parecer viva a una fila
+    que la próxima pasada completa no encuentre, ni al revés.
+    """
+    values: dict = {
+        "tenant_id": tenant_id,
+        "store_view_magento_id": store_view_magento_id,
+        "sku": identity.sku,
+        "mpn": identity.mpn,
+        "model": identity.model,
+        "gtin": identity.gtin,
+        "variant_key": identity.variant_key,
+        "attribute_set_id": attribute_set_id,
+        "type_id": type_id,
+        "attributes": effective,
+        "scope_provenance": provenance,
+        "content_hash": content_hash(identity, effective),
+        "magento_updated_at": magento_updated_at,
+    }
+    updatable = [
+        "mpn", "model", "gtin", "variant_key", "attribute_set_id", "type_id",
+        "attributes", "scope_provenance", "content_hash", "magento_updated_at",
+    ]
+    if sync_generation is not None:
+        values["sync_generation"] = sync_generation
+        updatable.append("sync_generation")
+
+    stmt = insert(ProductRecord).values(**values)
     session.execute(
         stmt.on_conflict_do_update(
             index_elements=["tenant_id", "sku", "store_view_magento_id"],
-            set_={
-                "mpn": stmt.excluded.mpn,
-                "model": stmt.excluded.model,
-                "gtin": stmt.excluded.gtin,
-                "variant_key": stmt.excluded.variant_key,
-                "attribute_set_id": stmt.excluded.attribute_set_id,
-                "type_id": stmt.excluded.type_id,
-                "attributes": stmt.excluded.attributes,
-                "scope_provenance": stmt.excluded.scope_provenance,
-                "content_hash": stmt.excluded.content_hash,
-                "magento_updated_at": stmt.excluded.magento_updated_at,
-            },
+            set_={column: getattr(stmt.excluded, column) for column in updatable},
         )
     )
     session.flush()

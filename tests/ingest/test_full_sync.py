@@ -169,3 +169,55 @@ def test_a_full_sync_revokes_a_category_the_product_left(db_session, tenant):
             ProductCategoryAssignment.sku == "0074",
         )
     ).all() == []
+
+
+def _seed_stale(db_session, tenant_id, sku, store_id):
+    from datetime import UTC, datetime
+
+    from skudo.mirror.products import ProductIdentity, upsert_record
+
+    upsert_record(db_session, tenant_id, store_id, ProductIdentity(sku=sku),
+                  {"name": "fantasma"}, {"name": "global"},
+                  datetime(2026, 1, 1, tzinfo=UTC))
+
+
+def test_a_stale_sku_is_dropped_by_the_next_full_sync(db_session, tenant):
+    """Una fila que el espejo tiene y el origen ya no ofrece debe desaparecer.
+    Sin barrido, `full_sync` no podía soltarla nunca y `reconcile` detectaba una
+    deriva que su propio remedio no reparaba."""
+    full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+    _seed_stale(db_session, tenant.id, "RANCIO", 1)
+    assert get_record(db_session, tenant.id, "RANCIO", 1) is not None
+
+    report = full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+
+    assert get_record(db_session, tenant.id, "RANCIO", 1) is None
+    assert report.records_deleted == 1
+    # Y lo que sí venía del origen sigue ahí.
+    assert get_record(db_session, tenant.id, "0074", 1) is not None
+    assert get_record(db_session, tenant.id, "SKU2", 1) is not None
+
+
+def test_the_sweep_only_touches_the_store_views_of_this_pass(db_session, tenant):
+    """Barrer la store view 1 no puede llevarse por delante los registros de la
+    3, que esta pasada no ha mirado."""
+    _seed_stale(db_session, tenant.id, "SOLO_BR", 3)
+
+    report = full_sync(db_session, make_client(), tenant.id, store_view_ids=[1])
+
+    assert get_record(db_session, tenant.id, "SOLO_BR", 3) is not None
+    assert report.records_deleted == 0
+
+
+def test_the_sweep_does_not_cross_tenants(db_session):
+    from skudo.mirror.models import Tenant as TenantModel
+
+    a = TenantModel(code="a", name="A", base_url="https://a.test", token_env_var="X")
+    b = TenantModel(code="b", name="B", base_url="https://b.test", token_env_var="Y")
+    db_session.add_all([a, b])
+    db_session.flush()
+    _seed_stale(db_session, b.id, "0074", 1)
+
+    full_sync(db_session, make_client(), a.id, store_view_ids=[1])
+
+    assert get_record(db_session, b.id, "0074", 1) is not None

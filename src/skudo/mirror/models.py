@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -10,6 +11,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -172,6 +174,13 @@ class ProductRecord(Base):
     scope_provenance: Mapped[dict] = mapped_column(JSON)
 
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
+    # Sello de la última pasada completa que tocó esta fila. Al terminar la
+    # pasada de una store view, lo que no lleve el sello de esa pasada es una
+    # fila que el origen ya no ofrece y se barre. 0 = ninguna pasada completa la
+    # ha tocado todavía (la escribió el camino incremental, o es preexistente).
+    sync_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
     magento_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     mirrored_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
