@@ -96,6 +96,85 @@ class ProductReaderTest extends TestCase
         $reader->getBySku(1, $skus);
     }
 
+    public function testGetBySkuAcceptsExactlyOneHundredSkus(): void
+    {
+        $selects = [];
+        $reader = $this->makeReader(hasRowId: true, hasVersioning: true, fixtureRows: [], selects: $selects);
+
+        $skus = array_map(static fn (int $i): string => "SKU-{$i}", range(1, 100));
+
+        // 100 no debe rechazarse: solo lo que excede el tope. El fixture está
+        // vacío a propósito, así que basta con que no lance InputException.
+        $result = $reader->getBySku(1, $skus);
+
+        $this->assertSame(['items' => []], $result);
+    }
+
+    /**
+     * Regla 3/Finding 2 de revisión: la paginación por keyset SOLO es
+     * correcta si el orden coincide con la dirección del cursor. El fixture
+     * se inserta deliberadamente desordenado (clave 30, 10, 20); si
+     * ProductReader no ordenara por la clave resuelta (o la invirtiera), el
+     * `FakeSelect` reproduciría ese mismo desorden (o el orden inverso) al
+     * evaluar los `where()`/`order()` reales, y esta prueba fallaría con
+     * datos concretos, no con una comparación de strings.
+     */
+    public function testGetPageOrdersRowsAscendingByTheResolvedKey(): void
+    {
+        $fixtureRows = [
+            $this->entityRow(30, 'C'),
+            $this->entityRow(10, 'A'),
+            $this->entityRow(20, 'B'),
+        ];
+
+        $selects = [];
+        $reader = $this->makeReader(hasRowId: true, hasVersioning: false, fixtureRows: $fixtureRows, selects: $selects);
+
+        $result = $reader->getPage(storeId: 1, limit: 10);
+
+        $this->assertSame(['A', 'B', 'C'], array_column($result['items'], 'sku'));
+    }
+
+    /**
+     * Finding 2 de revisión: una página llena (tantas filas como el límite)
+     * debe devolver un `next_cursor` no nulo, y ese cursor debe apuntar a la
+     * clave de la última fila devuelta. Si `next_cursor` se calculara al
+     * revés, `iter_products` del cliente Python cortaría el barrido a mitad
+     * de catálogo sin avisar.
+     */
+    public function testGetPageReturnsNonNullNextCursorWhenThePageIsFull(): void
+    {
+        $fixtureRows = [$this->entityRow(10, 'A'), $this->entityRow(20, 'B')];
+
+        $selects = [];
+        $reader = $this->makeReader(hasRowId: true, hasVersioning: false, fixtureRows: $fixtureRows, selects: $selects);
+
+        $result = $reader->getPage(storeId: 1, limit: 2);
+
+        $this->assertCount(2, $result['items']);
+        $this->assertNotNull($result['next_cursor']);
+        $this->assertSame(20, (new Cursor())->decode($result['next_cursor']));
+    }
+
+    /**
+     * Finding 2 de revisión: una página corta (menos filas que el límite)
+     * debe devolver `next_cursor: null`. Si esto se invirtiera, el cliente
+     * Python (ver `iter_products`) pediría una página más, siempre vacía,
+     * en un bucle infinito.
+     */
+    public function testGetPageReturnsNullNextCursorWhenThePageIsShort(): void
+    {
+        $fixtureRows = [$this->entityRow(10, 'A'), $this->entityRow(20, 'B')];
+
+        $selects = [];
+        $reader = $this->makeReader(hasRowId: true, hasVersioning: false, fixtureRows: $fixtureRows, selects: $selects);
+
+        $result = $reader->getPage(storeId: 1, limit: 5);
+
+        $this->assertCount(2, $result['items']);
+        $this->assertNull($result['next_cursor']);
+    }
+
     public function testGetBySkuWithNoSkusReturnsEmptyItemsWithoutQuerying(): void
     {
         $selects = [];
@@ -137,6 +216,25 @@ class ProductReaderTest extends TestCase
         return new ProductReader($resource, new Cursor(), new EntityKeyResolver($resource));
     }
 
+    /**
+     * Fila de fixture mínima de catalog_product_entity, sin columnas de
+     * versionado (para las pruebas de orden/paginación, que no ejercitan la
+     * Regla 3 y no la necesitan).
+     *
+     * @return mixed[]
+     */
+    private function entityRow(int $rowId, string $sku): array
+    {
+        return [
+            'row_id' => $rowId,
+            'entity_id' => $rowId,
+            'sku' => $sku,
+            'attribute_set_id' => 4,
+            'type_id' => 'simple',
+            'updated_at' => '2026-01-01 00:00:00',
+        ];
+    }
+
     /** @param list<FakeSelect> $selects */
     private function entitySelect(array $selects): FakeSelect
     {
@@ -155,9 +253,12 @@ class ProductReaderTest extends TestCase
 
     /**
      * Simula la ejecución del SELECT sobre catalog_product_entity: aplica los
-     * `where()` reales que armó ProductReader contra las filas de ejemplo.
-     * Cualquier otra tabla (EAV/website/category) no es objeto de esta
-     * prueba y devuelve vacío.
+     * `where()`, el `order()` y el `limit()` reales que armó ProductReader
+     * contra las filas de ejemplo — no solo inspecciona los strings que
+     * arma, sino que los ejecuta, para que un `order()` borrado o invertido,
+     * o un `limit()` no aplicado, hagan fallar la prueba con datos reales en
+     * vez de pasar por casualidad. Cualquier otra tabla (EAV/website/
+     * category) no es objeto de esta prueba y devuelve vacío.
      *
      * @param mixed[] $fixtureRows
      * @return mixed[]
@@ -174,6 +275,18 @@ class ProductReaderTest extends TestCase
                 $rows,
                 fn (array $row): bool => $this->conditionMatches($row, $where['cond'], $where['value'])
             ));
+        }
+
+        if ($select->orderSpec !== null && preg_match('/^e\.(\w+)\s+(ASC|DESC)$/i', $select->orderSpec, $m) === 1) {
+            $field = $m[1];
+            $direction = strtoupper($m[2]);
+            usort($rows, static fn (array $a, array $b): int => $direction === 'ASC'
+                ? $a[$field] <=> $b[$field]
+                : $b[$field] <=> $a[$field]);
+        }
+
+        if ($select->limitCount !== null) {
+            $rows = array_slice($rows, 0, $select->limitCount);
         }
 
         return array_map(fn (array $row): array => $this->projectColumns($row, $select->columns), $rows);
@@ -223,9 +336,19 @@ class ProductReaderTest extends TestCase
 
 /**
  * Doble de prueba de `Magento\Framework\DB\Select`: registra la tabla, las
- * columnas y los `where()` encadenados, sin tocar ninguna base de datos.
+ * columnas, los `where()` encadenados y el `order()` pedido, sin tocar
+ * ninguna base de datos.
+ *
+ * Extiende la clase real (en vez de solo imitar su interfaz) para que
+ * `ProductReader::baseEntitySelect()`/`applyActiveVersionFilter()` puedan
+ * tener el tipo `Select` en su firma sin romper estas pruebas. El
+ * constructor de `Select` exige un adaptador real y un `SelectRenderer`;
+ * como este doble sobreescribe todos los métodos que `ProductReader` usa
+ * (from/join/where/order/limit) y ninguno de ellos llama a `parent::`,
+ * omitir `parent::__construct()` es seguro: no queda ningún estado heredado
+ * del que este doble dependa.
  */
-final class FakeSelect
+final class FakeSelect extends \Magento\Framework\DB\Select
 {
     public string $table = '';
 
@@ -235,11 +358,20 @@ final class FakeSelect
     /** @var list<array{cond: string, value: mixed}> */
     public array $wheres = [];
 
+    public ?string $orderSpec = null;
+
+    public ?int $limitCount = null;
+
+    public function __construct()
+    {
+    }
+
     /**
      * @param mixed $tables
      * @param string|array<string, string> $columns
+     * @param mixed $schema
      */
-    public function from(mixed $tables, string|array $columns = '*'): self
+    public function from($tables, $columns = '*', $schema = null): self
     {
         $this->table = (string) array_values((array) $tables)[0];
         $this->columns = is_array($columns) ? $columns : [$columns];
@@ -252,25 +384,28 @@ final class FakeSelect
      *
      * @param mixed $tables
      * @param string|array<string, string> $columns
+     * @param mixed $schema
      */
-    public function join(mixed $tables, string $cond, string|array $columns = []): self
+    public function join($tables, $cond, $columns = '*', $schema = null): self
     {
         return $this;
     }
 
-    public function where(string $cond, mixed $value = null): self
+    public function where($cond, $value = null, $type = null): self
     {
         $this->wheres[] = ['cond' => $cond, 'value' => $value];
         return $this;
     }
 
-    public function order(mixed $spec): self
+    public function order($spec): self
     {
+        $this->orderSpec = is_array($spec) ? implode(',', $spec) : (string) $spec;
         return $this;
     }
 
-    public function limit(mixed $count, mixed $offset = 0): self
+    public function limit($count = null, $offset = null): self
     {
+        $this->limitCount = $count !== null ? (int) $count : null;
         return $this;
     }
 }

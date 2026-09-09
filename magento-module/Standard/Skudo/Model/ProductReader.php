@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Standard\Skudo\Model;
 
 use Magento\Framework\App\ResourceConnection;
-use Magento\Framework\DB\Adapter\AdapterInterface;
+use Magento\Framework\DB\Select;
 use Magento\Framework\Exception\InputException;
 use Standard\Skudo\Api\ProductReaderInterface;
 
@@ -35,24 +35,13 @@ class ProductReader implements ProductReaderInterface
         $after = $this->cursor->decode($cursor);
         $keyColumn = $this->entityKeyResolver->resolve();
 
-        $connection = $this->resource->getConnection();
-        $entity = $this->resource->getTableName('catalog_product_entity');
-
-        $select = $connection->select()
-            ->from(['e' => $entity], [
-                'key' => 'e.' . $keyColumn,
-                'sku' => 'e.sku',
-                'attribute_set_id' => 'e.attribute_set_id',
-                'type_id' => 'e.type_id',
-                'updated_at' => 'e.updated_at',
-            ])
+        $select = $this->baseEntitySelect($keyColumn)
             ->where('e.' . $keyColumn . ' > ?', $after)
             ->order('e.' . $keyColumn . ' ASC')
             ->limit($limit);
+        $this->applyActiveVersionFilter($select);
 
-        $this->applyActiveVersionFilter($select, $connection, $entity);
-
-        $rows = $connection->fetchAll($select);
+        $rows = $this->resource->getConnection()->fetchAll($select);
         if ($rows === []) {
             return ['items' => [], 'next_cursor' => null];
         }
@@ -83,25 +72,37 @@ class ProductReader implements ProductReaderInterface
         }
 
         $keyColumn = $this->entityKeyResolver->resolve();
-        $connection = $this->resource->getConnection();
+
+        $select = $this->baseEntitySelect($keyColumn)
+            // Identidad como texto, sin normalizar: 'sku' viaja tal cual.
+            ->where('e.sku IN (?)', $skus);
+        $this->applyActiveVersionFilter($select);
+
+        $rows = $this->resource->getConnection()->fetchAll($select);
+
+        return ['items' => $this->projectRows($rows, $keyColumn, $storeId)];
+    }
+
+    /**
+     * Proyección compartida por getPage() y getBySku(): las mismas cinco
+     * columnas de `catalog_product_entity`, sin ningún where/order/limit
+     * todavía. Cada caller agrega solo lo que lo distingue (el keyset y el
+     * orden en getPage(), el `sku IN (?)` en getBySku()) para que un campo
+     * agregado a un lado y no al otro no pueda pasar inadvertido.
+     */
+    private function baseEntitySelect(string $keyColumn): Select
+    {
         $entity = $this->resource->getTableName('catalog_product_entity');
 
-        $select = $connection->select()
+        return $this->resource->getConnection()
+            ->select()
             ->from(['e' => $entity], [
                 'key' => 'e.' . $keyColumn,
                 'sku' => 'e.sku',
                 'attribute_set_id' => 'e.attribute_set_id',
                 'type_id' => 'e.type_id',
                 'updated_at' => 'e.updated_at',
-            ])
-            // Identidad como texto, sin normalizar: 'sku' viaja tal cual.
-            ->where('e.sku IN (?)', $skus);
-
-        $this->applyActiveVersionFilter($select, $connection, $entity);
-
-        $rows = $connection->fetchAll($select);
-
-        return ['items' => $this->projectRows($rows, $keyColumn, $storeId)];
+            ]);
     }
 
     /**
@@ -121,9 +122,11 @@ class ProductReader implements ProductReaderInterface
      * entidad, acotar la entidad a la versión activa ya deja solo esos
      * valores: las tablas EAV no se filtran aparte.
      */
-    private function applyActiveVersionFilter($select, AdapterInterface $connection, string $entityTable): void
+    private function applyActiveVersionFilter(Select $select): void
     {
         if ($this->hasVersioningColumns === null) {
+            $connection = $this->resource->getConnection();
+            $entityTable = $this->resource->getTableName('catalog_product_entity');
             $this->hasVersioningColumns = $connection->tableColumnExists($entityTable, 'created_in')
                 && $connection->tableColumnExists($entityTable, 'updated_in');
         }

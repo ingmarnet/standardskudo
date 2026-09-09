@@ -9,6 +9,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\EntityKeyResolver;
 use Standard\Skudo\Model\EnvironmentProbe;
 
 class EnvironmentProbeTest extends TestCase
@@ -55,7 +56,13 @@ class EnvironmentProbeTest extends TestCase
         $storeManager->method('getGroups')->willReturn([]);
         $storeManager->method('getStores')->willReturn([]);
 
-        return new EnvironmentProbe($metadata, $modules, $resource, $storeManager);
+        // Resolver real (no un mock): EnvironmentProbe ahora lo recibe
+        // inyectado en vez de construirlo con `new`, y un EntityKeyResolver
+        // real sobre el mismo $resource mockeado se comporta exactamente
+        // como lo haría el de producción.
+        $keyResolver = new EntityKeyResolver($resource);
+
+        return new EnvironmentProbe($metadata, $modules, $resource, $storeManager, $keyResolver);
     }
 
     public function testOpenSourceReportsEntityId(): void

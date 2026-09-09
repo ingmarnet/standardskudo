@@ -13,16 +13,17 @@ class EnvironmentProbe implements EnvironmentProbeInterface
 {
     private const MODULE_VERSION = '1.0.0';
 
-    private readonly EntityKeyResolver $keyResolver;
-
     public function __construct(
         private readonly ProductMetadataInterface $metadata,
         private readonly ModuleListInterface $modules,
         private readonly ResourceConnection $resource,
         private readonly StoreManagerInterface $storeManager,
+        // Inyectado, no instanciado con `new`: EntityKeyResolver es
+        // "shared" para el ObjectManager, así que ProductReader y esta
+        // clase reciben la MISMA instancia memoizada y el esquema se
+        // prueba una sola vez por request, no una vez por cada una.
+        private readonly EntityKeyResolver $keyResolver,
     ) {
-        // Un único lugar decide row_id vs. entity_id; ver EntityKeyResolver.
-        $this->keyResolver = new EntityKeyResolver($resource);
     }
 
     public function getProfile(): array
