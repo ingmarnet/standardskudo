@@ -63,3 +63,42 @@ def test_upsert_refreshes_observed_at(db_session, tenant):
     second_observed_at = get_signal(db_session, tenant.id, "SKU1", 1).observed_at
 
     assert second_observed_at > first_observed_at
+
+
+def test_absent_commercial_signals_are_stored_as_unknown(db_session, tenant):
+    """`units_sold`, `revenue` y `search_demand` ausentes son 'no tenemos ese
+    dato para esta tienda', no cero. Eran NOT NULL, y como `upsert_signals`
+    manda siempre la clave con `row.get(key)` -> None, el `default=0` de Python
+    no se aplicaba nunca: la fila reventaba con IntegrityError."""
+    upsert_signals(db_session, tenant.id, 1, [{"sku": "SIN_DATOS", "uses_msi": False}])
+
+    row = get_signal(db_session, tenant.id, "SIN_DATOS", 1)
+    assert row.units_sold is None
+    assert row.revenue is None
+    assert row.search_demand is None
+
+
+def test_zero_search_demand_is_not_the_same_as_no_search_data(db_session, tenant):
+    """El spec exige incertidumbre visible: 'nadie lo buscó' y 'no tenemos datos
+    de búsqueda de esa tienda' no pueden colapsar en el mismo cero, porque el
+    primero es una señal comercial y el segundo una laguna del origen."""
+    upsert_signals(db_session, tenant.id, 1, [
+        {"sku": "NADIE_LO_BUSCA", "search_demand": 0, "uses_msi": False},
+        {"sku": "SIN_BUSCADOR", "uses_msi": False},
+    ])
+
+    assert get_signal(db_session, tenant.id, "NADIE_LO_BUSCA", 1).search_demand == 0
+    assert get_signal(db_session, tenant.id, "SIN_BUSCADOR", 1).search_demand is None
+
+
+def test_a_known_value_can_replace_an_unknown_one(db_session, tenant):
+    """Cuando el dato aparece, deja de ser desconocido."""
+    upsert_signals(db_session, tenant.id, 1, [{"sku": "SKU3", "uses_msi": False}])
+    upsert_signals(db_session, tenant.id, 1, [
+        {"sku": "SKU3", "uses_msi": False, "units_sold": 7, "revenue": 100.0,
+         "search_demand": 12},
+    ])
+
+    row = get_signal(db_session, tenant.id, "SKU3", 1)
+    assert row.units_sold == 7
+    assert row.search_demand == 12

@@ -251,7 +251,17 @@ class SyncWatermark(Base):
 class ProductSignal(Base):
     """Señales comerciales por (tenant, sku, store view).
 
-    `margin` y `salable_qty` admiten NULL a propósito: 'desconocido' no es 'cero'.
+    Todas las magnitudes medidas admiten NULL a propósito: 'desconocido' no es
+    'cero'. `search_demand = 0` significa que nadie buscó el producto;
+    `search_demand IS NULL`, que no tenemos datos de búsqueda de esa tienda.
+    Colapsar los dos en un cero rompería la incertidumbre visible que el spec
+    exige y falsearía la priorización comercial.
+
+    Ninguna lleva `default=`: `upsert_signals` manda siempre la clave, así que
+    un default de Python nunca se aplicaría y solo serviría para hacer creer que
+    la ausencia tiene un valor de relleno. `uses_msi` sí sigue NOT NULL porque
+    no es una medición sino una propiedad del Magento del tenant, que la sonda
+    de entorno conoce siempre; si faltara, el fallo debe ser ruidoso.
     """
 
     __tablename__ = "product_signal"
@@ -262,13 +272,13 @@ class ProductSignal(Base):
     sku: Mapped[str] = mapped_column(String(255), index=True)
     store_view_magento_id: Mapped[int] = mapped_column(Integer, index=True)
 
-    units_sold: Mapped[int] = mapped_column(Integer, default=0)
-    revenue: Mapped[float] = mapped_column(Numeric(18, 4), default=0)
+    units_sold: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    revenue: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     salable_qty: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     physical_qty: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
-    uses_msi: Mapped[bool] = mapped_column(Boolean, default=False)
+    uses_msi: Mapped[bool] = mapped_column(Boolean)
     margin: Mapped[float | None] = mapped_column(Numeric(9, 4), nullable=True)
-    search_demand: Mapped[int] = mapped_column(Integer, default=0)
+    search_demand: Mapped[int | None] = mapped_column(Integer, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
