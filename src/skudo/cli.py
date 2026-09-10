@@ -115,9 +115,24 @@ def build_parser() -> argparse.ArgumentParser:
         "SKUDO_TENANT_<CODIGO>_TOKEN. NUNCA el token en sí.",
     )
 
-    def tenant_command(name: str, help_text: str, *, stores: bool = False):
+    def tenant_command(
+        name: str, help_text: str, *, stores: bool = False, sweeps: bool = False
+    ):
         command = sub.add_parser(name, help=help_text)
         command.add_argument("--tenant", required=True, help="código del tenant")
+        if sweeps:
+            # La válvula del barrido masivo (M3). No es un dial —un umbral
+            # configurable en un cron termina en 1,0— sino un sí explícito por
+            # invocación, para el caso legítimo de un tenant que de verdad
+            # vació su catálogo.
+            command.add_argument(
+                "--sweep-anyway",
+                action="store_true",
+                help="autoriza un barrido que se llevaría más de la mayoría de "
+                "las filas. Sin esto, ese barrido se ABORTA sin tocar el espejo: "
+                "una respuesta vacía del módulo es indistinguible de un catálogo "
+                "vaciado de verdad.",
+            )
         if stores:
             command.add_argument(
                 "--stores",
@@ -131,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
     tenant_command("probe", "sonda el Magento del tenant y espeja su topología")
 
     full = tenant_command(
-        "full-sync", "carga completa del catálogo, reanudable", stores=True
+        "full-sync", "carga completa del catálogo, reanudable", stores=True, sweeps=True
     )
     full.add_argument("--page-size", type=int, default=FULL_SYNC_PAGE_SIZE)
     full.add_argument(
@@ -141,8 +156,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     tenant_command("delta-sync", "aplica los cambios pendientes de la cola", stores=True)
-    tenant_command("attributes", "espeja atributos, opciones y etiquetas")
-    tenant_command("categories", "espeja categorías y su estado por tienda", stores=True)
+    tenant_command("attributes", "espeja atributos, opciones y etiquetas", sweeps=True)
+    tenant_command(
+        "categories", "espeja categorías y su estado por tienda",
+        stores=True, sweeps=True,
+    )
     signals = tenant_command(
         "signals", "espeja las señales comerciales por tienda", stores=True
     )
@@ -492,6 +510,7 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
                             store_ids,
                             page_size=args.page_size,
                             restart=args.restart,
+                            sweep_anyway=args.sweep_anyway,
                         ).model_dump()
                     )
                     return EXIT_OK
@@ -499,10 +518,18 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
                     _report(delta_sync(session, source, store_ids).model_dump())
                     return EXIT_OK
                 if args.command == "attributes":
-                    _report(sync_attributes(session, source).model_dump())
+                    _report(
+                        sync_attributes(
+                            session, source, sweep_anyway=args.sweep_anyway
+                        ).model_dump()
+                    )
                     return EXIT_OK
                 if args.command == "categories":
-                    _report(sync_categories(session, source, store_ids).model_dump())
+                    _report(
+                        sync_categories(
+                            session, source, store_ids, sweep_anyway=args.sweep_anyway
+                        ).model_dump()
+                    )
                     return EXIT_OK
                 if args.command == "signals":
                     _report(

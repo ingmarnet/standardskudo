@@ -1,10 +1,11 @@
 from pydantic import BaseModel
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from skudo.ingest.source import TenantSource
 from skudo.ingest.sweep import (
     PASS_CATEGORIES,
+    guard_mass_sweep,
     next_generation,
     note_page,
     require_complete_pass,
@@ -28,6 +29,8 @@ def sync_categories(
     session: Session,
     source: TenantSource,
     store_view_ids: list[int],
+    *,
+    sweep_anyway: bool = False,
 ) -> CategorySyncReport:
     """Vuelca categorías (path + estado por store view) en el espejo.
 
@@ -104,12 +107,14 @@ def sync_categories(
     (
         report.categories_deleted,
         report.category_store_states_deleted,
-    ) = _sweep_categories(session, tenant_id, generation)
+    ) = _sweep_categories(session, tenant_id, generation, sweep_anyway=sweep_anyway)
     session.commit()
     return report
 
 
-def _sweep_categories(session: Session, tenant_id: int, generation: int) -> tuple[int, int]:
+def _sweep_categories(
+    session: Session, tenant_id: int, generation: int, *, sweep_anyway: bool = False
+) -> tuple[int, int]:
     """Borra categorías y estados por tienda que esta pasada no selló.
 
     La precondición se lee de la BASE (`require_complete_pass`): un barrido
@@ -123,6 +128,23 @@ def _sweep_categories(session: Session, tenant_id: int, generation: int) -> tupl
     ese caso no se vería.
     """
     pass_row = require_complete_pass(session, tenant_id, PASS_CATEGORIES, generation)
+
+    # La válvula, sobre las dos tablas selladas y por separado, igual que en la
+    # pasada de atributos: un árbol entero que desaparece y un estado por
+    # tienda que desaparece son dos hechos distintos.
+    for model, what in (
+        (Category, "category"),
+        (CategoryStoreState, "category_store_state"),
+    ):
+        total, doomed = session.execute(
+            select(
+                func.count(),
+                func.count().filter(model.sync_generation != generation),
+            ).where(model.tenant_id == tenant_id)
+        ).one()
+        guard_mass_sweep(
+            session, what=what, total=total, to_delete=doomed, override=sweep_anyway
+        )
 
     states_deleted = session.execute(
         delete(CategoryStoreState).where(

@@ -43,6 +43,36 @@ SYNC_GENERATION_SEQUENCE = Sequence("product_sync_generation_seq")
 PASS_ATTRIBUTES = "attributes"
 PASS_CATEGORIES = "categories"
 
+# La válvula del barrido masivo. Un barrido que se llevaría MÁS de esta
+# proporción de las filas que tiene a su alcance se niega y pide autorización
+# explícita.
+#
+# Por qué 0,5 —la mayoría estricta— y no otro número: por debajo de la mitad,
+# un borrado grande es indistinguible de la rotación normal de un catálogo, y
+# una válvula que dispara en las pasadas normales es una válvula que alguien
+# apaga. Por encima de la mitad, el barrido está afirmando algo sobre el
+# catálogo ENTERO del tenant, que es una afirmación que merece un humano. Y el
+# fallo que motiva todo esto —un endpoint que responde `[]`, un token vencido
+# que igual da 200, una paginación rota— produce siempre el 100 %, cómodamente
+# del lado que se niega.
+#
+# La comparación es ESTRICTA (`>`): exactamente la mitad pasa. "La mayoría se
+# va" y "la mitad cambió" son cosas distintas, y el segundo caso es rotación.
+MASS_SWEEP_MAX_SHARE = 0.5
+
+# Piso de filas por debajo del cual la válvula no se aplica. No es una
+# concesión: es que por debajo de una decena de filas la válvula no puede
+# proteger nada que importe —resincronizar eso cuesta segundos— y a cambio
+# haría que cualquier espejo recién nacido o cualquier tenant de juguete
+# necesite una bandera para funcionar. La protección empieza donde hay algo
+# que proteger.
+MASS_SWEEP_MIN_ROWS = 10
+
+# Cómo se dice que sí, en el único lugar donde se dice. El mensaje de la
+# negativa lo nombra para que quien lo lee a las tres de la mañana no tenga
+# que buscarlo.
+SWEEP_OVERRIDE_FLAG = "--sweep-anyway"
+
 
 class IncompletePassSweep(RuntimeError):
     """El barrido se pidió para una pasada que no terminó.
@@ -55,6 +85,64 @@ class IncompletePassSweep(RuntimeError):
     exige el sello persistido de "pasada completa" y lanza esto si no está,
     en vez de confiar en que ningún camino lo llame antes de tiempo.
     """
+
+
+class MassSweepRefused(RuntimeError):
+    """El barrido se llevaría la mayoría de las filas a su alcance.
+
+    Es el hueco que el cierre de M3 dejó declarado: para el sello, una pasada
+    completa que no devolvió NADA es indistinguible de "el origen dejó de
+    ofrecer todo el catálogo". La pasada termina, marca `pass_complete`, y el
+    barrido borra el espejo entero del tenant — con las etiquetas de las
+    opciones adentro, que son el único registro de que "Negro" y "Preto" son
+    la misma `option_id`.
+
+    El espejo es derivado y una resincronización lo reconstruye, así que el
+    daño está acotado. Lo inaceptable es que sea SILENCIOSO: un sistema cuya
+    premisa entera es no destruir valor no puede tener un camino destructivo
+    que dispara con más fuerza justo cuando algo aguas arriba se rompió.
+
+    Por eso es un ABORTO con los conteos en el mensaje y no un salto
+    silencioso: un barrido que "no hizo nada" sin decirlo dejaría el espejo
+    con filas muertas y a nadie enterado. Y por eso la salida es una bandera
+    explícita y no un número que se pueda bajar: un umbral configurable en un
+    cron termina configurado en 1,0 y la válvula deja de existir sin que nadie
+    lo decida.
+    """
+
+
+def guard_mass_sweep(
+    session: Session,
+    *,
+    what: str,
+    total: int,
+    to_delete: int,
+    override: bool,
+) -> None:
+    """Se niega si el barrido se llevaría más que la mayoría de `what`.
+
+    `total` es lo que ESE barrido tiene a su alcance —las filas del tenant en
+    esa store view, o en esa tabla—, nunca el espejo entero: medir la
+    proporción sobre el total del tenant haría que vaciar PY con BR intacto
+    diera 50 % y pasara inadvertido.
+
+    No borra ni escribe nada: se llama ANTES de la primera sentencia de
+    borrado, así que una negativa deja el espejo exactamente como estaba.
+    """
+    if override or to_delete <= MASS_SWEEP_MIN_ROWS:
+        return
+    if to_delete <= total * MASS_SWEEP_MAX_SHARE:
+        return
+    share = to_delete / total if total else 1.0
+    raise MassSweepRefused(
+        f"el barrido borraría {to_delete} de {total} fila(s) de {what} "
+        f"({share:.1%}), más de la mayoría. Se aborta SIN tocar el espejo: una "
+        "pasada completa que no devuelve nada —un endpoint que responde vacío, "
+        "un token vencido que igual da 200, una paginación rota— es "
+        "indistinguible, para el sello, de un catálogo que se vació de verdad. "
+        "Verificá el origen; si el vaciado es real, repetí con "
+        f"{SWEEP_OVERRIDE_FLAG}."
+    )
 
 
 def next_generation(session: Session) -> int:

@@ -11,7 +11,11 @@ from skudo.ingest.source import TenantSource
 # que generalizó la maquinaria de H3 a las pasadas de atributos y categorías.
 # Una sola excepción para los tres barridos a propósito: dos tipos distintos
 # para el mismo modo de fallo invitarían a tratarlos como problemas distintos.
-from skudo.ingest.sweep import IncompletePassSweep, next_generation
+from skudo.ingest.sweep import (
+    IncompletePassSweep,
+    guard_mass_sweep,
+    next_generation,
+)
 from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.categories import delete_orphan_category_assignments
 from skudo.mirror.models import FullSyncCheckpoint, ProductRecord
@@ -123,6 +127,7 @@ def full_sync(
     *,
     page_size: int = FULL_SYNC_PAGE_SIZE,
     restart: bool = False,
+    sweep_anyway: bool = False,
 ) -> FullSyncReport:
     """Carga completa del catálogo, una pasada por store view, REANUDABLE.
 
@@ -158,6 +163,11 @@ def full_sync(
     REANUDACIÓN: por defecto se continúa la pasada abierta, con su MISMA
     generación. Con `restart=True` se toma una generación nueva y los
     checkpoints se reinician.
+
+    VÁLVULA (M3, segunda ronda). `sweep_anyway=True` autoriza un barrido que
+    se llevaría más de la mayoría de las filas de una store view. Sin ella ese
+    barrido se NIEGA con `MassSweepRefused` y el espejo queda intacto: ver
+    `ingest.sweep.guard_mass_sweep`.
 
     HUÉRFANOS (M3). El barrido borra `ProductRecord` y nada más, así que en la
     pasada de escala de H3 dejó 457.762 asignaciones producto-categoría sin
@@ -229,7 +239,9 @@ def full_sync(
             checkpoint.updated_at = datetime.now(UTC)
             session.commit()
 
-        report.records_deleted += _sweep(session, tenant_id, store_id, generation)
+        report.records_deleted += _sweep(
+            session, tenant_id, store_id, generation, sweep_anyway=sweep_anyway
+        )
         report.store_views_completed.append(store_id)
         session.commit()
 
@@ -253,7 +265,14 @@ def full_sync(
     return report
 
 
-def _sweep(session: Session, tenant_id: int, store_id: int, generation: int) -> int:
+def _sweep(
+    session: Session,
+    tenant_id: int,
+    store_id: int,
+    generation: int,
+    *,
+    sweep_anyway: bool = False,
+) -> int:
     """Barre las filas de esa store view que esta pasada no selló.
 
     Se hace al terminar la pasada de la store view y no al final de todas,
@@ -284,6 +303,28 @@ def _sweep(session: Session, tenant_id: int, store_id: int, generation: int) -> 
             "aborta; la reanudación continúa desde el cursor guardado y el "
             "barrido corre cuando la pasada termine."
         )
+
+    # La segunda puerta (M3, segunda ronda): los conteos se toman ANTES de
+    # borrar, así que una negativa deja el espejo intacto y el checkpoint con
+    # `pass_complete=true, swept=false` — un estado desde el que la próxima
+    # invocación CONTINÚA esta misma generación en vez de releer el catálogo,
+    # y vuelve a negarse hasta que alguien lo autorice.
+    total, doomed = session.execute(
+        select(
+            func.count(),
+            func.count().filter(ProductRecord.sync_generation != generation),
+        ).where(
+            ProductRecord.tenant_id == tenant_id,
+            ProductRecord.store_view_magento_id == store_id,
+        )
+    ).one()
+    guard_mass_sweep(
+        session,
+        what=f"product_record de la store view {store_id}",
+        total=total,
+        to_delete=doomed,
+        override=sweep_anyway,
+    )
 
     result = session.execute(
         delete(ProductRecord).where(

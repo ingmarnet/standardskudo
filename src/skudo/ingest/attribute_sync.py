@@ -1,10 +1,11 @@
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from skudo.ingest.source import TenantSource
 from skudo.ingest.sweep import (
     PASS_ATTRIBUTES,
+    guard_mass_sweep,
     next_generation,
     note_page,
     require_complete_pass,
@@ -53,7 +54,9 @@ def _labels_by_store_id(labels: object) -> dict[int, str]:
     return {int(store_id): label for store_id, label in labels.items()}
 
 
-def sync_attributes(session: Session, source: TenantSource) -> AttributeSyncReport:
+def sync_attributes(
+    session: Session, source: TenantSource, *, sweep_anyway: bool = False
+) -> AttributeSyncReport:
     """Vuelca atributos, opciones y etiquetas por store view en el espejo.
 
     Recibe un `TenantSource` y no `(client, tenant_id)` sueltos por la misma
@@ -137,13 +140,13 @@ def sync_attributes(session: Session, source: TenantSource) -> AttributeSyncRepo
         report.attributes_deleted,
         report.options_deleted,
         report.option_labels_deleted,
-    ) = _sweep_attributes(session, tenant_id, generation)
+    ) = _sweep_attributes(session, tenant_id, generation, sweep_anyway=sweep_anyway)
     session.commit()
     return report
 
 
 def _sweep_attributes(
-    session: Session, tenant_id: int, generation: int
+    session: Session, tenant_id: int, generation: int, *, sweep_anyway: bool = False
 ) -> tuple[int, int, int]:
     """Borra atributos, opciones y etiquetas que esta pasada no selló.
 
@@ -166,6 +169,21 @@ def _sweep_attributes(
     filtrable que no existe.
     """
     pass_row = require_complete_pass(session, tenant_id, PASS_ATTRIBUTES, generation)
+
+    # La válvula, sobre las DOS tablas selladas y por separado. Juntarlas en un
+    # solo porcentaje dejaría que 50.000 opciones muertas se escondieran detrás
+    # de 1.000 atributos vivos. Las etiquetas no se miden aparte: se van con su
+    # opción, así que la opción es la decisión.
+    for model, what in ((Attribute, "attribute"), (AttributeOption, "attribute_option")):
+        total, doomed = session.execute(
+            select(
+                func.count(),
+                func.count().filter(model.sync_generation != generation),
+            ).where(model.tenant_id == tenant_id)
+        ).one()
+        guard_mass_sweep(
+            session, what=what, total=total, to_delete=doomed, override=sweep_anyway
+        )
 
     stale_options = select(AttributeOption.id).where(
         AttributeOption.tenant_id == tenant_id,

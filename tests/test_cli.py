@@ -552,3 +552,39 @@ def test_status_reports_the_catalog_passes_and_whether_they_swept(cli_db, capsys
     # `categories` todavía no corrió: no hay fila, y por tanto ningún barrido
     # de categorías está autorizado.
     assert "categories" not in passes
+
+
+def test_a_sweep_that_would_empty_the_mirror_exits_with_failure(cli_db, capsys):
+    """La válvula desde el CLI (M3, segunda ronda): el módulo responde vacío y
+    la pasada se niega a barrer. Sale con 1 —un cron tiene que enterarse— y el
+    mensaje nombra los conteos y la bandera, sin traza de 40 líneas."""
+    _register()
+    _run(["probe", "--tenant", "demo"], FakeMagento())
+    muchos = tuple(f"SKU-{i:03d}" for i in range(30))
+    _run(["full-sync", "--tenant", "demo", "--stores", "1"], FakeMagento(skus=muchos))
+    capsys.readouterr()
+
+    vacio = FakeMagento(skus=())
+    assert _run(["full-sync", "--tenant", "demo", "--stores", "1"], vacio) == EXIT_FAILURE
+
+    err = capsys.readouterr().err
+    assert "MassSweepRefused" in err
+    assert "30" in err
+    assert "--sweep-anyway" in err
+
+
+def test_the_flag_authorises_the_sweep_the_valve_refused(cli_db, capsys):
+    """Y el tenant que de verdad vació su catálogo puede decirlo."""
+    _register()
+    _run(["probe", "--tenant", "demo"], FakeMagento())
+    muchos = tuple(f"SKU-{i:03d}" for i in range(30))
+    _run(["full-sync", "--tenant", "demo", "--stores", "1"], FakeMagento(skus=muchos))
+    _run(["full-sync", "--tenant", "demo", "--stores", "1"], FakeMagento(skus=()))
+    capsys.readouterr()
+
+    assert _run(
+        ["full-sync", "--tenant", "demo", "--stores", "1", "--sweep-anyway"],
+        FakeMagento(skus=()),
+    ) == EXIT_OK
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["records_deleted"] == 30
