@@ -167,15 +167,33 @@ un catálogo tres veces mayor es el primer lugar donde este módulo se rompería
 alternativa —recorrerlo por cursor y acumular sólo los 256 digests— es un cambio
 contenido en esa clase.
 
-## Lo que no se puede verificar sin desplegar el módulo
+## Lo que ya se verificó desplegando el módulo
 
-Recogido en `docs/superpowers/plans/s0-verificacion-manual.md`, que es la única cobertura de
-estos puntos:
+Esta sección decía, hasta el 2026-09-10, que cuatro cosas no podían verificarse sin
+desplegar. Se desplegó —en un entorno de desarrollo aparte, nunca en producción— y tres de
+las cuatro quedaron resueltas. Se deja el registro porque las dos primeras encontraron
+defectos reales que ningún test simulado veía:
 
-1. La forma de las respuestas sobre HTTP real. El envoltorio de B1 se prueba contra el
-   `ServiceOutputProcessor` real, lo cual es lo más cerca que se llega sin desplegar, pero
-   nadie ha hecho todavía una petición de verdad.
-2. La latencia de delta, que ningún criterio del arnés mide.
-3. El acuerdo del digest entre el `sorted()` de Python y el `sort($skus, SORT_STRING)` de PHP
-   a escala de 228k SKUs.
-4. La corrección de `eavValues()`, `websiteIds()` y `categoryIds()` contra datos reales (M5).
+1. **La forma de las respuestas sobre HTTP real — VERIFICADO, y encontró dos critical.**
+   `ServiceOutputProcessor` descartaba las claves de primer nivel de los ocho endpoints
+   (`WebApiEnvelope` lo cierra), y `store_values`/`global_values` viajaban como `[]` en vez
+   de `{}`, con lo que `full_sync` moría en el primer producto sin override de tienda. Los
+   105 tests PHP de entonces pasaban con el segundo bug presente. Detalle en
+   `verificacion-http-real.md` y `-fixes.md`.
+2. **La corrección de `eavValues()`, `websiteIds()` y `categoryIds()` — VERIFICADO.**
+   Corrieron por primera vez contra datos reales: las dos últimas correctas, la primera era
+   el segundo critical de arriba. Sigue en pie el hueco de cobertura M5: ningún test PHP las
+   ejecuta, porque `FakeSelect::join()` es un no-op.
+3. **El acuerdo del digest entre `sorted()` de Python y `sort($skus, SORT_STRING)` de PHP —
+   VERIFICADO a escala.** Coincide sobre 228.889 SKUs sintéticos, y el `ORDER BY` de MySQL
+   sí difiere, así que la regla de ordenar en PHP era necesaria.
+
+Lo que **sigue** sin verificarse, y es la única cobertura en
+`docs/superpowers/plans/s0-verificacion-manual.md`:
+
+4. **La latencia de delta**, que ningún criterio del arnés mide. Es el criterio 2 del spec y
+   solo existe como punto manual.
+5. **El comportamiento contra el catálogo de producción real.** Todo lo anterior se verificó
+   contra un entorno de desarrollo con datos sintéticos o sembrados a mano. Las cifras de
+   producción que se citan en este documento salen de consultas de solo lectura contra
+   `nisseicom`, no de ejecutar el módulo ahí.
