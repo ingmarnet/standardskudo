@@ -10,9 +10,11 @@ independiente de que el cambio realmente se aplicó.
 
 ## Estado
 
-S0 en curso: módulo Magento `Standard_Skudo` (ocho endpoints de lectura: entorno,
-productos, atributos, categorías, deltas, señales y checksums) más un ingestor
-y espejo canónico en Python. 154 tests Python y 78 tests PHP en verde.
+S0 en curso: módulo Magento `Standard_Skudo` con ocho endpoints de lectura
+(entorno, productos, productos por SKU, deltas, señales, checksums, atributos
+y categorías), más un ingestor y espejo canónico en Python. Cubierto por una
+suite de tests automatizada en ambos lados — `uv run pytest` para el lado
+Python, `make test-php` para el módulo Magento.
 
 ## Documentación
 
