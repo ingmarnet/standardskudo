@@ -192,7 +192,9 @@ def set_products_categories(
     session.flush()
 
 
-def delete_orphan_category_assignments(session: Session, tenant_id: int) -> int:
+def delete_orphan_category_assignments(
+    session: Session, tenant_id: int, skus: list[str] | None = None
+) -> int:
     """Borra las asignaciones cuyo `(tenant_id, sku)` no tiene `product_record`.
 
     M3, clase 1. `full_sync._sweep` borra `ProductRecord` y nada más, y el
@@ -231,11 +233,17 @@ def delete_orphan_category_assignments(session: Session, tenant_id: int) -> int:
         )
         .exists()
     )
-    result = session.execute(
-        delete(ProductCategoryAssignment).where(
-            ProductCategoryAssignment.tenant_id == tenant_id,
-            ~has_record,
-        )
-    )
+    where = [ProductCategoryAssignment.tenant_id == tenant_id, ~has_record]
+    if skus is not None:
+        # Acotado a los SKUs que el llamador acaba de tocar. `repair_partitions`
+        # borra filas de UNA store view, así que no puede usar la lista de SKUs
+        # como criterio —el producto puede seguir vivo en la otra tienda— pero
+        # sí puede ahorrarse el recorrido de la tabla entera. El predicado que
+        # decide sigue siendo el mismo, uno solo: por eso es un parámetro y no
+        # una segunda función.
+        if not skus:
+            return 0
+        where.append(ProductCategoryAssignment.sku.in_(skus))
+    result = session.execute(delete(ProductCategoryAssignment).where(*where))
     session.flush()
     return result.rowcount or 0

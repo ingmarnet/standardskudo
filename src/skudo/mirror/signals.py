@@ -52,7 +52,9 @@ def get_signal(
     )
 
 
-def delete_orphan_signals(session: Session, tenant_id: int) -> int:
+def delete_orphan_signals(
+    session: Session, tenant_id: int, skus: list[str] | None = None
+) -> int:
     """Borra las señales cuyo `(tenant_id, sku)` no tiene `product_record`.
 
     Misma forma y mismo razonamiento que
@@ -84,8 +86,13 @@ def delete_orphan_signals(session: Session, tenant_id: int) -> int:
         )
         .exists()
     )
-    result = session.execute(
-        delete(ProductSignal).where(ProductSignal.tenant_id == tenant_id, ~has_record)
-    )
+    where = [ProductSignal.tenant_id == tenant_id, ~has_record]
+    if skus is not None:
+        # Misma acotación y misma razón que en
+        # `categories.delete_orphan_category_assignments`.
+        if not skus:
+            return 0
+        where.append(ProductSignal.sku.in_(skus))
+    result = session.execute(delete(ProductSignal).where(*where))
     session.flush()
     return result.rowcount or 0

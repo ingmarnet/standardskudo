@@ -34,7 +34,9 @@ from skudo.ingest.apply import apply_items
 from skudo.ingest.reconcile import DriftReport, partition_of
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes
+from skudo.mirror.categories import delete_orphan_category_assignments
 from skudo.mirror.models import ProductRecord
+from skudo.mirror.signals import delete_orphan_signals
 
 # Forma de una partición: exactamente lo que emite `partition_of()` —dos
 # caracteres hex en minúsculas—. Se valida ACÁ, antes de la petición, para que
@@ -59,6 +61,10 @@ class RepairReport(BaseModel):
     records_written: int = 0
     # Filas del espejo borradas por no existir ya en la partición.
     records_deleted: int = 0
+    # M3: lo que esas filas dejaban huérfano cuando el SKU no queda en NINGUNA
+    # store view.
+    category_assignments_deleted: int = 0
+    signals_deleted: int = 0
     # SKUs que el módulo dijo tener y que `/products-by-sku` no devolvió. No
     # debería pasar (las dos respuestas salen de la misma población) y por eso
     # se cuenta y se nombra en vez de descartarse: un número distinto de cero
@@ -186,6 +192,16 @@ def repair_partitions(
             )
         )
         report.records_deleted = result.rowcount or 0
+        # M3. La reparación borra filas de UNA store view, así que la lista de
+        # SKUs no alcanza como criterio: el producto puede seguir vivo en la
+        # otra tienda y su asignación —que es global— seguir siendo verdadera.
+        # Se usa el MISMO predicado referencial que la pasada completa,
+        # acotado a esos SKUs para no recorrer la tabla entera por una cohorte
+        # de un puñado de filas.
+        report.category_assignments_deleted = delete_orphan_category_assignments(
+            session, tenant_id, skus=stale
+        )
+        report.signals_deleted = delete_orphan_signals(session, tenant_id, skus=stale)
 
     scopes = declared_scopes(session, tenant_id)
     to_reread = sorted(wanted)

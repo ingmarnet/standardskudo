@@ -297,3 +297,62 @@ def test_the_repair_reads_the_partitions_reconcile_named(db_session, tenant):
     assert sorted(instance.requested_skus[-2:]) == sorted([SKU_A, SKU_B])
     after = reconcile(db_session, instance.source(tenant.id), 1)
     assert after.content_matches is True
+
+
+# --- M3: la reparación tampoco deja huérfanas -------------------------------
+
+
+def _assignments(db_session, tenant_id):
+    from sqlalchemy import select
+
+    from skudo.mirror.models import ProductCategoryAssignment
+
+    return sorted(
+        db_session.scalars(
+            select(ProductCategoryAssignment.sku).where(
+                ProductCategoryAssignment.tenant_id == tenant_id
+            )
+        ).all()
+    )
+
+
+def test_a_sku_dropped_from_its_last_store_view_loses_its_assignments(db_session, tenant):
+    from skudo_testing import set_product_categories
+
+    instance = FakeInstance({SKU_B: "nuevo B"})
+    _mirror(db_session, tenant.id, SKU_A)
+    set_product_categories(db_session, tenant.id, SKU_A, [15, 22])
+    db_session.commit()
+
+    report = repair_partitions(
+        db_session, instance.source(tenant.id), 1, [partition_of(SKU_A)]
+    )
+
+    assert report.records_deleted == 1
+    assert report.category_assignments_deleted == 2
+    assert _assignments(db_session, tenant.id) == []
+
+
+def test_a_sku_still_mirrored_in_another_store_view_keeps_its_assignments(
+    db_session, tenant
+):
+    """LA prueba de "demasiado amplio" para este camino: la reparación es POR
+    store view y la asignación es GLOBAL. Borrar por la lista de SKUs
+    reparados dejaría sin categorías al producto que sigue vivo en la otra
+    tienda — que es la razón por la que acá se usa el predicado referencial y
+    no la lista."""
+    from skudo_testing import set_product_categories
+
+    instance = FakeInstance({SKU_B: "nuevo B"})
+    _mirror(db_session, tenant.id, SKU_A, store_id=1)
+    _mirror(db_session, tenant.id, SKU_A, store_id=3)
+    set_product_categories(db_session, tenant.id, SKU_A, [15])
+    db_session.commit()
+
+    report = repair_partitions(
+        db_session, instance.source(tenant.id), 1, [partition_of(SKU_A)]
+    )
+
+    assert report.records_deleted == 1  # sólo la fila de la store view 1
+    assert report.category_assignments_deleted == 0
+    assert _assignments(db_session, tenant.id) == [SKU_A]
