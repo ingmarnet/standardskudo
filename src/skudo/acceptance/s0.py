@@ -6,13 +6,11 @@ lista de resultados, no un booleano: cuando algo falla hay que saber qué.
 
 import argparse
 import itertools
-import sys
 
 from pydantic import BaseModel
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from skudo.config import Settings
 from skudo.ingest.reconcile import DriftReport, reconcile
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import distinct_option_ids, option_labels
@@ -25,7 +23,6 @@ from skudo.mirror.models import (
     ProductRecord,
     StoreGroup,
     StoreView,
-    Tenant,
 )
 from skudo.mirror.products import (
     SCOPE_PROVENANCE_VOCABULARY,
@@ -382,34 +379,30 @@ def run_s0_acceptance(
     ]
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Delega en `skudo.cli accept`, que es el único punto de entrada.
+
+    Este `main` era el ÚNICO del proyecto y por eso existía completo acá:
+    resolvía el tenant, leía su token y montaba la sesión por su cuenta. Desde
+    H3 hay un CLI de verdad y esas cuatro cosas viven una sola vez; mantener
+    dos copias es cómo el criterio de aceptación termina corriendo contra un
+    tenant resuelto de otra forma que la ingesta que lo pobló.
+
+    Se mantiene el comando `python -m skudo.acceptance.s0 --tenant X --stores
+    1,3` porque hay documentación y scripts que lo invocan así.
+
+    El import es local a propósito: `skudo.cli` importa `run_s0_acceptance` de
+    este módulo, y a nivel de módulo esto sería un ciclo.
+    """
+    from skudo.cli import main as cli_main
+
     parser = argparse.ArgumentParser(description="Verifica los criterios de S0")
     parser.add_argument("--tenant", required=True, help="código del tenant")
     parser.add_argument("--stores", required=True,
                         help="ids de store view separados por coma, p.ej. 1,3")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    settings = Settings()
-    engine = create_engine(settings.database_url)
-
-    with Session(engine) as session:
-        tenant = session.scalar(select(Tenant).where(Tenant.code == args.tenant))
-        if tenant is None:
-            print(f"tenant desconocido: {args.tenant}", file=sys.stderr)
-            return 2
-
-        source = TenantSource.from_tenant(tenant, settings.tenant_token(tenant.code))
-        try:
-            results = run_s0_acceptance(
-                session, source, [int(s) for s in args.stores.split(",")]
-            )
-        finally:
-            source.close()
-
-    for result in results:
-        print(f"[{'OK ' if result.passed else 'FALLA'}] {result.name}: {result.detail}")
-
-    return 0 if all(r.passed for r in results) else 1
+    return cli_main(["accept", "--tenant", args.tenant, "--stores", args.stores])
 
 
 if __name__ == "__main__":

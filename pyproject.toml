@@ -11,6 +11,10 @@ dependencies = [
   "pydantic-settings>=2.3",
 ]
 
+[project.scripts]
+# Un solo punto de entrada, el mismo que `python -m skudo.cli`.
+skudo = "skudo.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.2",
