@@ -133,6 +133,17 @@ def test_full_sync_is_idempotent(db_session, tenant):
     assert total == 2
 
 
+def test_website_ids_survive_the_round_trip(db_session, tenant):
+    """`ProductReader` ya emite `website_ids` (línea 160 del módulo, Task A3);
+    hasta ahora `full_sync` lo tiraba a la basura. Sin él,
+    `derive_category_effect` no puede evaluar su tercera condición, que es la
+    que discrimina PY de BR en el tenant piloto."""
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
+
+    row = get_record(db_session, tenant.id, "0074", 1)
+    assert row.website_ids == [1]
+
+
 def test_attribute_set_and_type_survive_the_round_trip(db_session, tenant):
     """Sin `attribute_set_id` en el registro, nada aguas abajo puede distinguir
     'este atributo aplica a este producto y está vacío' (defecto) de 'este

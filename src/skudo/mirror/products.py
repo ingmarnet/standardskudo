@@ -73,10 +73,13 @@ def upsert_record(
     *,
     attribute_set_id: int | None = None,
     type_id: str | None = None,
+    website_ids: list[int] | None = None,
     sync_generation: int | None = None,
 ) -> None:
     """`attribute_set_id` y `type_id` son opcionales porque su ausencia es un
     hecho legítimo: la sonda puede no informarlos y NULL dice 'desconocido'.
+    `website_ids` sigue el mismo patrón: es la pieza que le falta a
+    `derive_category_effect` para evaluar su tercera condición.
 
     `sync_generation` solo lo pasa una pasada completa, que necesita sellar lo
     que tocó para poder barrer lo que no. Sin él, la fila conserva el sello que
@@ -93,6 +96,7 @@ def upsert_record(
         "variant_key": identity.variant_key,
         "attribute_set_id": attribute_set_id,
         "type_id": type_id,
+        "website_ids": website_ids,
         "attributes": effective,
         "scope_provenance": provenance,
         "content_hash": content_hash(identity, effective, store_view_magento_id),
@@ -104,8 +108,8 @@ def upsert_record(
     }
     updatable = [
         "mpn", "model", "gtin", "variant_key", "attribute_set_id", "type_id",
-        "attributes", "scope_provenance", "content_hash", "magento_updated_at",
-        "mirrored_at",
+        "website_ids", "attributes", "scope_provenance", "content_hash",
+        "magento_updated_at", "mirrored_at",
     ]
     if sync_generation is not None:
         values["sync_generation"] = sync_generation

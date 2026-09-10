@@ -115,6 +115,7 @@ def delta_sync(
                     magento_updated_at,
                     attribute_set_id=item.get("attribute_set_id"),
                     type_id=item.get("type_id"),
+                    website_ids=item["website_ids"],
                 )
                 report.records_updated += 1
 

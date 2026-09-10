@@ -119,6 +119,40 @@ def test_iter_attributes_stops_when_next_cursor_is_null():
     assert len(pages) == 1
 
 
+def test_iter_categories_walks_pages_while_the_cursor_advances():
+    def handler(request):
+        cursor = request.url.params.get("cursor")
+        if cursor is None:
+            return httpx.Response(
+                200, json={"items": [{"category_id": 1}], "next_cursor": "c2"}
+            )
+        return httpx.Response(200, json={"items": [{"category_id": 2}], "next_cursor": None})
+
+    assert len(list(make_client(handler).iter_categories())) == 2
+
+
+def test_iter_categories_aborts_when_the_cursor_repeats():
+    def handler(request):
+        return httpx.Response(
+            200, json={"items": [{"category_id": 1}], "next_cursor": "mismo"}
+        )
+
+    with pytest.raises(RuntimeError, match="no avanza"):
+        list(make_client(handler).iter_categories())
+
+
+def test_iter_categories_stops_when_next_cursor_is_null():
+    """Sin esta guarda, un `next_cursor: null` real (fin del catálogo de
+    categorías) seguiría pidiendo la misma página vacía en vez de terminar."""
+
+    def handler(request):
+        return httpx.Response(200, json={"items": [{"category_id": 1}], "next_cursor": None})
+
+    pages = list(make_client(handler).iter_categories())
+
+    assert len(pages) == 1
+
+
 def _capturing_client(response_items=None):
     """Cliente que registra el cuerpo de cada petición a /products-by-sku."""
     captured: list[dict] = []

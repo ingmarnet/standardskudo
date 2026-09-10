@@ -54,6 +54,29 @@ def test_identity_preserves_leading_zeros_and_suffixes(db_session, tenant):
     assert row.gtin == "07501234567890"
 
 
+def test_website_ids_survive_the_round_trip(db_session, tenant):
+    """Sin esta columna, `derive_category_effect` no puede evaluar su tercera
+    condición: en el tenant piloto es la única que distingue PY de BR, porque
+    ambas store views comparten `root_category_id`."""
+    identity = ProductIdentity(sku="SKU1")
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "N"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC), website_ids=[1])
+
+    row = get_record(db_session, tenant.id, "SKU1", 1)
+    assert row.website_ids == [1]
+
+
+def test_website_ids_is_null_when_not_supplied(db_session, tenant):
+    """Ausencia declarada, no un cero ni una lista vacía con aspecto confiable:
+    el llamador no informó websites, y NULL lo dice sin inventar un dato."""
+    identity = ProductIdentity(sku="SKU1")
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "N"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC))
+
+    row = get_record(db_session, tenant.id, "SKU1", 1)
+    assert row.website_ids is None
+
+
 def test_the_same_product_has_one_record_per_store_view(db_session, tenant):
     identity = ProductIdentity(sku="SKU1", mpn=None, model=None, gtin=None)
     for store_id, name in ((1, "Aire Acondicionado"), (3, "Ar Condicionado")):

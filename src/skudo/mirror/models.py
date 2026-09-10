@@ -173,6 +173,15 @@ class ProductRecord(Base):
     # {codigo_atributo: "global"|"store"} — de dónde salió cada valor efectivo.
     scope_provenance: Mapped[dict] = mapped_column(JSON)
 
+    # Websites a los que el producto está asignado en Magento. Es lo que le
+    # permite a `derive_category_effect` evaluar su tercera condición: en el
+    # tenant piloto es la ÚNICA que distingue PY de BR, porque ambas store
+    # views cuelgan del mismo `root_category_id`. Nullable porque una fila
+    # escrita antes de que este ingestor la informara, o por un llamador que
+    # no la conoce, no debe fingir un cero o una lista vacía con aspecto
+    # confiable: NULL dice "desconocido".
+    website_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     # Sello de la última pasada completa que tocó esta fila. Al terminar la
     # pasada de una store view, lo que no lleve el sello de esa pasada es una

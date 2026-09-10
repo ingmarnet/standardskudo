@@ -166,6 +166,16 @@ def test_a_replayed_change_does_not_duplicate_records(db_session, seeded):
     assert total == 1
 
 
+def test_refresh_carries_the_website_ids(db_session, seeded):
+    """Los registros sembrados por `seeded` no llevan `website_ids` (no se pasó
+    al crearlos): si `delta_sync` no leyera la clave del payload, esta prueba
+    seguiría viendo `None` después del refresh en vez de `[1]`."""
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
+
+    row = get_record(db_session, seeded.id, "SKU1", 1)
+    assert row.website_ids == [1]
+
+
 def test_refresh_carries_the_attribute_set_and_type(db_session, seeded):
     """Los dos campos tienen que sobrevivir también al camino incremental: si
     solo los leyera `full_sync`, un producto que cambia de set quedaría con el

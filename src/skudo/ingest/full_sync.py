@@ -105,6 +105,7 @@ def full_sync(
                     magento_updated_at,
                     attribute_set_id=item.get("attribute_set_id"),
                     type_id=item.get("type_id"),
+                    website_ids=item["website_ids"],
                     sync_generation=generation,
                 )
                 # Conjunto completo, no alta suelta: lo que el payload no trae
