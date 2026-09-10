@@ -579,3 +579,91 @@ def test_procedencia_de_scope_fails_when_the_scale_of_every_override_is_unknown(
     # Las claves están completas: es la prueba de que la tautología anterior
     # habría aprobado este caso.
     assert "sin procedencia completa" not in procedencia.detail
+
+
+
+# --- L6: un website de tienda desconocido no fabrica un defecto -------------
+
+
+def test_an_unknown_store_website_is_not_evaluated_instead_of_fabricating_a_defect(
+    db_session, monkeypatch
+):
+    """`_website_id_of_store` puede devolver None (topología no espejada), y el
+    arnés se lo pasaba tal cual a `derive_category_effect`, cuyo parámetro es
+    `int`. `None not in [1, 2]` es verdadero, así que el veredicto era
+    `producto_fuera_del_website`: un defecto FABRICADO a partir de topología
+    desconocida, en el arnés que existe justamente para vigilar ese error.
+
+    Hoy ese None no llega por el camino público porque `root_category_id()`
+    lanza KeyError sobre las MISMAS dos filas un par de líneas antes, así que
+    el par ya se descartaba por otro motivo: es un defecto latente, blindado
+    por accidente de orden, no uno vivo. Por eso el escenario se construye
+    forzando el retorno de la consulta de website —lo único que aísla esta
+    condición— en vez de con un fixture de espejo, que no puede alcanzarla.
+
+    Discrimina sobre el conteo: sin la guarda, los dos veredictos del par
+    difieren (`producto_fuera_del_website` frente a `efectiva`) y el par se
+    cuenta como DISCRIMINANTE, inflando el criterio con un dato ausente. Con
+    ella, el par no se evalúa y se reporta aparte.
+    """
+    from skudo.acceptance import s0
+
+    tenant = Tenant(code="nissei", name="Nissei", base_url="https://x.test",
+                    token_env_var="T")
+    db_session.add(tenant)
+    db_session.flush()
+
+    # Categoría activa en las dos tiendas y producto en los dos websites: sin
+    # la topología, las tres condiciones darían "efectiva" y el par no
+    # discriminaría. Cualquier discriminación aquí es fabricada.
+    categories_page = {
+        "items": [
+            {
+                "category_id": 300,
+                "path": [1, 2, 300],
+                "default_name": "Ofertas",
+                "store_states": [
+                    {"store_id": PY_STORE, "is_active": True, "name": "Ofertas"},
+                    {"store_id": BR_STORE, "is_active": True, "name": "Ofertas"},
+                ],
+            },
+        ],
+        "next_cursor": None,
+    }
+    products_page = {
+        "items": [
+            _product_item(
+                "SKU1", website_ids=[1, 2], category_ids=[300],
+                store_values={"name": "SKU1 BR", "price": "900"},
+            )
+        ],
+        "next_cursor": None,
+    }
+    source = make_ingestion_source(
+        tenant.id,
+        products_page=products_page,
+        categories_page=categories_page,
+        attributes_page=COLOR_ATTRIBUTE_PAGE,
+        checksum_skus=["SKU1"],
+    )
+    sync_attributes(db_session, source)
+    full_sync(db_session, source, store_view_ids=[PY_STORE, BR_STORE])
+    sync_categories(db_session, source, store_view_ids=[PY_STORE, BR_STORE])
+
+    # Solo BR pierde su website: PY conserva el suyo, así que si la guarda no
+    # existiera los dos veredictos del par serían distintos.
+    real = s0._website_id_of_store
+    monkeypatch.setattr(
+        s0,
+        "_website_id_of_store",
+        lambda session, tenant_id, store_view_id: (
+            None if store_view_id == BR_STORE else real(session, tenant_id, store_view_id)
+        ),
+    )
+
+    results = run_s0_acceptance(db_session, source, [PY_STORE, BR_STORE])
+
+    effect = next(r for r in results if r.name == "efecto_de_categoria")
+    assert not effect.passed, effect.detail
+    assert "0 producto(s) con efecto de categoría distinto" in effect.detail
+    assert "1 par(es) sin website de la tienda" in effect.detail

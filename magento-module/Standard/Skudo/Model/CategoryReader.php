@@ -162,8 +162,17 @@ class CategoryReader implements CategoryReaderInterface
      * store_ids tienen override solo se sabe leyendo todas las filas, y el
      * merge global/override se resuelve después, en storeStates().
      *
+     * El `value` se preserva TAL CUAL, incluido NULL: una fila de override con
+     * valor NULL no es un override falsy, es la AUSENCIA de valor en esa store
+     * view, y `storeStates()` la hace heredar el global. Castearlo con
+     * `(string)` la convertía en `''` y `(bool) (int) ''` en `false`, así que
+     * la categoría se reportaba INACTIVA en esa tienda en vez de heredar — la
+     * regla de presencia-no-verdad invertida respecto de
+     * `ProductReader::eavValues()` y `SignalReader::scopedValue()`. Un `'0'`
+     * sigue siendo un override real y sigue ganando.
+     *
      * @param int[] $keys
-     * @return array<int, array<int, string>> [key][store_id] => value
+     * @return array<int, array<int, string|null>> [key][store_id] => value
      */
     private function attributeValues(
         AdapterInterface $connection,
@@ -185,7 +194,9 @@ class CategoryReader implements CategoryReaderInterface
 
         $out = [];
         foreach ($connection->fetchAll($select) as $row) {
-            $out[(int) $row['entity']][(int) $row['store_id']] = (string) $row['value'];
+            $out[(int) $row['entity']][(int) $row['store_id']] = $row['value'] === null
+                ? null
+                : (string) $row['value'];
         }
 
         return $out;
@@ -270,9 +281,12 @@ class CategoryReader implements CategoryReaderInterface
      * view real, así que no afecta ningún veredicto de
      * derive_category_effect.
      *
+     * Una fila de override cuyo valor es NULL cuenta como ausente (el `??`
+     * cae al global), no como un `false`/`''`: ver `attributeValues()`.
+     *
      * @param int[] $storeIds
-     * @param array<int, string> $activeByStore
-     * @param array<int, string> $nameByStore
+     * @param array<int, string|null> $activeByStore
+     * @param array<int, string|null> $nameByStore
      * @return list<array{store_id: int, is_active: bool, name: string}>
      */
     private function storeStates(array $storeIds, array $activeByStore, array $nameByStore): array

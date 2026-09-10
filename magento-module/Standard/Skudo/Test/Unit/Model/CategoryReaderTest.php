@@ -158,6 +158,63 @@ class CategoryReaderTest extends TestCase
     }
 
     /**
+     * L7: una fila de override con `value` NULL NO es un override falsy, es la
+     * AUSENCIA de valor en esa store view, y debe heredar el global.
+     *
+     * `attributeValues()` casteaba con `(string)`, así que un NULL se leía como
+     * `''` y `(bool) (int) ''` daba `false`: la categoría se reportaba inactiva
+     * en esa tienda en vez de heredar. Es la regla de presencia-no-verdad
+     * INVERTIDA respecto de `ProductReader::eavValues()` (que preserva el null)
+     * y de `SignalReader::scopedValue()`.
+     *
+     * La diferencia con el test de arriba es exactamente lo que discrimina:
+     * `'0'` es un override real y gana; NULL no es un valor y no gana. Un
+     * arreglo que tratara los dos igual rompe uno de los dos tests.
+     */
+    public function testAStoreOverrideRowWithANullValueInheritsTheGlobalInsteadOfReadingAsFalse(): void
+    {
+        $result = $this->getPageWithCategoryStoreData(
+            categoryRow: $this->categoryRow(rowId: 710, entityId: 710, path: '1/2/710'),
+            isActiveRows: [
+                ['row_id' => 710, 'store_id' => 0, 'value' => '1'],
+                // Fila presente para PY, pero sin valor: no dice nada.
+                ['row_id' => 710, 'store_id' => self::STORE_PY, 'value' => null],
+            ],
+            nameRows: [
+                ['row_id' => 710, 'store_id' => 0, 'value' => 'Categoría global'],
+                ['row_id' => 710, 'store_id' => self::STORE_PY, 'value' => null],
+            ],
+        );
+
+        $states = $this->storeStatesByStoreId($result['items'][0]);
+        $this->assertTrue(
+            $states[self::STORE_PY]['is_active'],
+            'una fila de override con value NULL hereda el global; no es un false'
+        );
+        $this->assertSame('Categoría global', $states[self::STORE_PY]['name']);
+    }
+
+    /**
+     * Y sin fila global tampoco se inventa nada: la categoría raíz absoluta de
+     * la instancia de referencia no tiene fila de `is_active`, y se asume
+     * inactiva con nombre vacío en vez de adivinar. Ese contrato no cambia.
+     */
+    public function testANullValueWithNoGlobalRowStillMeansInactive(): void
+    {
+        $result = $this->getPageWithCategoryStoreData(
+            categoryRow: $this->categoryRow(rowId: 720, entityId: 720, path: '1/720'),
+            isActiveRows: [
+                ['row_id' => 720, 'store_id' => self::STORE_PY, 'value' => null],
+            ],
+            nameRows: [],
+        );
+
+        $states = $this->storeStatesByStoreId($result['items'][0]);
+        $this->assertFalse($states[self::STORE_PY]['is_active']);
+        $this->assertSame('', $states[self::STORE_PY]['name']);
+    }
+
+    /**
      * Fix de revisión (ronda 1): mismo punto que el test anterior, pero
      * para `name` con un override VACÍO (`''`, falsy). Un nombre vacío en
      * una store view es exactamente el tipo de defecto que este producto

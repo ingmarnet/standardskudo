@@ -225,6 +225,16 @@ def _efecto_de_categoria(
     entra en la comparación de "distinto entre store views", así que ni
     infla los aciertos ni se reporta como fallo inventado a partir de un dato
     ausente.
+
+    Lo mismo vale, del otro lado, para el website de la TIENDA:
+    `_website_id_of_store` devuelve None cuando la topología de esa store view
+    no está espejada, y `derive_category_effect` espera un `int`. Pasarle el
+    None hacía que `None not in [1, 2]` fuera verdadero y el veredicto saliera
+    `producto_fuera_del_website`: un defecto fabricado a partir de topología
+    desconocida, justo en el arnés que existe para vigilar ese error. Hoy ese
+    None no llega por accidente —`store_root_category_id` lanza KeyError sobre
+    las mismas dos filas unas líneas antes—, pero el arnés no debe depender de
+    ese orden para no inventar hallazgos. El par se cuenta como no evaluable.
     """
     if not session.scalar(
         select(func.count()).select_from(Category).where(Category.tenant_id == tenant_id)
@@ -249,6 +259,7 @@ def _efecto_de_categoria(
     discriminating = 0
     evaluated_pairs = 0
     not_evaluated_pairs = 0
+    pairs_without_store_website = 0
 
     for sku, category_magento_id in assignments:
         path = session.scalar(
@@ -277,6 +288,15 @@ def _efecto_de_categoria(
                 except KeyError:
                     break  # store view sin topología espejada: no evaluable
 
+                store_website_id = _website_id_of_store(session, tenant_id, store_id)
+                if store_website_id is None:
+                    # Topología de la tienda no espejada. Es DESCONOCIDO, no
+                    # "el producto no está en el website": pasarlo a
+                    # derive_category_effect fabricaría el defecto que este
+                    # criterio existe para vigilar.
+                    pairs_without_store_website += 1
+                    break
+
                 website_ids = session.scalar(
                     select(ProductRecord.website_ids).where(
                         ProductRecord.tenant_id == tenant_id,
@@ -290,7 +310,7 @@ def _efecto_de_categoria(
                         root_category_id=root,
                         is_active_in_store=is_active,
                         product_website_ids=website_ids,
-                        store_website_id=_website_id_of_store(session, tenant_id, store_id),
+                        store_website_id=store_website_id,
                     )
                 )
             else:
@@ -310,7 +330,8 @@ def _efecto_de_categoria(
         detail=(
             f"{discriminating} producto(s) con efecto de categoría distinto entre "
             f"store views; {evaluated_pairs} par(es) evaluado(s), "
-            f"{not_evaluated_pairs} sin evaluar por website_desconocido"
+            f"{not_evaluated_pairs} sin evaluar por website_desconocido, "
+            f"{pairs_without_store_website} par(es) sin website de la tienda espejado"
         ),
     )
 

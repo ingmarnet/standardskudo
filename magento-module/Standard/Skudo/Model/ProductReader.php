@@ -239,6 +239,16 @@ class ProductReader implements ProductReaderInterface
             ->from(['l' => $link], ['category_id' => 'l.category_id'])
             ->join(['e' => $entity], 'e.entity_id = l.product_id', ['sku' => 'e.sku'])
             ->where('e.sku IN (?)', $skus);
+        // Igual que en la consulta de entidad: bajo Magento_Staging
+        // `catalog_product_entity` tiene una fila por VERSIÓN, así que unir por
+        // sku multiplica cada enlace de categoría por el número de versiones
+        // (caso real verificado: `NGO-T2092` tiene 3 filas de versión y esta
+        // consulta devolvía la categoría 603 tres veces). El espejo quedaba
+        // correcto solo porque `set_product_categories` deduplica del otro lado
+        // del cable — apoyarse en eso es apoyarse en un detalle del consumidor,
+        // y el inflado es proporcional a las versiones sobre cientos de miles
+        // de upserts.
+        $this->applyActiveVersionFilter($select);
 
         $out = [];
         foreach ($connection->fetchAll($select) as $row) {
