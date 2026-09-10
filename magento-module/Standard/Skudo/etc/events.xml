@@ -1,6 +1,11 @@
 <?xml version="1.0"?>
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
+    <!--
+        Los dos eventos del camino de un producto: los despacha
+        Magento\Catalog\Model\Product al guardarse o borrarse por el modelo
+        (admin de un producto, API REST de producto, cualquier `save()`).
+    -->
     <event name="catalog_product_save_after">
         <observer name="standard_skudo_product_saved"
                   instance="Standard\Skudo\Observer\ProductChanged"/>
@@ -8,5 +13,27 @@
     <event name="catalog_product_delete_after">
         <observer name="standard_skudo_product_deleted"
                   instance="Standard\Skudo\Observer\ProductChanged"/>
+    </event>
+    <!--
+        H1: los dos caminos de escritura MASIVA. Magento\Catalog\Model\Product
+        \Action no despacha `catalog_product_save_after` en ninguno de los dos,
+        así que sin estas dos entradas la acción "Actualizar atributos" del
+        grid de admin, y toda herramienta de carga por lotes que use esa API,
+        escriben sin dejar rastro en la cola de cambios. Verificado sobre la
+        instancia de desarrollo: las dos escriben, y antes de esto ninguna
+        dejaba una sola fila.
+
+        `updateWebsites()` es además el único camino medido donde
+        `catalog_product_entity.updated_at` NO se mueve: ese cambio no lo ve
+        ni el digest de contenido por partición de `/checksums`. Este observer
+        es la única forma de detectarlo.
+    -->
+    <event name="catalog_product_attribute_update_before">
+        <observer name="standard_skudo_product_attributes_mass_updated"
+                  instance="Standard\Skudo\Observer\ProductBulkChanged"/>
+    </event>
+    <event name="catalog_product_to_website_change">
+        <observer name="standard_skudo_product_websites_changed"
+                  instance="Standard\Skudo\Observer\ProductBulkChanged"/>
     </event>
 </config>
