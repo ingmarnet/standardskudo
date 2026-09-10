@@ -82,6 +82,10 @@ class AttributeReader implements AttributeReaderInterface
     public function __construct(
         private readonly ResourceConnection $resource,
         private readonly Cursor $cursor,
+        // Inyectado, no instanciado con `new`: la MISMA clase que usan
+        // CategoryReader y EnvironmentProbe para la misma pregunta de
+        // esquema. Ver Model\EntityTypeResolver.
+        private readonly EntityTypeResolver $entityTypeResolver,
     ) {
     }
 
@@ -91,7 +95,7 @@ class AttributeReader implements AttributeReaderInterface
         $after = $this->cursor->decode($cursor);
         $connection = $this->resource->getConnection();
 
-        $entityTypeId = $this->resolveEntityTypeId($connection);
+        $entityTypeId = $this->entityTypeResolver->resolve(self::ENTITY_TYPE_CODE);
 
         $select = $this->baseAttributeSelect($connection, $entityTypeId)
             ->where('a.attribute_id > ?', $after)
@@ -128,29 +132,6 @@ class AttributeReader implements AttributeReaderInterface
                 ? null
                 : $this->cursor->encode($attributeIds[array_key_last($attributeIds)]),
         ]);
-    }
-
-    /**
-     * `entity_type_id` de `catalog_product` no está hardcodeado: se
-     * resuelve en runtime contra `eav_entity_type`, porque asumir un id
-     * fijo (típicamente 4) sería frágil ante cualquier instancia donde el
-     * EAV se haya sembrado en otro orden.
-     */
-    private function resolveEntityTypeId(AdapterInterface $connection): int
-    {
-        $select = $connection->select()
-            ->from($this->resource->getTableName('eav_entity_type'), ['entity_type_id'])
-            ->where('entity_type_code = ?', self::ENTITY_TYPE_CODE);
-
-        $entityTypeId = $connection->fetchOne($select);
-        if ($entityTypeId === false) {
-            throw new LocalizedException(__(
-                'no se encontró entity_type_id para "%1" en eav_entity_type',
-                self::ENTITY_TYPE_CODE
-            ));
-        }
-
-        return (int) $entityTypeId;
     }
 
     private function baseAttributeSelect(AdapterInterface $connection, int $entityTypeId): Select

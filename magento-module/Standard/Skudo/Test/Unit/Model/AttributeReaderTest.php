@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\AttributeReader;
 use Standard\Skudo\Model\Cursor;
+use Standard\Skudo\Model\EntityTypeResolver;
 
 /**
  * Cubre S0 Task A1: el primer de los dos endpoints que le dan un camino de
@@ -347,7 +348,7 @@ class AttributeReaderTest extends TestCase
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new AttributeReader($resource, new Cursor());
+        return new AttributeReader($resource, new Cursor(), new EntityTypeResolver($resource));
     }
 
     /**

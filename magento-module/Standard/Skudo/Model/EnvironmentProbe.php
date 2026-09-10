@@ -23,6 +23,9 @@ class EnvironmentProbe implements EnvironmentProbeInterface
         // clase reciben la MISMA instancia memoizada y el esquema se
         // prueba una sola vez por request, no una vez por cada una.
         private readonly EntityKeyResolver $keyResolver,
+        // Inyectado, no instanciado con `new`: la MISMA clase que usan
+        // AttributeReader y CategoryReader. Ver Model\EntityTypeResolver.
+        private readonly EntityTypeResolver $entityTypeResolver,
     ) {
     }
 
@@ -137,20 +140,49 @@ class EnvironmentProbe implements EnvironmentProbeInterface
         return $out;
     }
 
+    /**
+     * M1: los cuatro conteos cuentan la MISMA población que el endpoint que
+     * sirve cada cosa. Antes no era así en tres de los cuatro y la
+     * diferencia se leía como deriva del espejo:
+     *
+     *   - `products` daba 8 y `/checksums.product_count` daba 7, porque
+     *     `/products` y `/checksums` agregaban una ventana de versión propia
+     *     y este COUNT(*) no (eso era C2; con el filtro fuera, los tres
+     *     cuentan la población que Magento considera activa y coinciden —
+     *     `PopulationMatchesMagentoTest` lo afirma contra una instancia
+     *     real). Este `COUNT(*)` sigue sin where propio a propósito: Magento
+     *     lo acota igual que a los otros dos, y ahí está la coincidencia.
+     *   - `attributes` contaba `eav_attribute` de TODOS los entity types
+     *     (1.240 en la instancia de referencia) mientras `/attributes` sólo
+     *     pagina los de `catalog_product` (1.066). El nombre del campo
+     *     invita a compararlos y la comparación daba una diferencia de 174
+     *     que no significa nada.
+     *   - `attribute_sets`, lo mismo: 422 contra los 413 de
+     *     `catalog_product`.
+     *
+     * Cada uno de esos dos se acota ahora al entity type de producto, que es
+     * el único que este módulo sirve. `categories` ya contaba su propia
+     * tabla.
+     */
     private function counts(): array
     {
         $connection = $this->resource->getConnection();
-        $count = function (string $table) use ($connection): int {
-            $name = $this->resource->getTableName($table);
-            return (int) $connection->fetchOne(
-                $connection->select()->from($name, 'COUNT(*)')
-            );
+        $productEntityType = $this->entityTypeResolver->resolve(EntityTypeResolver::PRODUCT);
+
+        $count = function (string $table, ?int $entityTypeId = null) use ($connection): int {
+            $select = $connection->select()
+                ->from($this->resource->getTableName($table), 'COUNT(*)');
+            if ($entityTypeId !== null) {
+                $select->where('entity_type_id = ?', $entityTypeId);
+            }
+
+            return (int) $connection->fetchOne($select);
         };
 
         return [
             'products' => $count('catalog_product_entity'),
-            'attribute_sets' => $count('eav_attribute_set'),
-            'attributes' => $count('eav_attribute'),
+            'attribute_sets' => $count('eav_attribute_set', $productEntityType),
+            'attributes' => $count('eav_attribute', $productEntityType),
             'categories' => $count('catalog_category_entity'),
         ];
     }

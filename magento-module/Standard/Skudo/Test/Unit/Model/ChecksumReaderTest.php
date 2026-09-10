@@ -8,6 +8,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\ChecksumReader;
+use Standard\Skudo\Model\StoreViewGuard;
 
 /**
  * S0 Task 13: el lado Magento del endpoint de reconciliación. Estas pruebas
@@ -36,6 +37,7 @@ use Standard\Skudo\Model\ChecksumReader;
 class ChecksumReaderTest extends TestCase
 {
     use UnwrapsWebApiEnvelope;
+    use BuildsAPermissiveStoreViewGuard;
 
     /**
      * Calculado independientemente en Python:
@@ -141,7 +143,7 @@ class ChecksumReaderTest extends TestCase
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new ChecksumReader($resource);
+        return new ChecksumReader($resource, $this->permissiveStoreViewGuard());
     }
 
     /**

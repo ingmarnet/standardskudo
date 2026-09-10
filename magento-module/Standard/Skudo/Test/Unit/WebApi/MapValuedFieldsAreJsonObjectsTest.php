@@ -15,6 +15,8 @@ use Standard\Skudo\Model\ChecksumReader;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\DeltaReader;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\EntityTypeResolver;
+use Standard\Skudo\Model\StoreViewGuard;
 use Standard\Skudo\Model\EnvironmentProbe;
 use Standard\Skudo\Model\ProductReader;
 use Standard\Skudo\Model\SignalReader;
@@ -360,16 +362,25 @@ class MapValuedFieldsAreJsonObjectsTest extends TestCase
 
         return match ($endpoint) {
             'environment' => $this->environmentProbe($resource)->getProfile(),
-            'products' => (new ProductReader($resource, new Cursor(), new EntityKeyResolver($resource)))
-                ->getPage(storeId: 1, limit: 10),
-            'products_by_sku' => (new ProductReader($resource, new Cursor(), new EntityKeyResolver($resource)))
-                ->getBySku(1, ['SKU-A']),
+            'products' => $this->productReader($resource)->getPage(storeId: 1, limit: 10),
+            'products_by_sku' => $this->productReader($resource)->getBySku(1, ['SKU-A']),
             'deltas' => (new DeltaReader($resource, new VersioningSchema($resource)))->getChanges(0, 10),
             'signals' => $this->signalReader($resource)->getSignals(1, 90),
-            'checksums' => (new ChecksumReader($resource))->getChecksums(1),
-            'attributes' => (new AttributeReader($resource, new Cursor()))->getPage(10),
+            'checksums' => (new ChecksumReader($resource, $this->storeViewGuard()))->getChecksums(1),
+            'attributes' => (new AttributeReader($resource, new Cursor(), new EntityTypeResolver($resource)))
+                ->getPage(10),
             'categories' => $this->categoryReader($resource)->getPage(10),
         };
+    }
+
+    private function productReader(ResourceConnection $resource): ProductReader
+    {
+        return new ProductReader(
+            $resource,
+            new Cursor(),
+            new EntityKeyResolver($resource),
+            $this->storeViewGuard()
+        );
     }
 
     private function signalReader(ResourceConnection $resource): SignalReader
@@ -377,12 +388,31 @@ class MapValuedFieldsAreJsonObjectsTest extends TestCase
         $modules = $this->createMock(ModuleListInterface::class);
         $modules->method('has')->willReturn(true);
 
-        return new SignalReader($resource, $modules, new EntityKeyResolver($resource));
+        return new SignalReader(
+            $resource,
+            $modules,
+            new EntityKeyResolver($resource),
+            $this->storeViewGuard()
+        );
+    }
+
+    private function storeViewGuard(): StoreViewGuard
+    {
+        $storeManager = $this->createMock(StoreManagerInterface::class);
+        $storeManager->method('getStore')->willReturn($this->createMock(\Magento\Store\Model\Store::class));
+
+        return new StoreViewGuard($storeManager);
     }
 
     private function categoryReader(ResourceConnection $resource): CategoryReader
     {
-        return new CategoryReader($resource, new Cursor(), new EntityKeyResolver($resource), $this->storeManager());
+        return new CategoryReader(
+            $resource,
+            new Cursor(),
+            new EntityKeyResolver($resource),
+            new EntityTypeResolver($resource),
+            $this->storeManager()
+        );
     }
 
     private function environmentProbe(ResourceConnection $resource): EnvironmentProbe
@@ -394,7 +424,14 @@ class MapValuedFieldsAreJsonObjectsTest extends TestCase
         $modules = $this->createMock(ModuleListInterface::class);
         $modules->method('has')->willReturn(true);
 
-        return new EnvironmentProbe($metadata, $modules, $resource, $this->storeManager(), new EntityKeyResolver($resource));
+        return new EnvironmentProbe(
+            $metadata,
+            $modules,
+            $resource,
+            $this->storeManager(),
+            new EntityKeyResolver($resource),
+            new EntityTypeResolver($resource)
+        );
     }
 
     private function storeManager(): StoreManagerInterface

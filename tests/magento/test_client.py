@@ -13,7 +13,7 @@ import httpx
 import pytest
 from skudo_testing import skudo_response
 
-from skudo.magento.client import MagentoClient
+from skudo.magento.client import MagentoApiError, MagentoClient
 
 
 def make_client(handler) -> MagentoClient:
@@ -370,3 +370,122 @@ def test_a_null_cursor_with_a_real_queue_row_still_aborts():
 
     with pytest.raises(RuntimeError, match="last_change_id"):
         list(make_client(handler).iter_deltas(0, since_timestamp=1000))
+
+
+# --- B1/M2: los errores del módulo llegan legibles y clasificables ---------
+#
+# Magento no manda el mensaje armado: manda la plantilla de `__()` y los
+# argumentos por separado. Sobre HTTP real el tope de 100 SKUs devolvía
+# `{"message": "no se pueden pedir más de %1 SKUs por llamada (se recibieron
+# %2)", "parameters": [100, 101]}` y `raise_for_status()` de httpx lo tiraba
+# entero: su mensaje es "Client error '400 Bad Request' for url ...", así que
+# el motivo real no aparecía en ningún log.
+
+
+def test_a_positional_error_template_is_interpolated():
+    def handler(request):
+        return httpx.Response(
+            400,
+            json={
+                "message": "no se pueden pedir más de %1 SKUs por llamada (se recibieron %2)",
+                "parameters": [100, 101],
+            },
+        )
+
+    with pytest.raises(MagentoApiError) as excinfo:
+        make_client(handler).products_by_sku(1, ["A"])
+
+    assert "no se pueden pedir más de 100 SKUs por llamada (se recibieron 101)" in str(excinfo.value)
+    assert "%1" not in str(excinfo.value)
+    assert excinfo.value.status_code == 400
+
+
+def test_a_named_error_template_is_interpolated():
+    """La otra forma observada: `%fieldName` con un mapa de parámetros."""
+
+    def handler(request):
+        return httpx.Response(
+            400,
+            json={
+                "message": '"%fieldName" es obligatorio. Ingresá el valor y probá de nuevo.',
+                "parameters": {"fieldName": "storeId"},
+            },
+        )
+
+    with pytest.raises(MagentoApiError) as excinfo:
+        make_client(handler).checksums(1)
+
+    assert '"storeId" es obligatorio' in str(excinfo.value)
+    assert "%fieldName" not in str(excinfo.value)
+
+
+def test_the_longest_named_placeholder_wins():
+    """Con `%field` y `%fieldName`, sustituir la corta primero partiría la
+    larga y dejaría un `Name` colgando en el mensaje."""
+
+    def handler(request):
+        return httpx.Response(
+            400,
+            json={
+                "message": "%field / %fieldName",
+                "parameters": {"field": "A", "fieldName": "B"},
+            },
+        )
+
+    with pytest.raises(MagentoApiError) as excinfo:
+        make_client(handler).checksums(1)
+
+    assert excinfo.value.message == "A / B"
+
+
+def test_a_placeholder_without_a_value_is_left_visible():
+    """No se borra: un `%2` visible dice "falta un dato acá", que es
+    información; el hueco borrado miente sobre lo que el servidor dijo."""
+
+    def handler(request):
+        return httpx.Response(400, json={"message": "faltan %1 y %2", "parameters": [7]})
+
+    with pytest.raises(MagentoApiError) as excinfo:
+        make_client(handler).checksums(1)
+
+    assert excinfo.value.message == "faltan 7 y %2"
+
+
+def test_the_status_code_travels_so_a_caller_can_tell_input_from_server_fault():
+    """M2 del lado del cliente: un 400 es entrada inválida (no reintentar) y
+    un 5xx es fallo del servidor (reintentable). Sin `status_code` expuesto,
+    quien reintente no puede distinguirlos y reintentaría para siempre un
+    cursor ilegible."""
+
+    def handler(request):
+        return httpx.Response(400, json={"message": "cursor inválido", "parameters": []})
+
+    with pytest.raises(MagentoApiError) as excinfo:
+        list(make_client(handler).iter_products(1))
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.path.endswith("/products")
+
+
+def test_an_error_without_a_json_body_still_reports_what_arrived():
+    """Un 401 sin cuerpo, o un 502 de un proxy: se reporta el texto crudo
+    acotado, nunca un motivo inventado."""
+
+    def handler(request):
+        return httpx.Response(502, text="<html>Bad Gateway</html>")
+
+    with pytest.raises(MagentoApiError) as excinfo:
+        make_client(handler).checksums(1)
+
+    assert excinfo.value.status_code == 502
+    assert "Bad Gateway" in excinfo.value.message
+
+
+def test_a_successful_response_is_not_touched():
+    """Contra-guarda: si `raise_for_status` lanzara para todo, cada test de
+    arriba pasaría y el cliente no serviría para nada."""
+
+    def handler(request):
+        return skudo_response({"product_count": 7, "sku_digest": "d"})
+
+    assert make_client(handler).checksums(1)["product_count"] == 7

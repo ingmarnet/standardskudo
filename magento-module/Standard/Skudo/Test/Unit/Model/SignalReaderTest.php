@@ -9,6 +9,7 @@ use Magento\Framework\Module\ModuleListInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\StoreViewGuard;
 use Standard\Skudo\Model\SignalReader;
 
 /**
@@ -52,6 +53,7 @@ use Standard\Skudo\Model\SignalReader;
 class SignalReaderTest extends TestCase
 {
     use UnwrapsWebApiEnvelope;
+    use BuildsAPermissiveStoreViewGuard;
 
     public function testMsiAbsentFallsBackToPhysicalQuantity(): void
     {
@@ -752,7 +754,8 @@ class SignalReaderTest extends TestCase
         return new SignalReader(
             $resource,
             $modules,
-            new EntityKeyResolver($resource)
+            new EntityKeyResolver($resource),
+            $this->permissiveStoreViewGuard()
         );
     }
 }

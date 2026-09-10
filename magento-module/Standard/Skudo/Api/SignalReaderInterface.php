@@ -35,6 +35,27 @@ interface SignalReaderInterface
      * `search_demand` es una atribución aproximada (ver
      * SignalReader::attachSearchDemand()), no una medición.
      *
+     * B1 — TIPO NUMÉRICO SOBRE EL CABLE: los campos declarados `float|null`
+     * (`revenue`, `salable_qty`, `physical_qty`, `margin`) llegan como número
+     * JSON SIN parte fraccionaria cuando su valor es entero.
+     * `json_encode((float) 300)` de PHP emite `300`, no `300.0`, con
+     * `serialize_precision = -1` (el default desde PHP 7.1), así que la MISMA
+     * columna llega como `int` o como `float` según el valor. Medido sobre
+     * HTTP real: `revenue` 300 (int) en la store 1 y 75.5 (float) en la 3;
+     * `salable_qty` 40 y 7, los dos int; `margin` 0.4545 y 0.3846, los dos
+     * float.
+     *
+     * No se "arregla" forzando el tipo, porque las dos formas de forzarlo son
+     * peores que documentarlo: emitirlo como string (`"300.0000"`) cambia el
+     * tipo del contrato y obliga a parsear del otro lado, y multiplicar por
+     * 1.0000001 o similar falsearía el dato. Lo que corresponde es que el
+     * CONSUMIDOR acepte `int|float` donde el contrato dice `float`: las
+     * columnas del espejo son `Numeric(18,4)` y no hay pérdida (verificado
+     * por `test_an_integral_json_number_is_accepted_where_a_float_is_declared`
+     * del lado Python). Un consumidor con validación estricta de tipos —un
+     * pydantic con `strict=True`, un `isinstance(x, float)`— rechazaría el
+     * 300, y este párrafo es lo que le dice por qué.
+     *
      *
      * La respuesta viaja ENVUELTA un nivel (`WebApiEnvelope::wrap()`):
      * `[<payload>]`, no `<payload>`. `ServiceOutputProcessor::convertValue()`

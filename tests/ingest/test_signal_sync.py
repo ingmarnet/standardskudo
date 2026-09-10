@@ -206,3 +206,38 @@ def test_no_orphans_reported_when_every_signalled_sku_is_mirrored(db_session, te
     assert report.signals_written == 1
     assert report.signals_without_product_record == 0
     assert report.skus_without_product_record == []
+
+
+def test_an_integral_json_number_is_accepted_where_a_float_is_declared(db_session, tenant):
+    """B1: la misma columna llega como `int` o como `float` según el valor.
+
+    `json_encode((float) 300)` de PHP emite `300`, no `300.0`, así que
+    `revenue`/`salable_qty`/`physical_qty`/`margin` —declarados `float|null`—
+    llegan sin parte fraccionaria cuando su valor es entero. Medido sobre HTTP
+    real: `revenue` 300 (int) en la store 1 y 75.5 (float) en la 3.
+
+    Este test fija que el consumidor lo acepta y que las columnas
+    `Numeric(18,4)` del espejo no pierden nada. Es la mitad de este lado de la
+    decisión de NO forzar el tipo en PHP (ver el docblock de
+    `SignalReaderInterface`): emitirlo como string cambiaría el contrato y
+    obligaría a parsear.
+
+    Discrimina porque los valores enteros llegan como `int` de Python y las
+    aserciones comparan contra el float exacto: un consumidor que rechazara
+    `int` fallaría al escribir, y una columna entera truncaría el 0.22.
+    """
+    integral = {
+        1: [
+            {"sku": "SKU1", "units_sold": 3, "revenue": 300, "salable_qty": 40,
+             "physical_qty": 42, "uses_msi": True, "margin": 0.22, "search_demand": 12},
+        ]
+    }
+    source, _ = make_source(tenant.id, by_store=integral)
+
+    sync_signals(db_session, source, store_view_ids=[1])
+
+    row = get_signal(db_session, tenant.id, "SKU1", 1)
+    assert float(row.revenue) == 300.0
+    assert float(row.salable_qty) == 40.0
+    assert float(row.physical_qty) == 42.0
+    assert float(row.margin) == 0.22

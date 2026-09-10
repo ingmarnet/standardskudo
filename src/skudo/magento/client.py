@@ -11,6 +11,84 @@ from skudo.magento.environment import EnvironmentProfile, parse_environment
 PRODUCTS_BY_SKU_CHUNK = 100
 
 
+class MagentoApiError(RuntimeError):
+    """Error devuelto por el módulo, con el mensaje ya interpolado.
+
+    B1: Magento no manda el mensaje de error armado. Manda la plantilla de
+    `__()` y los argumentos por separado, para que quien lo reciba pueda
+    traducirlo:
+
+        {"message": "no se pueden pedir más de %1 SKUs por llamada (se
+                     recibieron %2)",
+         "parameters": [100, 101]}
+
+    `raise_for_status()` de httpx no sabe nada de eso: su mensaje es
+    "Client error '400 Bad Request' for url ...", así que el motivo real —el
+    único dato útil— no aparecía en ningún log ni en ninguna traza. Esta
+    clase interpola los `%1`/`%2` (lista) o los `%fieldName` (mapa) y expone
+    `status_code` para que un caller pueda distinguir un 400 (entrada
+    inválida: no reintentar) de un 5xx (fallo del servidor: reintentable).
+    Esa distinción es justamente lo que M2 arregla del otro lado del cable.
+    """
+
+    def __init__(self, status_code: int, message: str, path: str):
+        self.status_code = status_code
+        self.message = message
+        self.path = path
+        super().__init__(f"{path} devolvió HTTP {status_code}: {message}")
+
+
+def _interpolate(template: str, parameters: object) -> str:
+    """Rellena los placeholders de `__()` de Magento.
+
+    Dos formas, las dos observadas sobre HTTP real:
+      - lista: `%1`, `%2`, … por posición (1-based).
+      - mapa: `%fieldName` por nombre.
+    Un placeholder sin valor se deja tal cual en vez de borrarse: un mensaje
+    con un `%1` visible dice "falta un dato acá", que es información; uno con
+    el hueco borrado miente sobre lo que el servidor dijo.
+    """
+    if isinstance(parameters, list):
+        for index, value in enumerate(parameters, start=1):
+            template = template.replace(f"%{index}", str(value))
+        return template
+    if isinstance(parameters, dict):
+        # Las claves más largas primero: con `%field` y `%fieldName`, sustituir
+        # la corta antes partiría la larga.
+        for key in sorted(parameters, key=len, reverse=True):
+            template = template.replace(f"%{key}", str(parameters[key]))
+        return template
+    return template
+
+
+def raise_for_status(response: httpx.Response) -> None:
+    """Reemplaza `response.raise_for_status()` en todo el cliente.
+
+    Se llama incondicionalmente antes de leer cualquier cuerpo: un cuerpo de
+    error no tiene la forma del payload y `unwrap()` fallaría con un mensaje
+    sobre el envoltorio, que es la causa equivocada.
+    """
+    if not response.is_error:
+        return
+
+    path = response.request.url.path
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+
+    if isinstance(body, dict) and isinstance(body.get("message"), str):
+        raise MagentoApiError(
+            response.status_code,
+            _interpolate(body["message"], body.get("parameters")),
+            path,
+        )
+
+    # Sin cuerpo JSON con `message` (un 401 sin cuerpo, un 502 de un proxy):
+    # se reporta el texto crudo acotado, no se inventa un motivo.
+    raise MagentoApiError(response.status_code, response.text[:500], path)
+
+
 def unwrap(response: httpx.Response) -> dict:
     """Desenvuelve el payload de una respuesta del módulo Standard_Skudo.
 
@@ -56,7 +134,7 @@ class MagentoClient:
 
     def environment(self) -> EnvironmentProfile:
         response = self._client.get("/environment")
-        response.raise_for_status()
+        raise_for_status(response)
         return parse_environment(unwrap(response))
 
     def iter_products(self, store_id: int, limit: int = 500) -> Iterator[dict]:
@@ -73,7 +151,7 @@ class MagentoClient:
             if cursor:
                 params["cursor"] = cursor
             response = self._client.get("/products", params=params)
-            response.raise_for_status()
+            raise_for_status(response)
             page = unwrap(response)
 
             next_cursor = page.get("next_cursor")
@@ -103,7 +181,7 @@ class MagentoClient:
             if cursor:
                 params["cursor"] = cursor
             response = self._client.get("/attributes", params=params)
-            response.raise_for_status()
+            raise_for_status(response)
             page = unwrap(response)
 
             next_cursor = page.get("next_cursor")
@@ -133,7 +211,7 @@ class MagentoClient:
             if cursor:
                 params["cursor"] = cursor
             response = self._client.get("/categories", params=params)
-            response.raise_for_status()
+            raise_for_status(response)
             page = unwrap(response)
 
             next_cursor = page.get("next_cursor")
@@ -191,7 +269,7 @@ class MagentoClient:
             if first_request and since_timestamp is not None:
                 params["sinceTimestamp"] = since_timestamp
             response = self._client.get("/deltas", params=params)
-            response.raise_for_status()
+            raise_for_status(response)
             page = unwrap(response)
             first_request = False
 
@@ -252,7 +330,7 @@ class MagentoClient:
             response = self._client.post(
                 "/products-by-sku", json={"storeId": store_id, "skus": chunk}
             )
-            response.raise_for_status()
+            raise_for_status(response)
             items.extend(unwrap(response)["items"])
         return items
 
@@ -276,12 +354,12 @@ class MagentoClient:
         no son lo mismo que cero.
         """
         response = self._client.get("/signals", params={"storeId": store_id, "days": days})
-        response.raise_for_status()
+        raise_for_status(response)
         return unwrap(response)["items"]
 
     def checksums(self, store_id: int) -> dict:
         response = self._client.get("/checksums", params={"storeId": store_id})
-        response.raise_for_status()
+        raise_for_status(response)
         return unwrap(response)
 
     def close(self) -> None:

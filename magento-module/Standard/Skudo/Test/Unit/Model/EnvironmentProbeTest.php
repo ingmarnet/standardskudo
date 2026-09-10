@@ -11,6 +11,7 @@ use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\EntityTypeResolver;
 use Standard\Skudo\Model\EnvironmentProbe;
 
 class EnvironmentProbeTest extends TestCase
@@ -78,7 +79,14 @@ class EnvironmentProbeTest extends TestCase
         // como lo haría el de producción.
         $keyResolver = new EntityKeyResolver($resource);
 
-        return new EnvironmentProbe($metadata, $modules, $resource, $storeManager, $keyResolver);
+        return new EnvironmentProbe(
+            $metadata,
+            $modules,
+            $resource,
+            $storeManager,
+            $keyResolver,
+            new EntityTypeResolver($resource)
+        );
     }
 
     // --- M6: `default_stock_id` no se inventa ------------------------------

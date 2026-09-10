@@ -41,6 +41,11 @@ class ChecksumReader implements ChecksumReaderInterface
 {
     public function __construct(
         private readonly ResourceConnection $resource,
+        // M3: aunque $storeId no filtre (Ruling 2), tiene que EXISTIR. Un
+        // storeId inexistente que devuelve 200 hace que `reconcile()` compare
+        // dos lados de acuerdo sobre un espejo equivocado. Ver
+        // Model\StoreViewGuard.
+        private readonly StoreViewGuard $storeViewGuard,
     ) {
     }
 
@@ -60,6 +65,8 @@ class ChecksumReader implements ChecksumReaderInterface
      */
     public function getChecksums(int $storeId): array
     {
+        $this->storeViewGuard->assertExists($storeId);
+
         $connection = $this->resource->getConnection();
         $entity = $this->resource->getTableName('catalog_product_entity');
 

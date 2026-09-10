@@ -13,6 +13,8 @@ use Standard\Skudo\Model\ChecksumReader;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\DeltaReader;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\EntityTypeResolver;
+use Standard\Skudo\Model\StoreViewGuard;
 use Standard\Skudo\Model\EnvironmentProbe;
 use Standard\Skudo\Model\ProductReader;
 use Standard\Skudo\Model\SignalReader;
@@ -181,7 +183,7 @@ class NoOwnVersionFilterTest extends TestCase
         match ($key) {
             'product_page' => $this->productReader($resource)->getPage(storeId: 1, limit: 10),
             'product_by_sku' => $this->productReader($resource)->getBySku(1, ['SKU-A']),
-            'checksums' => (new ChecksumReader($resource))->getChecksums(1),
+            'checksums' => (new ChecksumReader($resource, $this->storeViewGuard()))->getChecksums(1),
             'categories' => $this->categoryReader($resource)->getPage(10),
             'signals' => $this->signalReader($resource)->getSignals(1, 90),
             'environment' => $this->environmentProbe($resource)->getProfile(),
@@ -192,7 +194,12 @@ class NoOwnVersionFilterTest extends TestCase
 
     private function productReader(ResourceConnection $resource): ProductReader
     {
-        return new ProductReader($resource, new Cursor(), new EntityKeyResolver($resource));
+        return new ProductReader(
+            $resource,
+            new Cursor(),
+            new EntityKeyResolver($resource),
+            $this->storeViewGuard()
+        );
     }
 
     private function categoryReader(ResourceConnection $resource): CategoryReader
@@ -200,7 +207,13 @@ class NoOwnVersionFilterTest extends TestCase
         $storeManager = $this->createMock(StoreManagerInterface::class);
         $storeManager->method('getStores')->willReturn([]);
 
-        return new CategoryReader($resource, new Cursor(), new EntityKeyResolver($resource), $storeManager);
+        return new CategoryReader(
+            $resource,
+            new Cursor(),
+            new EntityKeyResolver($resource),
+            new EntityTypeResolver($resource),
+            $storeManager
+        );
     }
 
     private function signalReader(ResourceConnection $resource): SignalReader
@@ -208,7 +221,20 @@ class NoOwnVersionFilterTest extends TestCase
         $modules = $this->createMock(ModuleListInterface::class);
         $modules->method('has')->willReturn(true);
 
-        return new SignalReader($resource, $modules, new EntityKeyResolver($resource));
+        return new SignalReader(
+            $resource,
+            $modules,
+            new EntityKeyResolver($resource),
+            $this->storeViewGuard()
+        );
+    }
+
+    private function storeViewGuard(): StoreViewGuard
+    {
+        $storeManager = $this->createMock(StoreManagerInterface::class);
+        $storeManager->method('getStore')->willReturn($this->createMock(\Magento\Store\Model\Store::class));
+
+        return new StoreViewGuard($storeManager);
     }
 
     private function environmentProbe(ResourceConnection $resource): EnvironmentProbe
@@ -225,7 +251,14 @@ class NoOwnVersionFilterTest extends TestCase
         $storeManager->method('getGroups')->willReturn([]);
         $storeManager->method('getStores')->willReturn([]);
 
-        return new EnvironmentProbe($metadata, $modules, $resource, $storeManager, new EntityKeyResolver($resource));
+        return new EnvironmentProbe(
+            $metadata,
+            $modules,
+            $resource,
+            $storeManager,
+            new EntityKeyResolver($resource),
+            new EntityTypeResolver($resource)
+        );
     }
 
     /**

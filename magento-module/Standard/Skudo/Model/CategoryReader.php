@@ -76,6 +76,9 @@ class CategoryReader implements CategoryReaderInterface
         // ProductReader usa para catalog_product_entity. Ver el docblock de
         // la clase para el porqué de reusarla también acá.
         private readonly EntityKeyResolver $entityKeyResolver,
+        // Inyectado, no instanciado con `new`: la MISMA clase que usan
+        // AttributeReader y EnvironmentProbe. Ver Model\EntityTypeResolver.
+        private readonly EntityTypeResolver $entityTypeResolver,
         private readonly StoreManagerInterface $storeManager,
     ) {
     }
@@ -212,7 +215,7 @@ class CategoryReader implements CategoryReaderInterface
      */
     private function categoryAttribute(AdapterInterface $connection, string $attributeCode): array
     {
-        $entityTypeId = $this->categoryEntityTypeId($connection);
+        $entityTypeId = $this->entityTypeResolver->resolve(self::ENTITY_TYPE_CODE);
         $attributeTable = $this->resource->getTableName('eav_attribute');
 
         $select = $connection->select()
@@ -230,28 +233,6 @@ class CategoryReader implements CategoryReaderInterface
 
         $row = $rows[0];
         return ['attribute_id' => (int) $row['attribute_id'], 'backend_type' => (string) $row['backend_type']];
-    }
-
-    /**
-     * `entity_type_id` de `catalog_category` resuelto contra
-     * `eav_entity_type`, no hardcodeado — mismo patrón que
-     * `AttributeReader::resolveEntityTypeId()`.
-     */
-    private function categoryEntityTypeId(AdapterInterface $connection): int
-    {
-        $select = $connection->select()
-            ->from($this->resource->getTableName('eav_entity_type'), ['entity_type_id'])
-            ->where('entity_type_code = ?', self::ENTITY_TYPE_CODE);
-
-        $entityTypeId = $connection->fetchOne($select);
-        if ($entityTypeId === false) {
-            throw new LocalizedException(__(
-                'no se encontró entity_type_id para "%1" en eav_entity_type',
-                self::ENTITY_TYPE_CODE
-            ));
-        }
-
-        return (int) $entityTypeId;
     }
 
     /**

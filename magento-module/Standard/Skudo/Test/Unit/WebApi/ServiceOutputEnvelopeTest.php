@@ -32,6 +32,8 @@ use Standard\Skudo\Model\ChecksumReader;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\DeltaReader;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\EntityTypeResolver;
+use Standard\Skudo\Model\StoreViewGuard;
 use Standard\Skudo\Model\EnvironmentProbe;
 use Standard\Skudo\Model\ProductReader;
 use Standard\Skudo\Model\SignalReader;
@@ -336,7 +338,8 @@ class ServiceOutputEnvelopeTest extends TestCase
         return new ProductReader(
             $resource,
             new Cursor(),
-            new EntityKeyResolver($resource)
+            new EntityKeyResolver($resource),
+            $this->storeViewGuard()
         );
     }
 
@@ -351,12 +354,14 @@ class ServiceOutputEnvelopeTest extends TestCase
     {
         $resource = $this->resourceReturning($this->emptyConnection());
 
-        return new ChecksumReader($resource);
+        return new ChecksumReader($resource, $this->storeViewGuard());
     }
 
     private function attributeReader(): AttributeReader
     {
-        return new AttributeReader($this->resourceReturning($this->emptyConnection()), new Cursor());
+        $resource = $this->resourceReturning($this->emptyConnection());
+
+        return new AttributeReader($resource, new Cursor(), new EntityTypeResolver($resource));
     }
 
     private function categoryReader(): CategoryReader
@@ -369,6 +374,7 @@ class ServiceOutputEnvelopeTest extends TestCase
             $resource,
             new Cursor(),
             new EntityKeyResolver($resource),
+            new EntityTypeResolver($resource),
             $storeManager
         );
     }
@@ -382,8 +388,22 @@ class ServiceOutputEnvelopeTest extends TestCase
         return new SignalReader(
             $resource,
             $modules,
-            new EntityKeyResolver($resource)
+            new EntityKeyResolver($resource),
+            $this->storeViewGuard()
         );
+    }
+
+    /**
+     * M3: un guard con un StoreManager que conoce cualquier store view. Lo
+     * que esta prueba mide es la FORMA del envoltorio, no la validación del
+     * storeId (eso es StoreViewGuardTest).
+     */
+    private function storeViewGuard(): StoreViewGuard
+    {
+        $storeManager = $this->createMock(StoreManagerInterface::class);
+        $storeManager->method('getStore')->willReturn($this->createMock(\Magento\Store\Model\Store::class));
+
+        return new StoreViewGuard($storeManager);
     }
 
     private function environmentProbe(): EnvironmentProbe
@@ -406,7 +426,8 @@ class ServiceOutputEnvelopeTest extends TestCase
             $modules,
             $resource,
             $storeManager,
-            new EntityKeyResolver($resource)
+            new EntityKeyResolver($resource),
+            new EntityTypeResolver($resource)
         );
     }
 }

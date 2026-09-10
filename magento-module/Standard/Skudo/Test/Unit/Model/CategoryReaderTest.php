@@ -12,6 +12,7 @@ use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\CategoryReader;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\EntityTypeResolver;
 
 /**
  * Cubre S0 Task A3: el segundo (y último) de los dos endpoints que le dan a
@@ -472,6 +473,7 @@ class CategoryReaderTest extends TestCase
             $resource,
             new Cursor(),
             new EntityKeyResolver($resource),
+            new EntityTypeResolver($resource),
             $storeManager,
         );
     }

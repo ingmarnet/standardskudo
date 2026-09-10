@@ -8,6 +8,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\StoreViewGuard;
 use Standard\Skudo\Model\ProductReader;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 
@@ -32,6 +33,7 @@ use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 class ProductReaderCategoryIdsTest extends TestCase
 {
     use UnwrapsWebApiEnvelope;
+    use BuildsAPermissiveStoreViewGuard;
 
     private const NOW = 2_000_000_000;
 
@@ -111,7 +113,8 @@ class ProductReaderCategoryIdsTest extends TestCase
         return new ProductReader(
             $resource,
             new Cursor(),
-            new EntityKeyResolver($resource)
+            new EntityKeyResolver($resource),
+            $this->permissiveStoreViewGuard()
         );
     }
 

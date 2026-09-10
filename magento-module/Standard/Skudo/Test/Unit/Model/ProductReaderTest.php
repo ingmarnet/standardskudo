@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
+use Standard\Skudo\Model\StoreViewGuard;
 use Standard\Skudo\Model\ProductReader;
 
 /**
@@ -29,6 +30,7 @@ use Standard\Skudo\Model\ProductReader;
 class ProductReaderTest extends TestCase
 {
     use UnwrapsWebApiEnvelope;
+    use BuildsAPermissiveStoreViewGuard;
 
     public function testGetBySkuRejectsMoreThanOneHundredSkus(): void
     {
@@ -161,7 +163,8 @@ class ProductReaderTest extends TestCase
         return new ProductReader(
             $resource,
             new Cursor(),
-            new EntityKeyResolver($resource)
+            new EntityKeyResolver($resource),
+            $this->permissiveStoreViewGuard()
         );
     }
 

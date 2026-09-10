@@ -32,11 +32,15 @@ class ProductReader implements ProductReaderInterface
         private readonly ResourceConnection $resource,
         private readonly Cursor $cursor,
         private readonly EntityKeyResolver $entityKeyResolver,
+        // M3: el storeId lo provee la red y hasta ahora nadie comprobaba que
+        // existiera. Ver Model\StoreViewGuard.
+        private readonly StoreViewGuard $storeViewGuard,
     ) {
     }
 
     public function getPage(int $storeId, int $limit = 500, ?string $cursor = null): array
     {
+        $this->storeViewGuard->assertExists($storeId);
         $limit = max(1, min($limit, self::MAX_LIMIT));
         $after = $this->cursor->decode($cursor);
         $keyColumn = $this->entityKeyResolver->resolve();
@@ -64,6 +68,8 @@ class ProductReader implements ProductReaderInterface
 
     public function getBySku(int $storeId, array $skus): array
     {
+        $this->storeViewGuard->assertExists($storeId);
+
         if (count($skus) > self::MAX_SKUS) {
             throw new InputException(__(
                 'no se pueden pedir más de %1 SKUs por llamada (se recibieron %2)',

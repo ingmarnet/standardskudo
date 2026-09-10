@@ -60,6 +60,8 @@ class SignalReader implements SignalReaderInterface
         // ProductReader (Task 8) para la misma pregunta de esquema. Ver
         // Ruling 3 y la clase misma.
         private readonly EntityKeyResolver $entityKeyResolver,
+        // M3: ver Model\StoreViewGuard.
+        private readonly StoreViewGuard $storeViewGuard,
     ) {
     }
 
@@ -77,6 +79,8 @@ class SignalReader implements SignalReaderInterface
 
     public function getSignals(int $storeId, int $days = 90): array
     {
+        $this->storeViewGuard->assertExists($storeId);
+
         $connection = $this->resource->getConnection();
         $usesMsi = self::usesMsi($this->modules);
 
