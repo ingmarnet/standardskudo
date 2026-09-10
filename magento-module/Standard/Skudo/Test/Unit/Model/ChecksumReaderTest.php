@@ -182,6 +182,129 @@ class ChecksumReaderTest extends TestCase
     }
 
     /**
+     * H3, la mitad del remedio: los SKUs de la partición PEDIDA vienen en el
+     * payload, para que la reparación relea sólo esos y no el catálogo.
+     *
+     * Discrimina: se piden DOS particiones de tres SKUs repartidos en tres,
+     * y se exige que vengan exactamente los de esas dos. Una implementación
+     * que devolviera todos los SKUs (o los de la partición equivocada) falla.
+     */
+    public function testTheSkusOfTheRequestedPartitionsTravelInThePayload(): void
+    {
+        $digest = new ContentDigest();
+        $partitionOfA = $digest->partitionOf('SKU-A');
+        $partitionOfB = $digest->partitionOf('SKU-B');
+        $this->assertNotSame($partitionOfA, $partitionOfB, 'la fixture necesita dos particiones distintas');
+
+        $result = $this->payloadOf($this->makeReader([
+            $this->entityRow('SKU-A'),
+            $this->entityRow('SKU-B'),
+            $this->entityRow('SKU-C'),
+        ])->getChecksums(storeId: 1, partitions: $partitionOfA . ',' . $partitionOfB));
+
+        // Se afirma sobre la LISTA tal como viaja, no sobre un array_column()
+        // reindexado por partición: reindexar es justamente lo que convierte
+        // la clave '21' en el int 21 (la trampa que ContentDigest documenta),
+        // y el payload tiene que llevar la partición como STRING.
+        $this->assertSame(
+            [
+                ['partition' => $partitionOfA, 'skus' => ['SKU-A']],
+                ['partition' => $partitionOfB, 'skus' => ['SKU-B']],
+            ],
+            $result['partition_skus']
+        );
+    }
+
+    /**
+     * Una partición pedida que en Magento está VACÍA se emite igual, con
+     * lista vacía. Es el caso que la reparación necesita para poder borrar
+     * del espejo lo que la partición ya no contiene: omitirla la volvería
+     * indistinguible de "no se preguntó por esa partición", y la reparación
+     * no borraría nada.
+     */
+    public function testARequestedPartitionWithNoSkusIsStillEmittedEmpty(): void
+    {
+        $digest = new ContentDigest();
+        $partitionOfA = $digest->partitionOf('SKU-A');
+        // Una partición cualquiera que no sea la de SKU-A.
+        $emptyPartition = $partitionOfA === '00' ? '01' : '00';
+
+        $result = $this->payloadOf(
+            $this->makeReader([$this->entityRow('SKU-A')])
+                ->getChecksums(storeId: 1, partitions: $emptyPartition)
+        );
+
+        $this->assertSame(
+            [['partition' => $emptyPartition, 'skus' => []]],
+            $result['partition_skus']
+        );
+    }
+
+    /**
+     * Sin particiones pedidas, el campo existe y está vacío. Existe SIEMPRE
+     * para que el otro lado pueda EXIGIRLO cuando sí pidió, en vez de leer
+     * su ausencia como "esta partición no tiene SKUs" y borrar el espejo de
+     * esa cohorte.
+     */
+    public function testWithoutRequestedPartitionsTheFieldIsAnEmptyList(): void
+    {
+        $result = $this->payloadOf(
+            $this->makeReader([$this->entityRow('SKU-A')])->getChecksums(storeId: 1)
+        );
+
+        $this->assertSame([], $result['partition_skus']);
+    }
+
+    /**
+     * La partición la manda el CLIENTE: una que no tiene la forma que este
+     * módulo emite es entrada inválida (400 vía InputException), no un 500
+     * con traza — el mismo razonamiento que `Model\Cursor` para el cursor
+     * ilegible. Un 500 es la clase de error que el cliente reintenta, y esto
+     * no se arregla reintentando.
+     */
+    public function testAMalformedPartitionIsRejectedAsInvalidInput(): void
+    {
+        $reader = $this->makeReader([$this->entityRow('SKU-A')]);
+
+        $this->expectException(\Magento\Framework\Exception\InputException::class);
+
+        $reader->getChecksums(storeId: 1, partitions: 'BASURA');
+    }
+
+    /**
+     * Pedir los SKUs de casi todas las particiones es pedir el catálogo
+     * entero por una vía que existe para reparar una cohorte. Se rechaza con
+     * el número en el mensaje, en vez de servir un payload enorme.
+     */
+    public function testAskingForTooManyPartitionsIsRejected(): void
+    {
+        $tokens = [];
+        for ($i = 0; $i < 33; $i++) {
+            $tokens[] = sprintf('%02x', $i);
+        }
+
+        $this->expectException(\Magento\Framework\Exception\InputException::class);
+
+        $this->makeReader([])->getChecksums(storeId: 1, partitions: implode(',', $tokens));
+    }
+
+    /**
+     * Los SKUs de la partición salen de la MISMA consulta que el digest, no
+     * de una segunda: dos consultas darían el conjunto de un instante y el
+     * digest de otro, y la reparación borraría del espejo un SKU que existe.
+     */
+    public function testTheRequestedSkusComeFromTheSameSingleQuery(): void
+    {
+        $queries = 0;
+        $partition = (new ContentDigest())->partitionOf('SKU-A');
+
+        $this->makeReader([$this->entityRow('SKU-A')], $queries)
+            ->getChecksums(storeId: 1, partitions: $partition);
+
+        $this->assertSame(1, $queries);
+    }
+
+    /**
      * @param mixed[] $payload
      * @return array<string, string>
      */

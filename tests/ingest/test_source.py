@@ -17,6 +17,7 @@ import pytest
 from skudo.ingest.delta_sync import delta_sync
 from skudo.ingest.full_sync import full_sync
 from skudo.ingest.reconcile import reconcile
+from skudo.ingest.repair import repair_partitions
 from skudo.ingest.source import TenantSource
 from skudo.magento.client import MagentoClient
 from skudo.mirror.models import Tenant
@@ -39,6 +40,7 @@ def test_the_sync_entry_points_take_no_separate_tenant_id():
         (full_sync, ["session", "source", "store_view_ids"]),
         (delta_sync, ["session", "source", "store_view_ids"]),
         (reconcile, ["session", "source", "store_view_magento_id"]),
+        (repair_partitions, ["session", "source", "store_view_magento_id", "partitions"]),
     ):
         positional = [
             name

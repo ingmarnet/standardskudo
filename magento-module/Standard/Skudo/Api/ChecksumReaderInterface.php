@@ -40,12 +40,27 @@ interface ChecksumReaderInterface
      * elemento y el payload llegue intacto. El lado Python desenvuelve con
      * `response.json()[0]`. Ver `Model\WebApiEnvelope`.
      *
+     * `$partitions` (H3) es la otra mitad del particionado: la lista de
+     * particiones —dos caracteres hex en minúsculas, separadas por coma— de
+     * las que se quieren los SKUs, para REPARAR sólo esas. Sin ella, el
+     * remedio de una partición divergente seguía siendo `full_sync`: 228.881
+     * productos para arreglar ~900. La lista que se devuelve es la población
+     * AUTORITATIVA de esa partición en esta instancia, así que el ingestor
+     * puede releerla con `/products-by-sku` y además borrar del espejo lo que
+     * la partición ya no contiene. Se emite una entrada por partición pedida,
+     * incluidas las vacías (una partición vacía en Magento y poblada en el
+     * espejo es justo el caso que hay que poder limpiar). Máximo 32 por
+     * llamada; una partición con otra forma es entrada inválida (400).
+     *
      * @param int $storeId
+     * @param string|null $partitions
      * @return mixed[] [{"product_count": int, "sku_digest": string,
      *                   "partition_count": int,
      *                   "content_partitions": [{"partition": string,
      *                                           "product_count": int,
-     *                                           "content_digest": string}]}]
+     *                                           "content_digest": string}],
+     *                   "partition_skus": [{"partition": string,
+     *                                       "skus": string[]}]}]
      */
-    public function getChecksums(int $storeId): array;
+    public function getChecksums(int $storeId, ?string $partitions = null): array;
 }

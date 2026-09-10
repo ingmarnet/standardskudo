@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Standard\Skudo\Model;
 
 use Magento\Framework\App\ResourceConnection;
+use Magento\Framework\Exception\InputException;
 use Standard\Skudo\Api\ChecksumReaderInterface;
 
 /**
@@ -76,9 +77,19 @@ class ChecksumReader implements ChecksumReaderInterface
      * catálogo completo por store view es deliberado: es lo que permite
      * reportar "este producto no aparece en la navegación de BR".
      */
-    public function getChecksums(int $storeId): array
+    /**
+     * Tope de particiones por llamada. Con 256 particiones en total, pedir
+     * los SKUs de más de 32 es pedir un octavo del catálogo por una vía que
+     * existe para reparar una cohorte: a partir de ahí la pasada completa es
+     * más barata y más simple, y hay que decirlo en vez de servir un payload
+     * enorme por un endpoint de reconciliación.
+     */
+    private const MAX_PARTITIONS = 32;
+
+    public function getChecksums(int $storeId, ?string $partitions = null): array
     {
         $this->storeViewGuard->assertExists($storeId);
+        $wanted = $this->parsePartitions($partitions);
 
         $connection = $this->resource->getConnection();
         $entity = $this->resource->getTableName('catalog_product_entity');
@@ -127,6 +138,73 @@ class ChecksumReader implements ChecksumReaderInterface
             'partition_count' => ContentDigest::PARTITION_COUNT,
             // Lista de objetos, nunca un mapa: ver ContentDigest::partitions().
             'content_partitions' => $this->contentDigest->partitions($rows),
+            // H3: los SKUs de las particiones PEDIDAS, para que la
+            // reparación de una partición divergente no tenga que recorrer
+            // el catálogo entero. Lista vacía cuando no se pidió ninguna:
+            // el campo existe siempre para que el otro lado pueda EXIGIRLO
+            // cuando sí pidió (ver `reconcile._remote_partition_skus`), en
+            // vez de interpretar su ausencia como "no hay SKUs".
+            'partition_skus' => $wanted === []
+                ? []
+                : $this->contentDigest->skusOfPartitions($rows, $wanted),
         ]);
+    }
+
+    /**
+     * Valida y normaliza la lista de particiones que el CLIENTE manda.
+     *
+     * Es entrada de red, así que se rechaza con `InputException` (400, sin
+     * traza) y no con una excepción cualquiera, que el framework de web API
+     * renderizaría como 500 — el mismo razonamiento que `Model\Cursor`
+     * documenta para el cursor ilegible: un 500 es la clase de error que el
+     * cliente reintenta, y esto no se arregla reintentando.
+     *
+     * Lo que se acepta es exactamente lo que `ContentDigest::partitionOf()`
+     * emite: dos caracteres hex en minúsculas. No se normaliza mayúsculas a
+     * minúsculas ni se toleran alias: si el otro lado empezara a mandar 'FF',
+     * eso significa que los dos lados dejaron de calcular la partición igual,
+     * y taparlo con un `strtolower()` esconde ese desacuerdo en vez de
+     * mostrarlo.
+     *
+     * @return list<string>
+     */
+    private function parsePartitions(?string $partitions): array
+    {
+        if ($partitions === null || trim($partitions) === '') {
+            return [];
+        }
+
+        $tokens = [];
+        foreach (explode(',', $partitions) as $token) {
+            $token = trim($token);
+            if ($token === '') {
+                continue;
+            }
+            if (preg_match('/^[0-9a-f]{2}$/', $token) !== 1) {
+                throw new InputException(__(
+                    'partición inválida: se esperaban dos caracteres hex en '
+                    . 'minúsculas ("00".."ff"), tal como los emite el digest de '
+                    . 'contenido de este módulo'
+                ));
+            }
+            // Repetir una partición no es un error del cliente, pero servirla
+            // dos veces sí sería un payload con la misma lista dos veces.
+            $tokens[$token] = true;
+        }
+
+        if (count($tokens) > self::MAX_PARTITIONS) {
+            throw new InputException(__(
+                'no se pueden pedir los SKUs de más de %1 particiones por '
+                . 'llamada (se recibieron %2); para más que eso, la pasada '
+                . 'completa es más barata',
+                self::MAX_PARTITIONS,
+                count($tokens)
+            ));
+        }
+
+        $keys = array_keys($tokens);
+        // Las claves de un array PHP con '10' se volvieron int: se devuelven
+        // como string, que es la forma que el resto del sistema usa.
+        return array_map(static fn ($token): string => (string) $token, $keys);
     }
 }

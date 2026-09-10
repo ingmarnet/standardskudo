@@ -146,6 +146,68 @@ class ContentDigest
     }
 
     /**
+     * Los SKUs de las particiones pedidas, para la REPARACIÓN DIRIGIDA.
+     *
+     * H3. Hasta acá el particionado servía para DETECTAR: `reconcile()` dice
+     * qué particiones de 256 divergen y el único remedio seguía siendo
+     * `full_sync` — 228.881 productos y horas de trabajo para reparar ~900.
+     * Detección que nombra un lugar con un remedio que lo ignora es media
+     * función.
+     *
+     * Con esto el remedio usa el lugar: el ingestor pide los SKUs de las
+     * particiones divergentes y los relee con `/products-by-sku`. La lista es
+     * AUTORITATIVA —es la población que esta instancia considera activa— así
+     * que el ingestor puede además borrar del espejo lo que la partición ya
+     * no contiene, sin recorrer el catálogo entero.
+     *
+     * Las filas son las MISMAS que alimentan `partitions()`, de la misma
+     * consulta: pedir los SKUs de una partición en una segunda consulta daría
+     * un conjunto de otro instante que el digest ya publicado, y esa
+     * incoherencia se reportaría como deriva del espejo.
+     *
+     * Se emite una entrada por partición PEDIDA, incluidas las vacías: una
+     * partición que en Magento no tiene ningún SKU y en el espejo sí es
+     * exactamente el caso que la reparación tiene que poder limpiar, y
+     * omitirla la volvería indistinguible de "no se preguntó".
+     *
+     * @param iterable<array{sku: string, updated_at: string|null}> $rows
+     * @param list<string> $wanted
+     * @return list<array{partition: string, skus: list<string>}>
+     */
+    public function skusOfPartitions(iterable $rows, array $wanted): array
+    {
+        // El índice es SÓLO para buscar. PHP convierte una clave '10' en el
+        // int 10 y deja '00' como string, y `array_key_exists()` aplica la
+        // misma conversión al buscar, así que la búsqueda es correcta; pero
+        // las particiones que se EMITEN salen de `$wanted` (strings tal como
+        // llegaron), nunca de las claves del índice. Es la misma trampa que
+        // el docblock de `partitions()` describe, cerrada del mismo modo.
+        $wantedIndex = [];
+        foreach ($wanted as $partition) {
+            $wantedIndex[$partition] = [];
+        }
+
+        foreach ($rows as $row) {
+            $sku = (string) $row['sku'];
+            $partition = $this->partitionOf($sku);
+            if (array_key_exists($partition, $wantedIndex)) {
+                $wantedIndex[$partition][] = $sku;
+            }
+        }
+
+        $out = [];
+        foreach ($wanted as $partition) {
+            $skus = $wantedIndex[$partition];
+            // Mismo criterio de orden que el digest (Ruling 1): SORT_STRING
+            // en PHP, nunca un ORDER BY de SQL con la colación de la columna.
+            sort($skus, SORT_STRING);
+            $out[] = ['partition' => $partition, 'skus' => $skus];
+        }
+
+        return $out;
+    }
+
+    /**
      * Digest de contenido por partición.
      *
      * Devuelve una LISTA de objetos y no un mapa partición => digest a

@@ -372,8 +372,21 @@ class MagentoClient:
         raise_for_status(response)
         return unwrap(response)["items"]
 
-    def checksums(self, store_id: int) -> dict:
-        response = self._client.get("/checksums", params={"storeId": store_id})
+    def checksums(self, store_id: int, partitions: list[str] | None = None) -> dict:
+        """Conteo, huella del conjunto de SKUs y digest de contenido por partición.
+
+        `partitions` (H3) pide además los SKUs de esas particiones, que es lo
+        que permite REPARAR una partición divergente sin recorrer el catálogo:
+        la lista que vuelve es la población autoritativa de esa cohorte en la
+        instancia. Viaja como una lista separada por coma porque es un
+        parámetro de query de un GET; el módulo rechaza con 400 cualquier
+        token que no tenga la forma que su propio digest emite, y topa la
+        cantidad por llamada (ver `Model\\ChecksumReader`).
+        """
+        params: dict[str, object] = {"storeId": store_id}
+        if partitions:
+            params["partitions"] = ",".join(partitions)
+        response = self._client.get("/checksums", params=params)
         raise_for_status(response)
         return unwrap(response)
 
