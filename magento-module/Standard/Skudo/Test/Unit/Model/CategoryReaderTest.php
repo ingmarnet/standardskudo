@@ -121,6 +121,70 @@ class CategoryReaderTest extends TestCase
     }
 
     /**
+     * Fix de revisión (ronda 1): presencia, no veracidad, es la regla. Un
+     * override `'0'` (falsy en PHP) debe GANAR sobre un global `'1'`
+     * (truthy) — nunca "heredar hacia arriba" porque el override resultó
+     * falso. Antes de este test, `testCategoryActiveInOneStoreViewAndInactiveInAnother`
+     * usaba un override PY ('0') idéntico al global ('0'): ese fixture no
+     * distinguía `??` (presencia) de `?:` (veracidad), porque ambos
+     * operadores producían el mismo resultado ahí. Este caso los hace
+     * divergir: con `?:`, el override falsy de PY sería descartado y PY
+     * heredaría el global truthy, reportando (incorrectamente) activa una
+     * categoría desactivada a propósito en esa tienda.
+     */
+    public function testStoreOverrideOfIsActiveWinsEvenWhenFalsyAndGlobalIsTruthy(): void
+    {
+        $result = $this->getPageWithCategoryStoreData(
+            categoryRow: $this->categoryRow(rowId: 700, entityId: 700, path: '1/2/700'),
+            isActiveRows: [
+                ['row_id' => 700, 'store_id' => 0, 'value' => '1'],
+                ['row_id' => 700, 'store_id' => 1, 'value' => '0'],
+                // BR sin fila propia: hereda el global truthy.
+            ],
+            nameRows: [
+                ['row_id' => 700, 'store_id' => 0, 'value' => 'Categoría con override'],
+            ],
+        );
+
+        $states = $this->storeStatesByStoreId($result['items'][0]);
+        $this->assertFalse(
+            $states[self::STORE_PY]['is_active'],
+            'el override falsy de PY debe ganar sobre el global truthy, no heredarlo'
+        );
+        $this->assertTrue($states[self::STORE_BR]['is_active'], 'BR sin override hereda el global truthy');
+    }
+
+    /**
+     * Fix de revisión (ronda 1): mismo punto que el test anterior, pero
+     * para `name` con un override VACÍO (`''`, falsy). Un nombre vacío en
+     * una store view es exactamente el tipo de defecto que este producto
+     * existe para detectar — un `?:` lo escondería heredando el nombre
+     * global, y el hallazgo desaparecería silenciosamente.
+     */
+    public function testStoreOverrideOfNameWinsEvenWhenEmptyStringAndGlobalIsNonEmpty(): void
+    {
+        $result = $this->getPageWithCategoryStoreData(
+            categoryRow: $this->categoryRow(rowId: 701, entityId: 701, path: '1/2/701'),
+            isActiveRows: [
+                ['row_id' => 701, 'store_id' => 0, 'value' => '1'],
+            ],
+            nameRows: [
+                ['row_id' => 701, 'store_id' => 0, 'value' => 'Nombre Global'],
+                ['row_id' => 701, 'store_id' => 1, 'value' => ''],
+                // BR sin fila propia: hereda el global no vacío.
+            ],
+        );
+
+        $states = $this->storeStatesByStoreId($result['items'][0]);
+        $this->assertSame(
+            '',
+            $states[self::STORE_PY]['name'],
+            'el override vacío de PY debe ganar sobre el nombre global, no ocultarse heredándolo'
+        );
+        $this->assertSame('Nombre Global', $states[self::STORE_BR]['name'], 'BR sin override hereda el global');
+    }
+
+    /**
      * Ninguna store view puede faltar en la respuesta, tenga o no override:
      * el lado Python no debe tener que adivinar si una ausencia significa
      * "inactiva" o "desconocida".
