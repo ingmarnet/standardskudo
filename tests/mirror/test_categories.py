@@ -71,6 +71,45 @@ def test_not_effective_when_product_is_not_in_the_store_website():
     assert effect.reason == "producto_fuera_del_website"
 
 
+def test_website_unknown_when_product_website_ids_is_none():
+    """`None` es lo que tiene toda fila de `product_record` espejada antes de
+    la migración 0011: AUSENTE, no 'sin websites'. Debe quedar como no
+    evaluado, nunca como un defecto inventado a partir de un dato que no
+    existe."""
+    effect = derive_category_effect(
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT, root_category_id=2,
+        is_active_in_store=True, product_website_ids=None, store_website_id=1,
+    )
+    assert effect.is_effective is None
+    assert effect.reason == "website_desconocido"
+
+
+def test_an_empty_website_list_is_a_known_defect_not_an_unknown():
+    """`[]` es CONOCIDO: el producto de verdad no está en ningún website, que
+    es invisible en todas partes y un defecto real. Distinto de `None`, que es
+    desconocido. Si el código tratara `None` y `[]` igual —el arreglo
+    ingenuo—, este test y el anterior colapsarían al mismo resultado."""
+    effect = derive_category_effect(
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT, root_category_id=2,
+        is_active_in_store=True, product_website_ids=[], store_website_id=1,
+    )
+    assert effect.is_effective is False
+    assert effect.reason == "producto_fuera_del_website"
+
+
+def test_the_tree_condition_still_wins_over_an_unknown_website():
+    """Las dos primeras condiciones no dependen del website y sí son certeras
+    aunque el website sea desconocido: no deben quedar enmascaradas por
+    'website_desconocido' cuando ya hay un motivo real y anterior en el orden
+    de evaluación."""
+    effect = derive_category_effect(
+        assignment_path=PATH_UNDER_THE_SHARED_ROOT, root_category_id=47,
+        is_active_in_store=True, product_website_ids=None, store_website_id=1,
+    )
+    assert effect.is_effective is False
+    assert effect.reason == "fuera_del_arbol_de_la_tienda"
+
+
 def test_assignment_is_stored_without_store_scope(db_session, tenant):
     """La tabla de asignación NO lleva store view: en Magento es global."""
     upsert_category(db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización")

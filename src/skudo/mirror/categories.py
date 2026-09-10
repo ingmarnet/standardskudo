@@ -12,9 +12,19 @@ class CategoryEffect(BaseModel):
     No lleva `category_magento_id` ni `store_view_magento_id`: quien pregunta ya
     sabe por qué par preguntó, y un campo de identidad con default 0 que nadie
     rellena solo sirve para que el primer consumidor lea un cero creíble.
+
+    `is_effective` es `bool | None` y no un `bool` liso: `None` significa "no
+    evaluado", no "falló". Todo `product_record` espejado antes de la migración
+    `0011` tiene `website_ids = None` porque ningún sync todavía lo llenó — un
+    dato AUSENTE, no un dato que diga "el producto no está en ningún website".
+    Confundir esos dos es exactamente el riesgo que la sección 1 del spec nombra
+    como el mayor de todo el sistema. `None` aquí se alinea con la vocabulario
+    de cobertura de la sección 6.4 (`evaluado` / `no_evaluado` / `no_aplica`):
+    un control que no se pudo evaluar queda pendiente, nunca aprobado ni
+    reprobado.
     """
 
-    is_effective: bool
+    is_effective: bool | None
     reason: str
 
 
@@ -22,7 +32,7 @@ def derive_category_effect(
     assignment_path: list[int],
     root_category_id: int,
     is_active_in_store: bool,
-    product_website_ids: list[int],
+    product_website_ids: list[int] | None,
     store_website_id: int,
 ) -> CategoryEffect:
     """Decide si una asignación global tiene efecto en una store view concreta.
@@ -30,11 +40,22 @@ def derive_category_effect(
     Tres condiciones independientes, evaluadas en el orden en que un merchandiser
     las diagnosticaría. Se devuelve la primera que falla como `reason`, para que la
     UI pueda decir POR QUÉ el producto no aparece en vez de solo que no aparece.
+
+    `product_website_ids=None` es DESCONOCIDO, no "fuera de todo website": las
+    dos primeras condiciones (árbol y actividad por tienda) no dependen del
+    website y sí pueden fallar con certeza aunque el website sea desconocido, así
+    que se evalúan primero y solo la tercera condición se topa con lo
+    desconocido. `product_website_ids=[]` en cambio es CONOCIDO — el producto de
+    verdad no está asignado a ningún website, que es un defecto real (invisible
+    en todas partes) — y sigue devolviendo `producto_fuera_del_website`, igual
+    que antes de este cambio.
     """
     if root_category_id not in assignment_path:
         return CategoryEffect(is_effective=False, reason="fuera_del_arbol_de_la_tienda")
     if not is_active_in_store:
         return CategoryEffect(is_effective=False, reason="categoria_inactiva_en_la_tienda")
+    if product_website_ids is None:
+        return CategoryEffect(is_effective=None, reason="website_desconocido")
     if store_website_id not in product_website_ids:
         return CategoryEffect(is_effective=False, reason="producto_fuera_del_website")
     return CategoryEffect(is_effective=True, reason="efectiva")
