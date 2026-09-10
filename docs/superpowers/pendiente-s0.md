@@ -1,7 +1,7 @@
 # S0 — trabajo pendiente y riesgos residuales
 
-Estado al 2026-09-10 (tras el cierre de H3 y M7): 267 tests Python, 191 PHP (187 unitarias
-+ 4 de integración), `ruff` limpio, cadena Alembic en `0013`.
+Estado al 2026-09-10 (tras el cierre de M3): 313 tests Python, 191 PHP (187 unitarias
++ 4 de integración), `ruff` limpio, cadena Alembic en `0014`.
 Módulo Magento con ocho endpoints de lectura y un comando de consola, ingestor con CLI
 (`python -m skudo.cli`) y espejo canónico en Postgres.
 
@@ -95,20 +95,48 @@ semántica del join ni en la forma emitida.
 
 ---
 
-## M3 — Filas huérfanas en tres tablas, sin barrido
+## ~~M3~~ — CERRADO (2026-09-10) — Filas huérfanas en tres tablas, sin barrido
 
-`delta_sync` borra el `ProductRecord` de un SKU eliminado pero nunca sus filas de
-`ProductCategoryAssignment`; el `_sweep` de `full_sync` borra solo `ProductRecord`.
-`sync_categories` y `sync_attributes` documentan "no hay barrido" como fuera de alcance.
+Cerrado en los commits `7745c0a` (asignaciones), `58ee1a0` (opciones y categorías),
+`39fca27` (la invariante del espejo) y `45db21b` (la reparación dirigida). El informe
+completo está en `docs/superpowers/m3-huerfanos.md`.
 
-Consecuencia para S1: el `option_id` de una opción borrada sigue pareciendo vivo en
-`attribute_option`, y existen asignaciones para SKUs sin registro de producto. El caso de las
-opciones importa porque la consolidación de S1 decide por `option_id`.
+Tres clases, tres mecanismos, elegidos por la forma de cada tabla:
 
-**Con número, desde la pasada de escala de H3:** al barrer 457.762 `ProductRecord` que el
-origen dejó de ofrecer, quedaron **457.762 filas huérfanas** en
-`product_category_assignment`. El coste de este hallazgo crece con el catálogo entero, no
-con la deriva.
+1. **Asignaciones producto-categoría**: limpieza **referencial** (no hay
+   `product_record` de ese tenant con ese sku), porque la asignación es GLOBAL y la
+   pasada es POR store view: un sello habría dejado sin sellar asignaciones vivas
+   sobre una pasada interrumpida a mitad de la primera tienda. Al no poder borrar
+   la asignación de un producto que el espejo contiene, no necesita la puerta de
+   `IncompletePassSweep`. `delta_sync` las borra por lista explícita de SKUs en la
+   MISMA transacción que el registro.
+2. **Atributos, opciones y etiquetas** y 3. **categorías y estados por tienda**:
+   **sello de generación** con la maquinaria de H3 generalizada
+   (`ingest/sweep.py`, tabla `sync_pass`, migración 0014). El barrido exige
+   `pass_complete` leído de la BASE, así que una pasada interrumpida no puede
+   barrer — verificado con sincronizaciones cortadas a propósito y con `SIGKILL`
+   sobre el proceso real.
+
+Y una invariante del espejo ENTERO (`tests/mirror/test_mirror_has_no_orphans.py`):
+después de un ciclo de ingesta completo no queda ni una fila huérfana en ninguna de
+las seis aristas, toda tabla nueva tiene que declararse raíz o hija, y cada clase
+tiene su prueba de sabotaje. Encontró a la primera una cuarta clase que M3 no
+nombraba —las **señales** del producto borrado, que S1 usa para PRIORIZAR— y se
+cerró igual.
+
+**Nuevo, medido al verificar M3 a escala:** la pasada de atributos escribe **una
+sentencia por opción** (`upsert_option` reemplaza el juego de etiquetas de cada opción
+por separado), y por eso 50.535 opciones cuestan 68 s y la primera página tarda ~50 s.
+Es el mismo defecto que H3 midió y arregló para los productos —compilar el SQL, no
+Postgres—. No se tocó en M3 a propósito: cambiar la forma de escritura de las etiquetas
+en el mismo cierre que introduce su barrido habría mezclado dos cambios de riesgo
+distinto sobre la tabla que guarda la identidad de las opciones.
+
+**Lo que queda declarado:** una asignación a una categoría que el espejo no tiene
+se VIGILA pero no se limpia (la tabla `category` la puebla una pasada
+independiente, y tratar "desconocida" como huérfana borraría las asignaciones de un
+tenant que no corrió `skudo categories`); y una pasada completa que no devuelve
+nada barre todo, que es la misma propiedad que `full_sync` tiene desde H3.
 
 ---
 

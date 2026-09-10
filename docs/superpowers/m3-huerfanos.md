@@ -21,8 +21,8 @@ de los barridos nuevos puede correr sobre una pasada interrumpida.
 
 | | |
 |---|---|
-| Commits | `7745c0a` (asignaciones, clase 1), `58ee1a0` (opciones y categorías, clases 2 y 3), `39fca27` (la invariante del espejo, y las señales que encontró) |
-| Suites | **311 pytest** (267 al empezar), **191 PHPUnit** sin cambios, `ruff` limpio |
+| Commits | `7745c0a` (asignaciones, clase 1), `58ee1a0` (opciones y categorías, clases 2 y 3), `39fca27` (la invariante del espejo, y las señales que encontró), `45db21b` (la reparación dirigida) |
+| Suites | **313 pytest** (267 al empezar), **191 PHPUnit** sin cambios (+4 de integración en verde contra la instancia de desarrollo), `ruff` limpio |
 | Migraciones | cadena Alembic en **0014** (`sync_pass` + el sello en cuatro tablas) |
 | Módulo Magento | **sin cambios**: las tres clases se cierran del lado del ingestor |
 | Verificación | HTTP real contra `127.0.0.1:8088`, espejo `skudo_httpreal`, con la pasada de **228.889 SKUs × 2 store views** de H3 reproducida |
@@ -204,7 +204,42 @@ No una excepción inyectada: `SIGKILL` a mitad de la pasada de atributos contra
 la instancia de desarrollo, con 50.535 opciones y una opción rancia sembrada a
 mano en el espejo que el origen no ofrece.
 
-<!-- INTERRUPCION_REAL -->
+```
+$ psql -c "insert into attribute_option (…, magento_option_id, sync_generation)
+           values (…, 987654321, 0)"                     -- una opción que el origen NO ofrece
+$ psql -c "insert into attribute_option_label (…) values (…, 'RANCIA-M3')"
+
+$ timeout --signal=KILL 55 python -m skudo.cli attributes --tenant skudodev
+Terminado (killed)   EXIT=137
+
+ pass_kind  | generation | pages_done | items_written | pass_complete | swept
+------------+------------+------------+---------------+---------------+-------
+ attributes |         20 |          1 |           500 | f             | f     <-- media pasada
+ categories |          8 |          1 |             6 | t             | t
+
+ rancia_sigue | etiquetas_de_la_rancia | opciones_totales
+--------------+------------------------+------------------
+            1 |                      1 |            50536   <-- el barrido NO corrió
+```
+
+La página 1 (500 atributos) **sí** quedó confirmada —commit por página— y el
+sello dice `pass_complete: false`, así que el barrido no es expresable. La
+opción rancia, que un barrido indebido se habría llevado con su etiqueta, sigue
+en pie. Y la invocación siguiente, sin argumentos nuevos, **sí** barre:
+
+```
+$ python -m skudo.cli attributes --tenant skudodev
+{ "generation": 21, "pages_fetched": 3, "attributes_written": 1066,
+  "options_written": 50535, "attributes_deleted": 0,
+  "options_deleted": 1, "option_labels_deleted": 1 }
+
+ rancia_sigue | opciones_totales      pass_kind  | pass_complete | swept
+--------------+------------------    ------------+---------------+-------
+            0 |            50535     attributes  | t             | t
+```
+
+Una opción de 50.536 y su etiqueta, no las 50.535 restantes.
+(`/home/ingmar/skudo-dev-logs/m3/interrupted-attributes-real.log`)
 
 ---
 
@@ -345,13 +380,144 @@ de la misma cosa.
 ni ahora). Está declarada como raíz en la invariante, no como hija, porque lo que
 le falta es un ingestor y no un barrido. Es un hallazgo distinto, anterior a M3.
 
-**5. No se tocó la reparación dirigida (`repair_partitions`).** Borra
-`ProductRecord` de los SKUs que la partición ya no contiene, y sus asignaciones
-quedan hasta la próxima pasada completa. No es un huérfano nuevo: `repair` es
-una operación de cohorte pequeña y la limpieza referencial de la pasada completa
-la cierra. Anotado acá para que la decisión sea explícita en vez de un olvido.
+**5. Una pasada COMPLETA que no devuelve nada barre todo.** Si el módulo
+respondiera una primera página vacía con `next_cursor: null` —una
+configuración rota, un entity type mal resuelto—, la pasada la leería como "el
+origen no ofrece ningún atributo" y barrería la tabla del tenant. Es la MISMA
+propiedad que `full_sync` tiene desde H3 para los productos y no se cambió
+acá: introducir un piso ("no barrer si el origen devolvió menos del X %")
+sería un criterio nuevo, sin medición que lo respalde, en el camino que borra.
+Queda declarado. Lo que hoy lo cubre es que `reconcile` compara conjunto y
+contenido, y que el barrido de atributos deja rastro en el reporte y en
+`skudo status`.
 
-<!-- ESCALA -->
+**6. La reparación dirigida SÍ se tocó** (commit `45db21b`): borraba
+`ProductRecord` de los SKUs que la partición ya no contiene y dejaba sus
+asignaciones y señales hasta la próxima pasada completa. Se cierra con el mismo
+predicado referencial ACOTADO a la cohorte reparada, porque la lista de SKUs no
+alcanza como criterio: la reparación es por store view y la asignación es
+global.
+
+---
+
+## 7. La escala: 457.762 → 0
+
+Se reprodujo el experimento de H3 contra la instancia de desarrollo
+(`127.0.0.1:8088`, espejo `skudo_httpreal`), que es donde el hallazgo se midió:
+228.881 productos sintéticos sembrados, la pasada completa, y después el origen
+los retira y la pasada siguiente barre.
+
+### La pasada que puebla
+
+```
+$ skudo full-sync --tenant skudodev --page-size 1000 --restart
+{ "generation": 9, "records_written": 457778, "records_deleted": 0,
+  "category_assignments_deleted": 0, "signals_deleted": 0, "pages_fetched": 458 }
+Elapsed (wall clock): 34:19        Maximum resident set size: 99 MB
+```
+
+457.778 registros y 457.771 asignaciones, sin borrar nada: el origen sigue
+ofreciendo todo, así que la limpieza no tiene nada que hacer. El coste y la
+memoria son los de H3 (33,6 min, 98 MB): **la limpieza no cambió el perfil de
+una pasada que no borra**.
+
+### La pasada que barre
+
+Con los 228.881 productos retirados de la instancia, el origen vuelve a ofrecer
+8 SKUs por store view:
+
+```
+########## ANTES
+ asignaciones_sin_producto | senales_sin_producto | opciones_sin_atributo | etiquetas_sin_opcion | estados_sin_categoria
+             0             |          0           |           0           |          0           |           0
+ registros | asignaciones | opciones | etiquetas | categorias | estados
+    457778 |       457771 |    50535 |     58576 |          6 |      12
+
+$ skudo full-sync --tenant skudodev --page-size 1000 --restart
+{ "generation": 10, "records_written": 16, "records_deleted": 457762,
+  "category_assignments_deleted": 457762, "signals_deleted": 0, "pages_fetched": 2 }
+Elapsed (wall clock): 0:16.67      Maximum resident set size: 192 MB
+
+########## DESPUÉS
+ asignaciones_sin_producto | senales_sin_producto | opciones_sin_atributo | etiquetas_sin_opcion | estados_sin_categoria
+             0             |          0           |           0           |          0           |           0
+ registros | asignaciones | opciones | etiquetas | categorias | estados
+        16 |            9 |    50535 |     58576 |          6 |      12
+```
+
+**`category_assignments_deleted: 457762` es exactamente el número que H3 midió
+como filas que quedaban en pie** (`docs/superpowers/h3-cli-y-escala.md`, §5): la
+misma pasada, la misma instancia, la misma escala, y ahora la limpieza se las
+lleva en la misma invocación. El conteo de huérfanas después es **0** en las
+cinco clases.
+
+Las 9 asignaciones y los 16 registros que quedan son el catálogo real de la
+instancia de desarrollo, intacto: un barrido demasiado amplio habría dejado 0 y
+habría pasado igual un "¿quedó limpio?".
+
+### Lo que costó
+
+| | H3 (sin la limpieza) | M3 (con ella) |
+|---|---|---|
+| Pasada que barre 457.762 registros | 13,2 s | **16,7 s** |
+| RSS pico | 74 MB | 192 MB |
+
+**~3,5 s** para borrar 457.762 asignaciones por el predicado referencial, sobre
+una pasada de 16,7 s: no es el cuello de botella, y por eso no se agregó un
+índice. El plan es un `Hash Anti Join` entre las dos tablas (verificado con
+`EXPLAIN`), lineal en el tamaño del espejo; el pico de RSS es el del lado
+Postgres del cliente, no del ingestor.
+
+### Clases 2 y 3, sobre HTTP real y a la escala de su tabla
+
+La pasada de atributos de esta instancia son **1.066 atributos y 50.535
+opciones con 58.576 etiquetas**, en 3 páginas y **68 s**. Se creó una opción
+sintética en el Magento de desarrollo con tres etiquetas (admin, PY, BR), se
+sincronizó, se borró del origen y se volvió a sincronizar:
+
+```
+opción creada  -> options_written: 50536,  opciones/etiquetas del espejo: 50536 / 58579
+opción borrada -> options_deleted: 1, option_labels_deleted: 3
+                  opciones/etiquetas del espejo: 50535 / 58576
+huérfanas: opciones_sin_atributo = 0, etiquetas_sin_opcion = 0
+```
+
+Una opción de 50.536 y **exactamente** sus tres etiquetas.
+(`/home/ingmar/skudo-dev-logs/m3/option-lifecycle.log`)
+
+**Lo que esa medición dejó ver, y queda declarado:** la pasada de atributos
+escribe **una sentencia por opción** (`upsert_option` reemplaza el juego de
+etiquetas de cada opción por separado), que es lo que hace que 50.535 opciones
+cuesten 68 s y que la primera página tarde ~50 s. Es el mismo defecto que H3
+midió y arregló para los productos (compilar el SQL, no Postgres). No se tocó
+acá: cambiar la forma de escritura de las etiquetas en el mismo cierre que
+introduce su barrido habría mezclado dos cambios de riesgo distinto sobre la
+tabla que guarda la identidad de las opciones. Queda anotado en
+`pendiente-s0.md`.
+
+### El estado final de la instancia
+
+La instancia de desarrollo quedó como estaba (10 filas de entidad, 8 activas, y
+sin la opción sintética: la FK de `eav_attribute_option_value` la borró en
+cascada). Sobre ese espejo:
+
+```
+$ skudo reconcile --tenant skudodev     # exit 0, content_matches en las dos tiendas
+$ skudo accept --tenant skudodev        # los CINCO criterios en OK
+[OK ] espejo_sincronizado / score_por_store_view / procedencia_de_scope /
+      identidad_de_opciones / efecto_de_categoria
+$ skudo status --tenant skudodev
+  "catalog_passes": [
+    {"pass_kind": "attributes", "generation": 21, "pages_done": 3,
+     "items_written": 1066, "pass_complete": true, "swept": true},
+    {"pass_kind": "categories", "generation": 22, "pages_done": 1,
+     "items_written": 6, "pass_complete": true, "swept": true}]
+```
+
+Y la suite de integración PHP, que se salta sola por encima de 5.000 productos
+activos, volvió a correr en verde: `4 tests, 27 assertions`.
+
+
 
 ---
 
