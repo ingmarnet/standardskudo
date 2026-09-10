@@ -6,6 +6,7 @@ import httpx
 import pytest
 from skudo_testing import skudo_response
 
+from skudo.ingest.attribute_sync import sync_attributes
 from skudo.ingest.full_sync import full_sync
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import Tenant
@@ -27,9 +28,26 @@ PAGE_2 = {
     "items": [
         {"sku": "SKU2", "mpn": None, "model": None, "gtin": None, "variant_key": None,
          "attribute_set_id": 4, "type_id": "simple",
-         "global_values": {"name": "Aire Acondicionado"},
-         "store_values": {"name": "Ar Condicionado"},
+         "global_values": {"name": "Aire Acondicionado", "price": "1000"},
+         "store_values": {"name": "Ar Condicionado", "price": "900"},
          "website_ids": [1], "category_ids": [], "updated_at": "2026-09-02 11:00:00"},
+    ],
+    "next_cursor": None,
+}
+
+# Los dos scopes declarados que la instancia de referencia tiene de verdad:
+# `name` es de store view (is_global 0) y `price` es de WEBSITE (is_global 2,
+# porque `catalog/price/scope` está en Website ahí, como en 24 atributos más).
+# Magento persiste los dos escribiendo una fila EAV por store view, así que sin
+# este mapa los dos overrides de SKU2 son indistinguibles.
+ATTRIBUTES_PAGE = {
+    "items": [
+        {"code": "name", "label": "Nombre", "frontend_input": "text",
+         "declared_scope": "store", "is_filterable": False, "is_required": True,
+         "attribute_set_ids": [4], "options": []},
+        {"code": "price", "label": "Precio", "frontend_input": "price",
+         "declared_scope": "website", "is_filterable": False, "is_required": False,
+         "attribute_set_ids": [4], "options": []},
     ],
     "next_cursor": None,
 }
@@ -69,6 +87,11 @@ def make_source(
         if request.url.path.endswith("/products"):
             cursor = request.url.params.get("cursor")
             return skudo_response(page_2 if cursor else page_1)
+        if request.url.path.endswith("/attributes"):
+            cursor = request.url.params.get("cursor")
+            return skudo_response(
+                {"items": [], "next_cursor": None} if cursor else ATTRIBUTES_PAGE
+            )
         return httpx.Response(404)
 
     return TenantSource.from_tenant(
@@ -102,11 +125,45 @@ def test_global_value_is_mirrored_with_global_provenance(db_session, tenant):
 
 
 def test_store_override_is_mirrored_with_store_provenance(db_session, tenant):
-    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
+    source = make_source(tenant.id)
+    sync_attributes(db_session, source)
+
+    full_sync(db_session, source, store_view_ids=[1])
 
     row = get_record(db_session, tenant.id, "SKU2", 1)
     assert row.attributes["name"] == "Ar Condicionado"
     assert row.scope_provenance["name"] == "store"
+
+
+def test_a_website_scoped_override_is_mirrored_as_website_not_store(db_session, tenant):
+    """H2: `price` y `name` llegan con la MISMA forma en el payload —fila EAV de
+    store view para los dos— y tienen que salir con procedencias distintas.
+    Es la aserción que discrimina: mientras `resolve_scope` emitía dos valores,
+    los 24 atributos de website de este catálogo se reportaban como "store", y
+    S3 heredaría una respuesta con confianza equivocada sobre dónde corregir.
+    """
+    source = make_source(tenant.id)
+    sync_attributes(db_session, source)
+
+    full_sync(db_session, source, store_view_ids=[1])
+
+    row = get_record(db_session, tenant.id, "SKU2", 1)
+    assert row.attributes["price"] == "900"
+    assert row.scope_provenance["price"] == "website"
+    assert row.scope_provenance["name"] == "store"
+
+
+def test_an_override_of_an_attribute_that_is_not_mirrored_stays_unknown(db_session, tenant):
+    """Sin `sync_attributes`, no hay mapa de scopes: la procedencia de los
+    overrides es DESCONOCIDA, nunca "store" inventado. Es también lo que hace
+    reprobar al criterio `procedencia_de_scope` cuando alguien corre la ingesta
+    de productos sin la de atributos."""
+    full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
+
+    row = get_record(db_session, tenant.id, "SKU2", 1)
+    assert row.scope_provenance["name"] == "desconocido"
+    # Lo heredado del scope global no depende del mapa: eso se sabe siempre.
+    assert get_record(db_session, tenant.id, "0074", 1).scope_provenance["name"] == "global"
 
 
 def test_identity_survives_the_round_trip(db_session, tenant):

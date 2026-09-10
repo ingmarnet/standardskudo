@@ -12,8 +12,9 @@ from skudo.ingest.category_sync import sync_categories
 from skudo.ingest.full_sync import full_sync
 from skudo.ingest.reconcile import sku_digest
 from skudo.ingest.source import TenantSource
+from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.models import Tenant
-from skudo.mirror.products import ProductIdentity, upsert_record
+from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 ENVIRONMENT = json.loads((FIXTURES / "environment_opensource.json").read_text())
@@ -66,6 +67,20 @@ COLOR_ATTRIBUTE_PAGE = {
             "attribute_set_ids": [4],
             "options": [{"option_id": 17, "labels": {"1": "Negro", "3": "Preto"}}],
         },
+        # `name` es de store view y `price` de WEBSITE (is_global 2, el caso
+        # real de este catálogo: `catalog/price/scope` está en Website). Los
+        # dos se persisten como fila EAV por store view, así que sin este mapa
+        # `resolve_scope` no puede distinguirlos y los deja en "desconocido".
+        {
+            "code": "name", "label": "Nombre", "frontend_input": "text",
+            "declared_scope": "store", "is_filterable": False, "is_required": True,
+            "attribute_set_ids": [4], "options": [],
+        },
+        {
+            "code": "price", "label": "Precio", "frontend_input": "price",
+            "declared_scope": "website", "is_filterable": False, "is_required": False,
+            "attribute_set_ids": [4], "options": [],
+        },
     ],
     "next_cursor": None,
 }
@@ -98,6 +113,11 @@ def prepared(db_session):
     `tests/ingest/test_attribute_sync.py`. Ese sembrado a mano era exactamente
     el fixture que dejaba pasar `identidad_de_opciones` sobre un dato que el
     propio test había inventado, y no un ingestor real.
+
+    La procedencia tampoco se escribe a mano ya: `sync_attributes` corre
+    PRIMERO y la procedencia sale de `resolve_scope` con el mapa de scopes
+    declarados que quedó en el espejo, así que el valor que el criterio 3
+    inspecciona lo calculó el producto y no el fixture.
     """
     from datetime import UTC, datetime
 
@@ -106,12 +126,16 @@ def prepared(db_session):
     db_session.add(tenant)
     db_session.flush()
 
+    sync_attributes(db_session, make_attribute_source(tenant.id))
+
+    effective, provenance = resolve_scope(
+        {"name": "N"}, {"name": "N BR"}, declared_scopes(db_session, tenant.id)
+    )
     for store_id in (1, 3):
         upsert_record(db_session, tenant.id, store_id, ProductIdentity(sku="SKU1"),
-                      {"name": "N"}, {"name": "store"},
+                      effective, provenance,
                       datetime(2026, 9, 1, tzinfo=UTC))
 
-    sync_attributes(db_session, make_attribute_source(tenant.id))
     db_session.flush()
     return tenant
 
@@ -175,11 +199,14 @@ CATEGORY_PAGE = {
     "next_cursor": None,
 }
 
-def _product_item(sku: str, *, website_ids, category_ids: list[int]) -> dict:
+def _product_item(
+    sku: str, *, website_ids, category_ids: list[int], store_values: dict | None = None
+) -> dict:
     return {
         "sku": sku, "mpn": None, "model": None, "gtin": None, "variant_key": None,
         "attribute_set_id": 4, "type_id": "simple",
-        "global_values": {"name": sku}, "store_values": {},
+        "global_values": {"name": sku, "price": "1000"},
+        "store_values": {} if store_values is None else store_values,
         "website_ids": website_ids, "category_ids": category_ids,
         "updated_at": "2026-09-01 10:00:00",
     }
@@ -200,7 +227,17 @@ def test_all_five_criteria_pass_on_a_healthy_mirror(db_session):
     db_session.flush()
 
     products_page = {
-        "items": [_product_item("SKU1", website_ids=[1, 2], category_ids=[252])],
+        "items": [
+            # Override REAL de store view, con las dos escalas que el catálogo
+            # tiene de verdad: `name` es de tienda y `price` de website. Antes
+            # este producto traía `store_values: {}`, así que el arnés nunca
+            # había visto una procedencia distinta de "global" y la mitad del
+            # criterio 3 se aprobaba sin datos que la ejercitaran.
+            _product_item(
+                "SKU1", website_ids=[1, 2], category_ids=[252],
+                store_values={"name": "SKU1 BR", "price": "900"},
+            )
+        ],
         "next_cursor": None,
     }
     source = make_ingestion_source(
@@ -211,8 +248,11 @@ def test_all_five_criteria_pass_on_a_healthy_mirror(db_session):
         checksum_skus=["SKU1"],
     )
 
-    full_sync(db_session, source, store_view_ids=[PY_STORE, BR_STORE])
+    # Los atributos PRIMERO: `resolve_scope` necesita sus scopes declarados
+    # para distinguir un override de website de uno de tienda, y sin ellos
+    # `full_sync` deja toda procedencia de override en "desconocido".
     sync_attributes(db_session, source)
+    full_sync(db_session, source, store_view_ids=[PY_STORE, BR_STORE])
     sync_categories(db_session, source, store_view_ids=[PY_STORE, BR_STORE])
 
     results = run_s0_acceptance(db_session, source, [PY_STORE, BR_STORE])
@@ -222,6 +262,13 @@ def test_all_five_criteria_pass_on_a_healthy_mirror(db_session):
         "identidad_de_opciones", "efecto_de_categoria",
     ]
     assert all(r.passed for r in results), [r.detail for r in results if not r.passed]
+
+    # El criterio 3 no solo pasa: dice qué escalas VIO. Sin esta aserción, un
+    # espejo cuyos overrides fueran todos "desconocido" también pasaría por
+    # aquí si alguien relajara el criterio.
+    procedencia = next(r for r in results if r.name == "procedencia_de_scope")
+    assert "'store': 2" in procedencia.detail
+    assert "'website': 2" in procedencia.detail
 
 
 def test_efecto_de_categoria_fails_on_an_empty_mirror(db_session, prepared):
@@ -449,3 +496,86 @@ def test_a_store_view_short_of_its_own_magento_count_fails(db_session, prepared)
     failed = {r.name: r.detail for r in results if not r.passed}
     assert "score_por_store_view" in failed
     assert "espejo=1" in failed["score_por_store_view"]
+
+
+# --- M4: el criterio de procedencia tiene que poder REPROBAR -----------------
+#
+# Afirmaba `set(r.attributes) == set(r.scope_provenance)`, y `resolve_scope`
+# construye los dos conjuntos de claves en la misma función a partir de los
+# mismos dos dicts: eran iguales por construcción. Estas dos pruebas son las
+# direcciones en las que ahora falla.
+
+
+def test_procedencia_de_scope_fails_when_no_override_was_ever_seen(db_session):
+    """Un catálogo sin un solo override: toda procedencia es "global" y el
+    criterio no ha demostrado nada sobre resolución de escala. Este es
+    exactamente el fixture que el arnés tenía —`store_values: {}`— y con el que
+    el criterio aprobaba."""
+    tenant = Tenant(code="nissei", name="Nissei", base_url="https://x.test",
+                    token_env_var="T")
+    db_session.add(tenant)
+    db_session.flush()
+
+    products_page = {
+        "items": [_product_item("SKU1", website_ids=[1, 2], category_ids=[252])],
+        "next_cursor": None,
+    }
+    source = make_ingestion_source(
+        tenant.id,
+        products_page=products_page,
+        categories_page=CATEGORY_PAGE,
+        attributes_page=COLOR_ATTRIBUTE_PAGE,
+        checksum_skus=["SKU1"],
+    )
+    sync_attributes(db_session, source)
+    full_sync(db_session, source, store_view_ids=[PY_STORE, BR_STORE])
+
+    results = run_s0_acceptance(db_session, source, [PY_STORE, BR_STORE])
+
+    failed = {r.name: r.detail for r in results if not r.passed}
+    assert "procedencia_de_scope" in failed
+    assert "ninguna procedencia de escala resuelta" in failed["procedencia_de_scope"]
+
+
+def test_procedencia_de_scope_fails_when_the_scale_of_every_override_is_unknown(
+    db_session,
+):
+    """Overrides reales, pero `sync_attributes` no corrió: sin los scopes
+    declarados no se sabe en qué escala se fijó ninguno. Antes esto se
+    reportaba como "store" y el criterio aprobaba con una respuesta inventada;
+    ahora queda en "desconocido" y el criterio reprueba nombrando la causa.
+
+    Es la dirección que discrimina de verdad: los VALORES de procedencia son
+    los que deciden, no las claves —que aquí siguen siendo idénticas a las de
+    `attributes`, como siempre—."""
+    tenant = Tenant(code="nissei", name="Nissei", base_url="https://x.test",
+                    token_env_var="T")
+    db_session.add(tenant)
+    db_session.flush()
+
+    products_page = {
+        "items": [
+            _product_item(
+                "SKU1", website_ids=[1, 2], category_ids=[252],
+                store_values={"name": "SKU1 BR"},
+            )
+        ],
+        "next_cursor": None,
+    }
+    source = make_ingestion_source(
+        tenant.id,
+        products_page=products_page,
+        categories_page=CATEGORY_PAGE,
+        attributes_page=COLOR_ATTRIBUTE_PAGE,
+        checksum_skus=["SKU1"],
+    )
+    full_sync(db_session, source, store_view_ids=[PY_STORE, BR_STORE])
+
+    results = run_s0_acceptance(db_session, source, [PY_STORE, BR_STORE])
+
+    procedencia = next(r for r in results if r.name == "procedencia_de_scope")
+    assert not procedencia.passed
+    assert "'desconocido': 2" in procedencia.detail
+    # Las claves están completas: es la prueba de que la tautología anterior
+    # habría aprobado este caso.
+    assert "sin procedencia completa" not in procedencia.detail

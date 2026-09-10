@@ -103,3 +103,22 @@ def distinct_option_ids(session: Session, tenant_id: int, attribute_code: str) -
             .order_by(AttributeOption.magento_option_id)
         ).all()
     )
+
+
+def declared_scopes(session: Session, tenant_id: int) -> dict[str, str]:
+    """`{codigo_atributo: "global"|"website"|"store"}` para este tenant.
+
+    Es lo que `resolve_scope` necesita para distinguir un override de WEBSITE
+    de uno de tienda: Magento persiste los dos como filas EAV por store view, y
+    desde `catalog_product_entity_*` son indistinguibles.
+
+    Un mapa vacío (nadie corrió `sync_attributes` todavía) no es un error: deja
+    la procedencia de cada override en DESCONOCIDO, que es la verdad.
+    """
+    return dict(
+        session.execute(
+            select(Attribute.code, Attribute.declared_scope).where(
+                Attribute.tenant_id == tenant_id
+            )
+        ).all()
+    )

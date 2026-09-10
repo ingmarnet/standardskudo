@@ -27,6 +27,11 @@ from skudo.mirror.models import (
     StoreView,
     Tenant,
 )
+from skudo.mirror.products import (
+    SCOPE_PROVENANCE_VOCABULARY,
+    SCOPE_STORE,
+    SCOPE_WEBSITE,
+)
 from skudo.mirror.topology import root_category_id as store_root_category_id
 
 # Cuántas asignaciones producto-categoría se recorren para el criterio 5. Un
@@ -93,20 +98,73 @@ def _score_por_store_view(
     )
 
 
+# Procedencias que afirman una ESCALA concreta en la que el valor se fijó. El
+# criterio exige haber visto al menos una: un espejo en el que todo es "global"
+# —o todo "desconocido"— no demuestra que la procedencia se resuelva.
+_ESCALAS_RESUELTAS = (SCOPE_STORE, SCOPE_WEBSITE)
+
+
 def _procedencia_de_scope(session, tenant_id) -> CriterionResult:
-    """Toda clave de `attributes` debe tener su entrada en `scope_provenance`."""
+    """Cada valor efectivo dice EN QUÉ ESCALA se fijó, y esa respuesta se usó.
+
+    La versión anterior de este criterio afirmaba
+    `set(r.attributes) == set(r.scope_provenance)`. `resolve_scope` construye
+    los dos conjuntos de claves en la misma función a partir de los mismos dos
+    dicts: son iguales por construcción, así que la mitad del criterio 3 del
+    spec estaba verificada por una tautología. Nunca comprobaba un solo VALOR
+    de procedencia, y el producto del arnés de espejo sano tenía
+    `store_values: {}`, de modo que jamás había visto una procedencia distinta
+    de "global".
+
+    Ahora se comprueban tres cosas, y las tres pueden fallar:
+
+    1. Completitud de claves (lo único que había): sigue siendo necesaria.
+    2. Que todo valor de procedencia pertenezca al vocabulario cerrado. Un
+       valor fuera de él es un escritor que inventó una escala.
+    3. Que se haya observado al menos una escala RESUELTA ("store" o
+       "website"). Es la guarda contra la vacuidad, la misma que
+       `identidad_de_opciones` aplica con `translated > 0`: un catálogo cuyos
+       overrides son todos "desconocido" es exactamente el síntoma de haber
+       corrido la ingesta de productos sin la de atributos, y aprobarlo
+       certificaría una procedencia que el sistema no sabe calcular.
+    """
     rows = session.scalars(
         select(ProductRecord).where(ProductRecord.tenant_id == tenant_id).limit(500)
     ).all()
 
-    broken = [
+    sin_procedencia = [
         r.sku for r in rows if set(r.attributes.keys()) != set(r.scope_provenance.keys())
     ]
+    fuera_de_vocabulario = sorted(
+        {
+            valor
+            for r in rows
+            for valor in r.scope_provenance.values()
+            if valor not in SCOPE_PROVENANCE_VOCABULARY
+        }
+    )
+    conteo: dict[str, int] = {}
+    for r in rows:
+        for valor in r.scope_provenance.values():
+            conteo[valor] = conteo.get(valor, 0) + 1
+    resueltas = sum(conteo.get(escala, 0) for escala in _ESCALAS_RESUELTAS)
+
+    detalle = f"{len(rows)} registros revisados; procedencias: {conteo}"
+    if sin_procedencia:
+        detalle += f"; sin procedencia completa: {sin_procedencia[:5]}"
+    if fuera_de_vocabulario:
+        detalle += f"; procedencias fuera del vocabulario: {fuera_de_vocabulario}"
+    if not resueltas:
+        detalle += (
+            "; ninguna procedencia de escala resuelta (store/website): o el "
+            "catálogo no tiene un solo override, o se ingirieron productos sin "
+            "haber ingerido antes los atributos y sus scopes declarados"
+        )
+
     return CriterionResult(
         name="procedencia_de_scope",
-        passed=not broken,
-        detail=f"{len(rows)} registros revisados"
-        + (f"; sin procedencia completa: {broken[:5]}" if broken else ""),
+        passed=not sin_procedencia and not fuera_de_vocabulario and resueltas > 0,
+        detail=detalle,
     )
 
 

@@ -20,17 +20,23 @@ def tenant(db_session):
     return row
 
 
+# El scope declarado de cada atributo, tal como lo espeja `sync_attributes`
+# desde `eav_attribute.is_global` (1 -> global, 2 -> website, 0 -> store).
+DECLARED = {"name": "store", "color": "store", "price": "website", "weight": "global"}
+
+
 def test_store_value_wins_and_is_marked_as_store():
     effective, provenance = resolve_scope(
         global_values={"name": "Notebook", "color": "17"},
         store_values={"name": "Notebook BR"},
+        declared_scopes=DECLARED,
     )
     assert effective == {"name": "Notebook BR", "color": "17"}
     assert provenance == {"name": "store", "color": "global"}
 
 
 def test_absent_store_value_falls_back_to_global():
-    effective, provenance = resolve_scope({"weight": "2.1"}, {})
+    effective, provenance = resolve_scope({"weight": "2.1"}, {}, DECLARED)
     assert effective == {"weight": "2.1"}
     assert provenance == {"weight": "global"}
 
@@ -38,9 +44,63 @@ def test_absent_store_value_falls_back_to_global():
 def test_empty_string_at_store_scope_is_still_a_store_value():
     """Un valor vacío puesto a propósito en la store view NO es herencia.
     Colapsarlo con 'global' ocultaría un defecto real de traducción."""
-    effective, provenance = resolve_scope({"name": "Notebook"}, {"name": ""})
+    effective, provenance = resolve_scope({"name": "Notebook"}, {"name": ""}, DECLARED)
     assert effective == {"name": ""}
     assert provenance == {"name": "store"}
+
+
+# --- H2: la procedencia tiene TRES escalas, no dos -------------------------
+#
+# Magento persiste un atributo con scope de WEBSITE escribiendo una fila EAV
+# para CADA store view de ese website. Desde `catalog_product_entity_*` esas
+# filas son indistinguibles de un override de tienda, así que la única forma de
+# saber en qué escala se fijó el valor es el `declared_scope` del atributo —que
+# `sync_attributes` ya espejaba y nadie leía.
+#
+# No es cosmético: en el catálogo de referencia hay 24 atributos de producto
+# con `is_global = 2`, `price` entre ellos porque `catalog/price/scope` está en
+# Website. Reportarlos como procedencia "store" le daría a S3 una respuesta con
+# confianza equivocada sobre dónde corregir, y el spec §5.6 nombra corregir en
+# el scope equivocado como el error de write-back más común de Magento.
+
+
+def test_an_override_of_a_website_scoped_attribute_is_website_not_store():
+    """Discrimina sobre el VALOR: la fila EAV es idéntica a la de un atributo
+    de tienda, y solo `declared_scopes` distingue las dos."""
+    _, provenance = resolve_scope(
+        {"price": "100", "name": "Notebook"},
+        {"price": "90", "name": "Notebook BR"},
+        DECLARED,
+    )
+    assert provenance == {"price": "website", "name": "store"}
+
+
+def test_an_override_of_an_attribute_we_have_not_mirrored_is_unknown():
+    """Sin el atributo en el espejo no se sabe en qué escala se fijó el valor.
+    "store" sería una respuesta confiada y posiblemente falsa —el riesgo que la
+    sección 1 del spec nombra como el mayor del sistema—, así que se dice
+    DESCONOCIDO. Es también la señal de que `sync_attributes` no corrió antes
+    que la ingesta de productos."""
+    _, provenance = resolve_scope({"custom": "a"}, {"custom": "b"}, DECLARED)
+    assert provenance == {"custom": "desconocido"}
+
+
+def test_an_override_of_a_globally_scoped_attribute_is_unknown_not_global():
+    """Un atributo declarado global no debería tener fila de store view. Si la
+    tiene, el origen se contradice: el valor efectivo NO es el global (la fila
+    de tienda existe y gana), pero la escala en la que se fijó tampoco es la
+    tienda. Decir "global" mentiría sobre el valor y decir "store" mentiría
+    sobre la escala."""
+    _, provenance = resolve_scope({"weight": "2.1"}, {"weight": "3.0"}, DECLARED)
+    assert provenance == {"weight": "desconocido"}
+
+
+def test_without_a_scope_map_no_override_claims_a_scale():
+    """Un llamador que no pasa el mapa no sabe nada de escalas, y el resultado
+    lo refleja. Si el default siguiera siendo "store", toda la ingesta previa a
+    `sync_attributes` afirmaría una escala inventada para cada override."""
+    _, provenance = resolve_scope({"name": "N"}, {"name": "N BR"})
+    assert provenance == {"name": "desconocido"}
 
 
 def test_identity_preserves_leading_zeros_and_suffixes(db_session, tenant):

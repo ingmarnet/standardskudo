@@ -20,21 +20,74 @@ class ProductIdentity(BaseModel):
     variant_key: str | None = None
 
 
-def resolve_scope(
-    global_values: dict[str, str], store_values: dict[str, str]
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Resuelve el valor efectivo y registra de dónde vino.
+# Vocabulario cerrado de procedencia de scope. Es la escala en la que el valor
+# efectivo se fijó, y por tanto la escala en la que habría que corregirlo.
+SCOPE_GLOBAL = "global"
+SCOPE_WEBSITE = "website"
+SCOPE_STORE = "store"
+SCOPE_UNKNOWN = "desconocido"
 
-    La presencia de una clave en `store_values` decide la procedencia, no su
-    contenido: un valor vacío puesto en la store view es un valor de store view,
-    y colapsarlo con la herencia global ocultaría un defecto de traducción.
+SCOPE_PROVENANCE_VOCABULARY = frozenset(
+    {SCOPE_GLOBAL, SCOPE_WEBSITE, SCOPE_STORE, SCOPE_UNKNOWN}
+)
+
+# Qué procedencia corresponde a una fila EAV de store view, según el scope que
+# el atributo DECLARA en `eav_attribute.is_global`.
+_OVERRIDE_PROVENANCE = {
+    SCOPE_STORE: SCOPE_STORE,
+    SCOPE_WEBSITE: SCOPE_WEBSITE,
+}
+
+
+def _override_provenance(declared_scope: str | None) -> str:
+    """La escala en la que se fijó un valor que tiene fila de store view.
+
+    Magento persiste un atributo con scope de WEBSITE escribiendo una fila EAV
+    para CADA store view de ese website, así que desde
+    `catalog_product_entity_*` un override de website y uno de tienda son
+    indistinguibles: lo único que los separa es el `declared_scope` del
+    atributo. En el catálogo de referencia hay 24 atributos de producto con
+    `is_global = 2` —`price` entre ellos, porque `catalog/price/scope` está en
+    Website—, y llamarlos "store" le daría a S3 una respuesta con confianza
+    equivocada sobre dónde corregir. El spec §5.6: corregir en el scope
+    equivocado es el error de write-back más común en Magento.
+
+    Los dos casos que devuelven DESCONOCIDO:
+
+    - El atributo no está en el espejo (`sync_attributes` no corrió todavía, o
+      corrió después): no se sabe en qué escala se fijó el valor, y "store"
+      sería una respuesta confiada y posiblemente falsa.
+    - El atributo se declara `global` pero tiene fila de store view: el origen
+      se contradice. Decir "global" mentiría sobre el VALOR (la fila de tienda
+      existe y gana); decir "store" mentiría sobre la ESCALA.
     """
+    return _OVERRIDE_PROVENANCE.get(declared_scope or "", SCOPE_UNKNOWN)
+
+
+def resolve_scope(
+    global_values: dict[str, str],
+    store_values: dict[str, str],
+    declared_scopes: dict[str, str] | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Resuelve el valor efectivo y registra en qué escala se fijó.
+
+    La presencia de una clave en `store_values` decide que NO es herencia
+    global, no su contenido: un valor vacío puesto en la store view es un valor
+    puesto ahí, y colapsarlo con la herencia global ocultaría un defecto de
+    traducción.
+
+    `declared_scopes` es `{codigo_atributo: "global"|"website"|"store"}`, tal
+    como `sync_attributes` lo espeja desde `eav_attribute.is_global`. Sin él,
+    todo override queda como DESCONOCIDO: un llamador que no conoce las escalas
+    no puede afirmar ninguna. Ver `_override_provenance`.
+    """
+    declared_scopes = declared_scopes or {}
     effective: dict[str, str] = dict(global_values)
-    provenance: dict[str, str] = {code: "global" for code in global_values}
+    provenance: dict[str, str] = {code: SCOPE_GLOBAL for code in global_values}
 
     for code, value in store_values.items():
         effective[code] = value
-        provenance[code] = "store"
+        provenance[code] = _override_provenance(declared_scopes.get(code))
 
     return effective, provenance
 

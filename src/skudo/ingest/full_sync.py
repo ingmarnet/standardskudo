@@ -5,6 +5,7 @@ from sqlalchemy import Sequence, delete, select
 from sqlalchemy.orm import Session
 
 from skudo.ingest.source import TenantSource
+from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.categories import set_product_categories
 from skudo.mirror.models import ProductRecord
 from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
@@ -69,6 +70,13 @@ def full_sync(
 
     Recibe un `TenantSource` y no `(client, tenant_id)` para que el catálogo que
     se lee y el espejo en el que se escribe no puedan ser de tenants distintos.
+
+    ORDEN: `sync_attributes` debería correr ANTES que esta pasada. El mapa de
+    scopes declarados que `resolve_scope` necesita para distinguir un override
+    de website de uno de tienda sale de la tabla `attribute`; si está vacía, la
+    procedencia de cada override queda en DESCONOCIDO —que es la verdad, no un
+    fallo silencioso, y el criterio de aceptación `procedencia_de_scope` lo
+    reprueba—. Se lee UNA vez por pasada, no por producto.
     """
     tenant_id = source.tenant_id
     client = source.client
@@ -77,6 +85,7 @@ def full_sync(
 
     report = FullSyncReport()
     generation = session.scalar(select(SYNC_GENERATION_SEQUENCE.next_value()))
+    scopes = declared_scopes(session, tenant_id)
 
     for store_id in store_view_ids:
         for page in client.iter_products(store_id):
@@ -90,7 +99,7 @@ def full_sync(
                     variant_key=item.get("variant_key"),
                 )
                 effective, provenance = resolve_scope(
-                    item["global_values"], item["store_values"]
+                    item["global_values"], item["store_values"], scopes
                 )
                 magento_updated_at = parse_magento_datetime(item.get("updated_at"))
                 if magento_updated_at is None:

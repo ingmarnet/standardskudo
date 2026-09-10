@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from skudo.ingest.full_sync import note_unreadable_timestamp, parse_magento_datetime
 from skudo.ingest.source import TenantSource
+from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.categories import set_product_categories
 from skudo.mirror.models import ProductRecord, SyncWatermark
 from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
@@ -127,6 +128,10 @@ def delta_sync(
     # traiga. Tomarlo al final la dejaría fuera para siempre.
     read_started_at = datetime.now(UTC)
     since_timestamp = _since_timestamp(_read_last_delta_read_at(session, tenant_id))
+    # Mismo mapa y misma razón que en `full_sync`: sin él, `resolve_scope` no
+    # puede distinguir un override de website de uno de tienda y deja la
+    # procedencia en DESCONOCIDO. Se lee una vez por pasada.
+    scopes = declared_scopes(session, tenant_id)
 
     for page in client.iter_deltas(report.watermark, since_timestamp=since_timestamp):
         # Un SKU puede aparecer varias veces en la misma página; solo interesa
@@ -171,7 +176,7 @@ def delta_sync(
                     variant_key=item.get("variant_key"),
                 )
                 effective, provenance = resolve_scope(
-                    item["global_values"], item["store_values"]
+                    item["global_values"], item["store_values"], scopes
                 )
                 magento_updated_at = parse_magento_datetime(item.get("updated_at"))
                 if magento_updated_at is None:
