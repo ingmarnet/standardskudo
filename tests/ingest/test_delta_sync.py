@@ -445,3 +445,75 @@ def test_a_version_activation_refreshes_the_sku_without_moving_the_change_id(
     assert db_session.scalar(
         select(SyncWatermark.last_change_id).where(SyncWatermark.tenant_id == seeded.id)
     ) == 99
+
+
+# --- M3: el borrado de un SKU se lleva sus asignaciones de categoría ---------
+#
+# `delta_sync` borraba el `ProductRecord` y dejaba las filas de
+# `product_category_assignment` en pie. Los detectores del eje 2 de S1 leen esa
+# tabla, así que la fila rancia se convierte en un hallazgo sobre un producto
+# que ya no existe.
+
+
+def _assignment_pairs(db_session, tenant_id: int) -> set[tuple[str, int]]:
+    from skudo.mirror.models import ProductCategoryAssignment
+
+    return set(
+        db_session.execute(
+            select(
+                ProductCategoryAssignment.sku,
+                ProductCategoryAssignment.category_magento_id,
+            ).where(ProductCategoryAssignment.tenant_id == tenant_id)
+        ).all()
+    )
+
+
+def test_a_deleted_products_category_assignments_go_with_it(db_session, seeded):
+    """En la MISMA transacción que el borrado del producto, no en un barrido
+    posterior: entre las dos cosas, cualquier lectura del espejo vería un
+    producto sin registro pero con categorías."""
+    set_product_categories(db_session, seeded.id, "SKU9", [15, 22])
+    db_session.flush()
+
+    report = delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
+
+    assert report.records_deleted == 1
+    assert report.category_assignments_deleted == 2
+    assert _assignment_pairs(db_session, seeded.id) == set()
+
+
+def test_deleting_a_product_does_not_touch_another_products_assignments(
+    db_session, seeded
+):
+    """El borrado va por lista explícita de SKUs. Si fuera más amplio —o si le
+    faltara el filtro por sku— se llevaría las categorías de productos vivos, y
+    el detector "sin categoría" de S1 los reportaría en masa."""
+    set_product_categories(db_session, seeded.id, "SKU9", [15])
+    set_product_categories(db_session, seeded.id, "OTRO-VIVO", [22, 33])
+    db_session.flush()
+
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
+
+    assert _assignment_pairs(db_session, seeded.id) == {("OTRO-VIVO", 22), ("OTRO-VIVO", 33)}
+
+
+def test_a_delete_in_one_tenant_leaves_the_other_tenants_assignments_alone(
+    db_session, seeded
+):
+    """El mismo sku borrado en un tenant no puede borrar el del otro: un
+    `DELETE` sin filtro de tenant es la peor falla posible de este espejo."""
+    other = Tenant(code="otro", name="Otro", base_url="https://y.test", token_env_var="T2")
+    db_session.add(other)
+    db_session.flush()
+    upsert_record(db_session, other.id, 1, ProductIdentity(sku="SKU9"),
+                  {"name": "Vivo en B"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC))
+    set_product_categories(db_session, other.id, "SKU9", [15, 22])
+    set_product_categories(db_session, seeded.id, "SKU9", [15])
+    db_session.flush()
+
+    report = delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
+
+    assert report.category_assignments_deleted == 1
+    assert _assignment_pairs(db_session, other.id) == {("SKU9", 15), ("SKU9", 22)}
+    assert get_record(db_session, other.id, "SKU9", 1) is not None

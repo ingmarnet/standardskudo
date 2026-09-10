@@ -342,3 +342,35 @@ def test_the_page_size_travels_to_the_module(db_session, tenant):
     full_sync(db_session, source, store_view_ids=[1], page_size=17)
 
     assert seen == ["17"]
+
+
+def test_an_interrupted_pass_does_not_drop_category_assignments_either(
+    db_session, tenant
+):
+    """M3 con la misma exigencia que H3 le puso al barrido de productos: una
+    pasada cortada no puede llevarse las asignaciones de lo que todavía no
+    llegó a ver. La limpieza referencial corre DESPUÉS del recorrido completo,
+    así que una interrupción la deja sin ejecutar —el fallo benigno.
+    """
+    from skudo_testing import set_product_categories
+    from sqlalchemy import func, select
+
+    from skudo.mirror.models import ProductCategoryAssignment
+
+    upsert_record(
+        db_session, tenant.id, 1, ProductIdentity(sku="TODAVIA_NO_VISTO"),
+        {"name": "x"}, {"name": "global"}, None,
+    )
+    set_product_categories(db_session, tenant.id, "TODAVIA_NO_VISTO", [15, 22])
+    db_session.commit()
+    catalog = FakeCatalog([["A", "B"], ["C"]], fail_before_page=1)
+
+    with pytest.raises(Interrupted):
+        full_sync(db_session, catalog.source(tenant.id), store_view_ids=[1])
+
+    assert db_session.scalar(
+        select(func.count()).select_from(ProductCategoryAssignment).where(
+            ProductCategoryAssignment.tenant_id == tenant.id,
+            ProductCategoryAssignment.sku == "TODAVIA_NO_VISTO",
+        )
+    ) == 2

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from skudo.ingest.apply import apply_items
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes
+from skudo.mirror.categories import delete_orphan_category_assignments
 from skudo.mirror.models import FullSyncCheckpoint, ProductRecord
 from skudo.mirror.topology import sync_topology
 
@@ -43,6 +44,10 @@ class FullSyncReport(BaseModel):
     resumed: bool = False
     records_written: int = 0
     records_deleted: int = 0
+    # M3: las asignaciones producto-categoría que quedaron sin producto. En la
+    # pasada de escala de H3 fueron 457.762, una por cada `ProductRecord` que
+    # el barrido soltó, porque `_sweep` borraba esa tabla y ninguna más.
+    category_assignments_deleted: int = 0
     pages_fetched: int = 0
     # Store views cuya pasada terminó y fue barrida EN ESTA invocación.
     store_views_completed: list[int] = []
@@ -162,6 +167,13 @@ def full_sync(
     REANUDACIÓN: por defecto se continúa la pasada abierta, con su MISMA
     generación. Con `restart=True` se toma una generación nueva y los
     checkpoints se reinician.
+
+    HUÉRFANOS (M3). El barrido borra `ProductRecord` y nada más, así que en la
+    pasada de escala de H3 dejó 457.762 asignaciones producto-categoría sin
+    producto. Al final del recorrido de todas las store views se limpian por
+    referencia (`delete_orphan_category_assignments`), no por sello: la
+    asignación es global y el registro es por store view, así que un SKU sigue
+    siendo legítimo mientras alguna tienda lo tenga.
     """
     tenant_id = source.tenant_id
     client = source.client
@@ -229,6 +241,19 @@ def full_sync(
         report.records_deleted += _sweep(session, tenant_id, store_id, generation)
         report.store_views_completed.append(store_id)
         session.commit()
+
+    # M3. Después del recorrido de TODAS las store views y no dentro del bucle:
+    # el registro de producto es por store view y la asignación es global, así
+    # que un SKU que el origen retiró de PY pero sigue ofreciendo en BR no es
+    # huérfano hasta que ninguna tienda lo tenga. Correrlo por tienda dejaría
+    # sin categorías, a mitad de la pasada, a productos vivos en la otra.
+    #
+    # Y después del bucle en el sentido fuerte: una interrupción nunca llega
+    # acá, así que una pasada a medias no limpia nada —el fallo benigno—.
+    report.category_assignments_deleted = delete_orphan_category_assignments(
+        session, tenant_id
+    )
+    session.commit()
 
     return report
 

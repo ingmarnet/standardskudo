@@ -1,9 +1,14 @@
 from pydantic import BaseModel
-from sqlalchemy import delete, tuple_
+from sqlalchemy import delete, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from skudo.mirror.models import Category, CategoryStoreState, ProductCategoryAssignment
+from skudo.mirror.models import (
+    Category,
+    CategoryStoreState,
+    ProductCategoryAssignment,
+    ProductRecord,
+)
 
 
 class CategoryEffect(BaseModel):
@@ -156,3 +161,52 @@ def set_products_categories(
             )
         )
     session.flush()
+
+
+def delete_orphan_category_assignments(session: Session, tenant_id: int) -> int:
+    """Borra las asignaciones cuyo `(tenant_id, sku)` no tiene `product_record`.
+
+    M3, clase 1. `full_sync._sweep` borra `ProductRecord` y nada más, y el
+    camino de borrado de `delta_sync` hacía lo mismo: en la pasada de escala de
+    H3, barrer 457.762 productos que el origen dejó de ofrecer dejó 457.762
+    filas acá. Los detectores del eje 2 de S1 leen ESTA tabla, así que una fila
+    huérfana es un hallazgo fabricado sobre un producto que no existe.
+
+    Por qué REFERENCIAL y no por sello de generación, que es lo que H3 usa para
+    `ProductRecord`: la asignación es GLOBAL, sin store view (en el core de
+    Magento `catalog_category_product` no tiene `store_id`). Un sello por
+    pasada de store view sellaría la misma fila una vez por tienda y, sobre una
+    pasada interrumpida a mitad de la primera tienda, dejaría sin sellar
+    asignaciones perfectamente vivas. El predicado de acá —"no hay
+    `product_record` de este tenant con este sku"— no depende de qué pasada
+    escribió la fila ni de si alguna terminó, así que es correcto en cualquier
+    momento y NO necesita la puerta de `IncompletePassSweep`: por construcción
+    no puede borrar la asignación de un producto que el espejo contiene.
+
+    El `EXISTS` se pregunta por CUALQUIER store view del tenant a propósito. Un
+    producto que el origen retiró de PY pero sigue ofreciendo en BR conserva su
+    fila de BR y su asignación sigue siendo verdadera; mirar sólo la store view
+    en curso dejaría al producto de BR sin categorías a mitad de un `full_sync`
+    de dos tiendas.
+
+    Los DOS filtros por tenant cargan peso, en direcciones opuestas: el del
+    `delete` es lo que impide que limpiar un cliente borre el catálogo de otro,
+    y el del `exists` es lo que impide que el `product_record` de otro tenant
+    con el mismo sku haga parecer viva una fila rancia.
+    """
+    has_record = (
+        select(ProductRecord.id)
+        .where(
+            ProductRecord.tenant_id == tenant_id,
+            ProductRecord.sku == ProductCategoryAssignment.sku,
+        )
+        .exists()
+    )
+    result = session.execute(
+        delete(ProductCategoryAssignment).where(
+            ProductCategoryAssignment.tenant_id == tenant_id,
+            ~has_record,
+        )
+    )
+    session.flush()
+    return result.rowcount or 0

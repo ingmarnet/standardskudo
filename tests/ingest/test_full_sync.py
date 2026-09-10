@@ -321,3 +321,74 @@ def test_a_poison_pill_date_does_not_abort_the_page(db_session, tenant):
     # El resto de la pasada se guardó igual.
     assert get_record(db_session, tenant.id, "SKU2", 1) is not None
     assert report.records_written == 2
+
+
+# --- M3: la pasada completa no deja asignaciones de lo que barrió -----------
+
+
+def _assignment_pairs(db_session, tenant_id: int) -> set[tuple[str, int]]:
+    from sqlalchemy import select
+
+    from skudo.mirror.models import ProductCategoryAssignment
+
+    return set(
+        db_session.execute(
+            select(
+                ProductCategoryAssignment.sku,
+                ProductCategoryAssignment.category_magento_id,
+            ).where(ProductCategoryAssignment.tenant_id == tenant_id)
+        ).all()
+    )
+
+
+def _seed_stale_product_with_categories(db_session, tenant_id, sku, store_view, ids):
+    from datetime import UTC, datetime
+
+    from skudo_testing import set_product_categories
+
+    from skudo.mirror.products import ProductIdentity
+
+    upsert_record(
+        db_session, tenant_id, store_view, ProductIdentity(sku=sku),
+        {"name": sku}, {"name": "global"}, datetime(2026, 9, 1, tzinfo=UTC),
+    )
+    set_product_categories(db_session, tenant_id, sku, ids)
+    db_session.flush()
+
+
+def test_the_sweep_also_drops_the_category_assignments_of_what_it_swept(
+    db_session, tenant
+):
+    """El número de M3: en la pasada de escala de H3 el barrido soltó 457.762
+    `ProductRecord` y dejó 457.762 asignaciones huérfanas, porque `_sweep`
+    borraba una tabla sola."""
+    _seed_stale_product_with_categories(db_session, tenant.id, "RANCIO", 1, [15, 22])
+
+    report = full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
+
+    assert report.records_deleted == 1
+    assert report.category_assignments_deleted == 2
+    # Y lo que el origen SÍ ofrece conserva su asignación: un barrido que
+    # borrara de más pasaría igual el "¿quedó limpio?" de arriba.
+    assert _assignment_pairs(db_session, tenant.id) == {("0074", 15)}
+
+
+def test_a_full_sync_of_one_tenant_leaves_another_tenants_assignments_alone(
+    db_session, tenant
+):
+    """La limpieza es un DELETE sobre una tabla compartida por todos los
+    tenants. Se siembra en el otro tenant una asignación IGUALMENTE huérfana:
+    si al borrado le faltara el filtro por tenant, se la llevaría también."""
+    from skudo_testing import set_product_categories
+
+    other = Tenant(code="otro", name="Otro", base_url="https://y.test", token_env_var="T2")
+    db_session.add(other)
+    db_session.flush()
+    set_product_categories(db_session, other.id, "HUERFANO-DE-B", [15])
+    _seed_stale_product_with_categories(db_session, tenant.id, "RANCIO", 1, [15])
+    db_session.flush()
+
+    report = full_sync(db_session, make_source(tenant.id), store_view_ids=[1])
+
+    assert report.category_assignments_deleted == 1
+    assert _assignment_pairs(db_session, other.id) == {("HUERFANO-DE-B", 15)}

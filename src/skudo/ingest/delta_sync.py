@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 from skudo.ingest.apply import apply_items
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes
-from skudo.mirror.models import ProductRecord, SyncWatermark
+from skudo.mirror.models import (
+    ProductCategoryAssignment,
+    ProductRecord,
+    SyncWatermark,
+)
 
 # Margen de solape, en segundos, al pedir las activaciones de versión
 # programada. `created_in` lo pone el reloj de la base de Magento; el instante
@@ -26,6 +30,9 @@ class DeltaSyncReport(BaseModel):
     changes_seen: int = 0
     records_updated: int = 0
     records_deleted: int = 0
+    # M3: las asignaciones producto-categoría del SKU borrado, que hasta este
+    # cierre quedaban huérfanas en el espejo.
+    category_assignments_deleted: int = 0
     watermark: int = 0
     records_without_timestamp: int = 0
     skus_without_timestamp: list[str] = []
@@ -155,6 +162,26 @@ def delta_sync(
                 )
             )
             report.records_deleted += result.rowcount or 0
+            # M3: las asignaciones de categoría del SKU se van en la MISMA
+            # transacción que su registro, no en un barrido posterior. Entre
+            # las dos cosas el espejo tendría asignaciones de un producto sin
+            # registro, y los detectores del eje 2 de S1 leen esa tabla: un
+            # hallazgo sobre un producto que ya no existe es el sistema
+            # fabricando un defecto, que es lo que la sección 1 del spec
+            # nombra como el mayor riesgo del producto.
+            #
+            # Por lista EXPLÍCITA de SKUs y no por el predicado referencial de
+            # `delete_orphan_category_assignments`: acá se sabe exactamente
+            # qué SKUs se borraron, y un borrado acotado a esa lista no puede
+            # tocar las categorías de un producto vivo. El alcance es
+            # (tenant, sku) porque la asignación es global, sin store view.
+            orphaned = session.execute(
+                delete(ProductCategoryAssignment).where(
+                    ProductCategoryAssignment.tenant_id == tenant_id,
+                    ProductCategoryAssignment.sku.in_(to_delete),
+                )
+            )
+            report.category_assignments_deleted += orphaned.rowcount or 0
 
         # Set de SKUs cuyas categorías ya se reemplazaron en esta página. La
         # asignación producto-categoría es GLOBAL (sin store view), así que
