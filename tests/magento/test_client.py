@@ -33,7 +33,11 @@ def test_iter_deltas_walks_pages_while_the_cursor_advances():
     assert [p["last_change_id"] for p in make_client(handler).iter_deltas(0)] == [1, 2]
 
 
+@pytest.mark.timeout(5)
 def test_iter_deltas_aborts_when_the_cursor_does_not_advance():
+    """Marcado con timeout a propósito: si la guarda se revirtiera, `list(...)`
+    sobre este iterador entraría en bucle infinito en vez de fallar, y sin
+    límite el test colgaría la suite entera en lugar de reportar nada."""
     def handler(request):
         return httpx.Response(
             200, json={"items": [{"change_id": 7, "sku": "A"}], "last_change_id": 7}
@@ -79,7 +83,9 @@ def test_iter_products_walks_pages_while_the_cursor_advances():
     assert len(list(make_client(handler).iter_products(1))) == 2
 
 
+@pytest.mark.timeout(5)
 def test_iter_products_aborts_when_the_cursor_repeats():
+    """Timeout acotado: sin la guarda, este iterador nunca termina."""
     def handler(request):
         return httpx.Response(200, json={"items": [{"sku": "A"}], "next_cursor": "mismo"})
 
@@ -99,7 +105,9 @@ def test_iter_attributes_walks_pages_while_the_cursor_advances():
     assert len(list(make_client(handler).iter_attributes())) == 2
 
 
+@pytest.mark.timeout(5)
 def test_iter_attributes_aborts_when_the_cursor_repeats():
+    """Timeout acotado: sin la guarda, este iterador nunca termina."""
     def handler(request):
         return httpx.Response(200, json={"items": [{"code": "color"}], "next_cursor": "mismo"})
 
@@ -131,7 +139,9 @@ def test_iter_categories_walks_pages_while_the_cursor_advances():
     assert len(list(make_client(handler).iter_categories())) == 2
 
 
+@pytest.mark.timeout(5)
 def test_iter_categories_aborts_when_the_cursor_repeats():
+    """Timeout acotado: sin la guarda, este iterador nunca termina."""
     def handler(request):
         return httpx.Response(
             200, json={"items": [{"category_id": 1}], "next_cursor": "mismo"}
