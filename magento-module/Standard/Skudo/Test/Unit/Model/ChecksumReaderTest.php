@@ -8,31 +8,28 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\ChecksumReader;
-use Standard\Skudo\Model\StoreViewGuard;
+use Standard\Skudo\Model\ContentDigest;
 
 /**
- * S0 Task 13: el lado Magento del endpoint de reconciliación. Estas pruebas
- * cubren tres cosas que, si se rompen, hacen que `reconcile()` (lado Python,
- * `src/skudo/ingest/reconcile.py`) reporte deriva PERMANENTE — un falso
- * positivo del que un re-sync completo nunca podría recuperarse, porque el
- * digest recalculado seguiría sin coincidir:
+ * S0 Task 13 + H1: el lado Magento del endpoint de reconciliación. Estas
+ * pruebas cubren las cosas que, si se rompen, hacen que `reconcile()` (lado
+ * Python, `src/skudo/ingest/reconcile.py`) reporte deriva PERMANENTE — un
+ * falso positivo del que un re-sync completo nunca podría recuperarse,
+ * porque el digest recalculado seguiría sin coincidir:
  *
  *   1. El digest de un conjunto de SKUs conocido tiene que coincidir BYTE A
  *      BYTE con el que produce `sku_digest()` en Python para el mismo
- *      conjunto (ver test abajo: el hash esperado se calculó una sola vez,
- *      de forma independiente, con `hashlib.sha256` en Python y con
- *      `hash('sha256', ...)` en PHP sobre los mismos tres SKUs, y ambos
- *      coincidieron — ver el reporte de esta tarea para el cálculo).
+ *      conjunto.
  *   2. El orden final NO puede depender del orden en que la fila de fixture
  *      (o, en producción, el motor de base de datos) las entrega: se ordena
  *      SIEMPRE en PHP con `sort($skus, SORT_STRING)`, nunca confiando en un
  *      `ORDER BY` SQL (ver ChecksumReader::getChecksums() para el porqué:
  *      `utf8mb4_general_ci` ordena sin distinguir mayúsculas/acentos, que no
  *      es el orden de puntos de código que usa Python).
- *   3. Solo la versión activa entra al digest (Ruling 3): con
- *      Magento_Staging, `catalog_product_entity` tiene una fila por VERSIÓN,
- *      no por producto, así que sin este filtro el digest tendría más filas
- *      que el espejo (que guarda una fila por producto) y jamás coincidiría.
+ *   3. `storeId` no filtra (Ruling 2).
+ *   4. H1: el payload lleva el digest de CONTENIDO por partición, y ese
+ *      digest se mueve cuando un valor cambia sin que cambie el conjunto de
+ *      SKUs — que es el punto ciego permanente que H1 cierra.
  */
 class ChecksumReaderTest extends TestCase
 {
@@ -46,15 +43,13 @@ class ChecksumReaderTest extends TestCase
      *   hash('sha256', implode("\n", (function () {
      *       $s = ["SKU-A","SKU-B","SKU-C"]; sort($s, SORT_STRING); return $s;
      *   })()))
-     * Ambos producen el mismo valor. Es la comprobación cruzada de lenguajes
-     * más cercana posible sin una instancia Magento viva (esa la hace la
-     * Task 14 contra la instancia de referencia).
+     * Ambos producen el mismo valor.
      */
     private const EXPECTED_DIGEST = '2f4b9f61cc9b9f74f016af48a26e7e3e435fd778de2e359a8c5eef342e46aaff';
 
     public function testDigestMatchesThePythonAlgorithmForAKnownSkuSet(): void
     {
-        $reader = $this->makeReader(hasVersioning: false, entityRows: [
+        $reader = $this->makeReader([
             $this->entityRow('SKU-A'),
             $this->entityRow('SKU-B'),
             $this->entityRow('SKU-C'),
@@ -76,7 +71,7 @@ class ChecksumReaderTest extends TestCase
      */
     public function testDigestIsComputedFromAPhpSortNotQueryOrder(): void
     {
-        $reader = $this->makeReader(hasVersioning: false, entityRows: [
+        $reader = $this->makeReader([
             $this->entityRow('SKU-C'),
             $this->entityRow('SKU-A'),
             $this->entityRow('SKU-B'),
@@ -100,91 +95,131 @@ class ChecksumReaderTest extends TestCase
     {
         $entityRows = [$this->entityRow('SKU-A'), $this->entityRow('SKU-B')];
 
-        $resultForStoreOne = $this->makeReader(hasVersioning: false, entityRows: $entityRows)
-            ->getChecksums(storeId: 1);
-        $resultForStoreTwo = $this->makeReader(hasVersioning: false, entityRows: $entityRows)
-            ->getChecksums(storeId: 2);
+        $resultForStoreOne = $this->makeReader($entityRows)->getChecksums(storeId: 1);
+        $resultForStoreTwo = $this->makeReader($entityRows)->getChecksums(storeId: 2);
 
         $this->assertSame($resultForStoreOne, $resultForStoreTwo);
     }
 
     /**
-     * @param mixed[] $entityRows
-     * @return mixed[]
+     * H1, LA prueba de la tarea: el mismo conjunto de SKUs con un valor
+     * distinto. El conteo no se mueve, la huella del conjunto no se mueve
+     * —eran las dos únicas señales que existían, y por eso un valor rancio
+     * podía vivir para siempre—, y el digest de contenido de la partición
+     * de ESE sku sí se mueve.
      */
-    private function entityRow(string $sku): array
+    public function testAChangedValueMovesTheContentDigestAndNotTheSkuDigest(): void
     {
-        return ['sku' => $sku];
+        $antes = $this->payloadOf($this->makeReader([
+            $this->entityRow('SKU-A', '2026-09-01 08:30:00'),
+            $this->entityRow('SKU-B', '2026-09-02 08:30:00'),
+            $this->entityRow('SKU-C', '2026-09-03 08:30:00'),
+        ])->getChecksums(storeId: 1));
+
+        $despues = $this->payloadOf($this->makeReader([
+            $this->entityRow('SKU-A', '2026-09-01 08:30:00'),
+            $this->entityRow('SKU-B', '2026-12-25 23:59:59'),
+            $this->entityRow('SKU-C', '2026-09-03 08:30:00'),
+        ])->getChecksums(storeId: 1));
+
+        $this->assertSame($antes['product_count'], $despues['product_count']);
+        $this->assertSame($antes['sku_digest'], $despues['sku_digest']);
+        $this->assertNotSame(
+            $this->digestsByPartition($antes),
+            $this->digestsByPartition($despues)
+        );
+
+        // Y sólo la partición de SKU-B cambia: es lo que convierte el remedio
+        // en dirigido. Se nombra la partición esperada, no se cuenta cuántas
+        // cambiaron, para que una implementación que moviera "alguna" no pase.
+        $partitionOfB = (new ContentDigest())->partitionOf('SKU-B');
+        $antesPorParticion = $this->digestsByPartition($antes);
+        $despuesPorParticion = $this->digestsByPartition($despues);
+        $this->assertNotSame($antesPorParticion[$partitionOfB], $despuesPorParticion[$partitionOfB]);
+        unset($antesPorParticion[$partitionOfB], $despuesPorParticion[$partitionOfB]);
+        $this->assertSame($antesPorParticion, $despuesPorParticion);
     }
 
     /**
-     * @param mixed[] $entityRows
-     * @param list<ChecksumFakeSelect> $selects
+     * El esquema de particionado viaja en el payload para que el lado Python
+     * pueda exigir el acuerdo. Sin este número, dos lados que particionaran
+     * distinto compararían conjuntos de claves disjuntos y el resultado
+     * —"todo divergente" o, peor, "nada que comparar"— no significaría nada.
      */
-    private function makeReader(bool $hasVersioning, array $entityRows, array &$selects = []): ChecksumReader
+    public function testThePartitionSchemeTravelsInThePayload(): void
     {
-        $connection = $this->createMock(AdapterInterface::class);
-        $connection->method('tableColumnExists')->willReturnCallback(
-            static fn (string $table, string $column): bool => match ($column) {
-                'created_in', 'updated_in' => $hasVersioning,
-                default => false,
-            }
+        $result = $this->payloadOf(
+            $this->makeReader([$this->entityRow('SKU-A')])->getChecksums(storeId: 1)
         );
-        $connection->method('select')->willReturnCallback(static function () use (&$selects): ChecksumFakeSelect {
-            $select = new ChecksumFakeSelect();
-            $selects[] = $select;
-            return $select;
-        });
-        $connection->method('fetchCol')->willReturnCallback(
-            fn (ChecksumFakeSelect $select): array => $this->evaluateEntitySelect($select, $entityRows)
+
+        $this->assertSame(ContentDigest::PARTITION_COUNT, $result['partition_count']);
+        $this->assertSame(256, $result['partition_count']);
+    }
+
+    /**
+     * El `updated_at` se lee en la MISMA consulta que el sku: dos consultas
+     * darían el conjunto de un instante y los timestamps de otro, y esa
+     * incoherencia se reportaría como deriva del espejo.
+     */
+    public function testTheSkuAndItsTimestampComeFromASingleQuery(): void
+    {
+        $queries = 0;
+        $this->makeReader([$this->entityRow('SKU-A')], $queries)->getChecksums(storeId: 1);
+
+        $this->assertSame(1, $queries);
+    }
+
+    /**
+     * Un catálogo vacío no tiene particiones y no es un error: el conteo es 0
+     * y el espejo, que también estará vacío, coincidirá.
+     */
+    public function testAnEmptyCatalogReportsNoPartitions(): void
+    {
+        $result = $this->payloadOf($this->makeReader([])->getChecksums(storeId: 1));
+
+        $this->assertSame(0, $result['product_count']);
+        $this->assertSame([], $result['content_partitions']);
+    }
+
+    /**
+     * @param mixed[] $payload
+     * @return array<string, string>
+     */
+    private function digestsByPartition(array $payload): array
+    {
+        return array_column($payload['content_partitions'], 'content_digest', 'partition');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function entityRow(string $sku, string $updatedAt = '2026-09-01 08:30:00'): array
+    {
+        return ['sku' => $sku, 'updated_at' => $updatedAt];
+    }
+
+    /**
+     * @param list<array<string, string>> $entityRows
+     */
+    private function makeReader(array $entityRows, ?int &$queries = null): ChecksumReader
+    {
+        $queries = 0;
+        $connection = $this->createMock(AdapterInterface::class);
+        $connection->method('select')->willReturnCallback(
+            static fn (): ChecksumFakeSelect => new ChecksumFakeSelect()
+        );
+        $connection->method('fetchAll')->willReturnCallback(
+            function (ChecksumFakeSelect $select) use ($entityRows, &$queries): array {
+                $queries++;
+                return $entityRows;
+            }
         );
 
         $resource = $this->createMock(ResourceConnection::class);
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new ChecksumReader($resource, $this->permissiveStoreViewGuard());
-    }
-
-    /**
-     * Aplica los `where()` reales que armó ChecksumReader contra las filas
-     * de fixture y devuelve solo la columna `sku`, en el ORDEN en que las
-     * filas quedaron en el fixture (deliberadamente no ordenado
-     * alfabéticamente en varios tests, para probar que el orden de la
-     * consulta es irrelevante).
-     *
-     * @param mixed[] $entityRows
-     * @return string[]
-     */
-    private function evaluateEntitySelect(ChecksumFakeSelect $select, array $entityRows): array
-    {
-        $rows = $entityRows;
-        foreach ($select->wheres as $where) {
-            $rows = array_values(array_filter(
-                $rows,
-                fn (array $row): bool => $this->conditionMatches($row, $where['cond'])
-            ));
-        }
-
-        return array_map(static fn (array $row): string => $row['sku'], $rows);
-    }
-
-    private function conditionMatches(array $row, string $cond): bool
-    {
-        if (preg_match('/^e\.(\w+)\s*(<=|>=|<|>)\s*UNIX_TIMESTAMP\(\)$/', $cond, $m) === 1) {
-            $field = $m[1];
-            $op = $m[2];
-            $actual = $row[$field] ?? null;
-            $expected = time();
-            return match ($op) {
-                '<=' => $actual <= $expected,
-                '>=' => $actual >= $expected,
-                '<' => $actual < $expected,
-                '>' => $actual > $expected,
-            };
-        }
-
-        throw new \RuntimeException("condición de prueba no reconocida: {$cond}");
+        return new ChecksumReader($resource, new ContentDigest(), $this->permissiveStoreViewGuard());
     }
 }
 

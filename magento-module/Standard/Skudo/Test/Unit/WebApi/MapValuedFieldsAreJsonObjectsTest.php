@@ -9,6 +9,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\ContentDigest;
 use Standard\Skudo\Model\AttributeReader;
 use Standard\Skudo\Model\CategoryReader;
 use Standard\Skudo\Model\ChecksumReader;
@@ -122,6 +123,15 @@ class MapValuedFieldsAreJsonObjectsTest extends TestCase
             'signals:',
             'signals:items[*]',
             'checksums:',
+            // H1: cada elemento de `content_partitions` es un registro de
+            // forma fija (partition, product_count, content_digest), no un
+            // mapa. La lista se emite deliberadamente como LISTA de objetos
+            // en vez de un mapa partición => digest, porque un array PHP con
+            // claves '00'/'10'/'ff' es de claves mixtas y json_encode lo
+            // emitiría como objeto o como array según los datos: el bug de
+            // este archivo, en su cuarta forma posible. Ver
+            // Model\ContentDigest::partitions().
+            'checksums:content_partitions[*]',
             'attributes:',
             'attributes:items[*]',
             'attributes:items[*].options[*]',
@@ -367,7 +377,7 @@ class MapValuedFieldsAreJsonObjectsTest extends TestCase
             'products_by_sku' => $this->productReader($resource)->getBySku(1, ['SKU-A']),
             'deltas' => (new DeltaReader($resource, new VersioningSchema($resource)))->getChanges(0, 10),
             'signals' => $this->signalReader($resource)->getSignals(1, 90),
-            'checksums' => (new ChecksumReader($resource, $this->storeViewGuard()))->getChecksums(1),
+            'checksums' => (new ChecksumReader($resource, new ContentDigest(), $this->storeViewGuard()))->getChecksums(1),
             'attributes' => (new AttributeReader($resource, new Cursor(), new EntityTypeResolver($resource)))
                 ->getPage(10),
             'categories' => $this->categoryReader($resource)->getPage(10),

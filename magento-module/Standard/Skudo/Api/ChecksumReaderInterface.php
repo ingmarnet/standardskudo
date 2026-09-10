@@ -6,10 +6,26 @@ namespace Standard\Skudo\Api;
 interface ChecksumReaderInterface
 {
     /**
-     * Conteo y huella (digest) del conjunto de SKUs activos del catálogo,
-     * para que el lado Python (`reconcile()`, `src/skudo/ingest/reconcile.py`)
-     * pueda comparar su espejo contra Magento sin volver a paginar el
-     * catálogo entero.
+     * Conteo, huella (digest) del conjunto de SKUs activos del catálogo y
+     * digest de CONTENIDO por partición, para que el lado Python
+     * (`reconcile()`, `src/skudo/ingest/reconcile.py`) pueda comparar su
+     * espejo contra Magento sin volver a paginar el catálogo entero.
+     *
+     * Tres respuestas, tres preguntas distintas:
+     *
+     * - `product_count`: ¿el espejo tiene la misma cantidad de productos?
+     * - `sku_digest`: ¿tiene los MISMOS productos? (detecta un SKU borrado y
+     *   otro creado en el mismo intervalo, que el conteo no ve)
+     * - `content_partitions` + `partition_count` (H1): ¿tiene los mismos
+     *   VALORES? Un `updated_at` cambiado en un SKU existente es invisible
+     *   para las dos primeras, para siempre. Es una lista de
+     *   `{partition, product_count, content_digest}` —sólo las particiones no
+     *   vacías, ordenadas por partición— donde `partition` son los dos
+     *   primeros caracteres hex de `sha256(sku)`. El lado Python recalcula el
+     *   MISMO digest sobre su espejo y reporta QUÉ particiones divergen, para
+     *   que el remedio sea dirigido y no "re-sincronizá el catálogo entero".
+     *   Ver `Model\ContentDigest` para el esquema y para el límite declarado
+     *   de lo que `updated_at` alcanza a ver.
      *
      * Ruling 2 (S0 Task 13): $storeId se acepta por simetría de interfaz y
      * uso futuro, pero HOY no filtra nada — ver ChecksumReader para el
@@ -25,7 +41,11 @@ interface ChecksumReaderInterface
      * `response.json()[0]`. Ver `Model\WebApiEnvelope`.
      *
      * @param int $storeId
-     * @return mixed[] [{"product_count": int, "sku_digest": string}]
+     * @return mixed[] [{"product_count": int, "sku_digest": string,
+     *                   "partition_count": int,
+     *                   "content_partitions": [{"partition": string,
+     *                                           "product_count": int,
+     *                                           "content_digest": string}]}]
      */
     public function getChecksums(int $storeId): array;
 }

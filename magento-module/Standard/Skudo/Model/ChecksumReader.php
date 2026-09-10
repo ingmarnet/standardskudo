@@ -11,12 +11,24 @@ use Standard\Skudo\Api\ChecksumReaderInterface;
  * perderse (una cola truncada, un observer que no disparó en una importación
  * masiva por SQL directo, un reintento fallido) y, sin reconciliación, el
  * espejo se desvía en silencio: todos los scores de S1 heredan ese error sin
- * que nadie lo note. Este lector responde las dos preguntas que
- * `reconcile()` (lado Python, `src/skudo/ingest/reconcile.py`) necesita para
- * decidir si el espejo coincide con Magento: cuántos SKUs activos hay, y una
- * huella (digest) de cuáles son — para detectar el caso en que el conteo
- * coincide mientras el contenido no (un SKU borrado y otro creado en el
- * mismo intervalo).
+ * que nadie lo note. Este lector responde las preguntas que `reconcile()`
+ * (lado Python, `src/skudo/ingest/reconcile.py`) necesita para decidir si el
+ * espejo coincide con Magento: cuántos SKUs activos hay, una huella (digest)
+ * de cuáles son —para detectar el caso en que el conteo coincide mientras el
+ * conjunto no (un SKU borrado y otro creado en el mismo intervalo)— y, desde
+ * H1, un digest de CONTENIDO por partición.
+ *
+ * Ruling 5 (H1): el conteo y la huella del CONJUNTO de SKUs no detectan un
+ * VALOR cambiado en un SKU existente. Nunca: no es una carrera que se
+ * resuelva al siguiente ciclo, es un punto ciego permanente, y el docblock
+ * anterior de esta clase lo decía sin sacar la conclusión ("detecta un SKU
+ * borrado y otro creado"). Como el spec §2 parte de que el registrador del
+ * tenant reescribe productos existentes de forma continua y el §7.6 declara
+ * obligatoria la detección de regresión, esta clase publica además un digest
+ * de `(sku, updated_at)` PARTIDO en 256 particiones por hash del SKU. Ver
+ * `Model\ContentDigest` para el esquema, la reproducibilidad en los dos
+ * lados y —lo que más importa— el límite declarado de lo que `updated_at`
+ * puede ver.
  *
  * Ruling 3 (S0 Task 13, REVISADA sobre HTTP real): esta clase no agrega
  * NINGÚN filtro de versión propio. La versión anterior de esta ruling decía
@@ -41,6 +53,7 @@ class ChecksumReader implements ChecksumReaderInterface
 {
     public function __construct(
         private readonly ResourceConnection $resource,
+        private readonly ContentDigest $contentDigest,
         // M3: aunque $storeId no filtre (Ruling 2), tiene que EXISTIR. Un
         // storeId inexistente que devuelve 200 hace que `reconcile()` compare
         // dos lados de acuerdo sobre un espejo equivocado. Ver
@@ -72,9 +85,21 @@ class ChecksumReader implements ChecksumReaderInterface
 
         // Sin where propio: la población es exactamente la que Magento
         // considera activa, la MISMA que devuelve `/products` (Ruling 3).
-        $select = $connection->select()->from(['e' => $entity], ['sku' => 'e.sku']);
+        //
+        // Se trae `updated_at` en la MISMA consulta y no en una segunda: dos
+        // consultas sobre un catálogo que cambia mientras se leen darían un
+        // conjunto de SKUs y un conjunto de timestamps de instantes distintos,
+        // y esa incoherencia se reportaría como deriva del espejo. Es la misma
+        // columna, y la misma cadena, que `/products` emite en su campo
+        // `updated_at` (`ProductReader::baseEntitySelect()`), que es de donde
+        // el espejo obtuvo el valor que va a comparar.
+        $select = $connection->select()->from(
+            ['e' => $entity],
+            ['sku' => 'e.sku', 'updated_at' => 'e.updated_at']
+        );
 
-        $skus = $connection->fetchCol($select);
+        $rows = $connection->fetchAll($select);
+        $skus = array_column($rows, 'sku');
 
         // Ruling 1 (S0 Task 13): el orden se decide EN PHP, nunca con un
         // ORDER BY de SQL. Bajo la colación típica de MySQL/MariaDB para
@@ -96,6 +121,12 @@ class ChecksumReader implements ChecksumReaderInterface
         return WebApiEnvelope::wrap([
             'product_count' => count($skus),
             'sku_digest' => hash('sha256', implode("\n", $skus)),
+            // Viaja para que el lado Python pueda EXIGIR el acuerdo del
+            // esquema en vez de comparar particiones distintas y reportar
+            // "sin deriva" sobre una comparación sin sentido.
+            'partition_count' => ContentDigest::PARTITION_COUNT,
+            // Lista de objetos, nunca un mapa: ver ContentDigest::partitions().
+            'content_partitions' => $this->contentDigest->partitions($rows),
         ]);
     }
 }

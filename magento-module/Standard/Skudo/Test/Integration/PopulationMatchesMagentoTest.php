@@ -11,6 +11,7 @@ use Standard\Skudo\Api\ChecksumReaderInterface;
 use Standard\Skudo\Api\DeltaReaderInterface;
 use Standard\Skudo\Api\EnvironmentProbeInterface;
 use Standard\Skudo\Api\ProductReaderInterface;
+use Standard\Skudo\Model\ContentDigest;
 use Standard\Skudo\Model\VersioningSchema;
 
 /**
@@ -130,6 +131,62 @@ class PopulationMatchesMagentoTest extends TestCase
             $environment['counts']['products'],
             '/environment.counts.products cuenta otra población'
         );
+    }
+
+    /**
+     * H1: el digest de contenido por partición cubre EXACTAMENTE la población
+     * activa, y cada SKU cae en la partición que su sha256 dice.
+     *
+     * Es la comprobación que ninguna unitaria puede hacer, por el mismo
+     * motivo que el resto de este archivo: la población que entra al digest
+     * la decide el `FROM` de una tabla staged, y eso sólo existe cuando el
+     * SQL se ensambla de verdad. Un digest de contenido calculado sobre una
+     * población estrechada reportaría deriva permanente contra un espejo que
+     * sí tiene los productos que la tienda muestra — la misma trampa que C2,
+     * en el campo nuevo.
+     */
+    public function testTheContentPartitionsCoverExactlyTheActivePopulation(): void
+    {
+        $skus = $this->magentoActiveSkus();
+        $checksums = self::$objectManager->get(ChecksumReaderInterface::class)
+            ->getChecksums($this->aStoreId())[0];
+
+        $this->assertSame(
+            ContentDigest::PARTITION_COUNT,
+            $checksums['partition_count'],
+            'el esquema declarado no es el que el módulo calcula'
+        );
+
+        $conteoPorParticion = [];
+        foreach ($checksums['content_partitions'] as $row) {
+            $conteoPorParticion[$row['partition']] = $row['product_count'];
+            $this->assertMatchesRegularExpression(
+                '/^[0-9a-f]{64}$/',
+                $row['content_digest'],
+                'el digest de una partición no es un sha256 hex'
+            );
+        }
+
+        // Recalculado desde los SKUs que Magento considera activos: si el
+        // digest se computara sobre otra población (una estrechada por un
+        // filtro propio, o una sin paginar), los conteos por partición no
+        // coincidirían.
+        $esperado = [];
+        $digest = new ContentDigest();
+        foreach ($skus as $sku) {
+            $particion = $digest->partitionOf($sku);
+            $esperado[$particion] = ($esperado[$particion] ?? 0) + 1;
+        }
+        ksort($esperado, SORT_STRING);
+        ksort($conteoPorParticion, SORT_STRING);
+
+        $this->assertSame($esperado, $conteoPorParticion);
+        $this->assertSame(
+            count($skus),
+            array_sum($conteoPorParticion),
+            'las particiones no suman la población activa'
+        );
+        $this->assertNotSame([], $conteoPorParticion, 'la prueba no afirmaría nada sin particiones');
     }
 
     /**

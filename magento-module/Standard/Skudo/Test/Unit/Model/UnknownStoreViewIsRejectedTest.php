@@ -11,6 +11,7 @@ use Magento\Framework\Module\ModuleListInterface;
 use Magento\Store\Model\Store;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\ContentDigest;
 use Standard\Skudo\Model\ChecksumReader;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
@@ -99,7 +100,7 @@ class UnknownStoreViewIsRejectedTest extends TestCase
                 new EntityKeyResolver($resource),
                 $guard
             ))->getSignals($storeId, 90),
-            'checksums' => (new ChecksumReader($resource, $guard))->getChecksums($storeId),
+            'checksums' => (new ChecksumReader($resource, new ContentDigest(), $guard))->getChecksums($storeId),
         };
     }
 
