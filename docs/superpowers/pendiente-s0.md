@@ -1,6 +1,7 @@
 # S0 — trabajo pendiente y riesgos residuales
 
-Estado al 2026-09-10: 185 tests Python, 105 PHP, `ruff` limpio, cadena Alembic en `0012`.
+Estado al 2026-09-10 (tras el cierre de H1): 210 tests Python, 174 PHP (170 unitarias +
+4 de integración), `ruff` limpio, cadena Alembic en `0012`.
 Módulo Magento con ocho endpoints de lectura, ingestor y espejo canónico en Postgres.
 
 Este documento recoge lo que la revisión final de la fase de enmienda dejó **fuera** de la
@@ -9,30 +10,39 @@ primero.
 
 ---
 
-## H1 — La cola de cambios no ve las escrituras masivas, y nada aguas abajo puede detectarlo
+## ~~H1~~ — CERRADO (2026-09-10) — La cola de cambios no veía las escrituras masivas
 
-**El único hallazgo que falla en silencio y de forma permanente.**
+Cerrado en los commits `8752c6f`, `74a5f73` y `bafdad8`. El informe completo, con
+el experimento que decidió la forma del arreglo, está en
+`docs/superpowers/h1-deteccion-de-cambios.md`.
 
-`Observer\ProductChanged` escucha `catalog_product_save_after` y `catalog_product_delete_after`.
-Pero `Magento\Catalog\Model\Product\Action::updateAttributes()` —la acción masiva
-"Actualizar atributos" del grid de admin, y la API que usan la mayoría de las herramientas
-de terceros; esta tienda corre Amasty— despacha únicamente
-`catalog_product_attribute_update_before` y **nunca** `save_after`. Verificado en
-`vendor/magento/module-catalog/Model/Product/Action.php:85-100`. Lo mismo para
-`updateWebsites()`. `CatalogImportExport` escribe por debajo del modelo entero.
+En dos mitades:
 
-Y la red de seguridad no lo tapa: `reconcile()` compara el **conjunto** de SKUs y su huella.
-El propio docblock de `ChecksumReader` dice que detecta "un SKU borrado y otro creado". Un
-**valor** cambiado en un SKU existente le es invisible, para siempre. Nada programa un full
-sync periódico.
+1. `Observer\ProductBulkChanged`, suscrito a `catalog_product_attribute_update_before`
+   y `catalog_product_to_website_change`, con la traducción de `entity_id` a SKU en
+   `Model\SkuResolver` (empareja por `entity_id`, nunca por la clave de la tabla) y
+   `ChangeLog::recordMany()` para el volumen.
+2. `/checksums` publica un digest de CONTENIDO por partición —256 particiones por
+   hash del SKU, sobre el par `(sku, updated_at)`— y `reconcile()` lo recalcula sobre
+   el espejo y reporta QUÉ particiones divergen. El criterio de aceptación 1 reprueba
+   ahora también por contenido.
 
-Dado que el spec §2 parte de que el registrador reescribe productos existentes y declara la
-detección de regresión obligatoria, un espejo que puede sostener un valor rancio por tiempo
-indefinido es el riesgo residual más grave.
+**El límite que queda declarado, con medición:** `catalog_product_entity.updated_at`
+se mueve en el save del modelo, en `Action::updateAttributes()`, en una importación de
+`CatalogImportExport` y en un `UPDATE` de SQL directo a la fila de entidad (por
+`ON UPDATE CURRENT_TIMESTAMP`); **no** se mueve en `Action::updateWebsites()` —que por
+eso necesita el observer de forma insustituible— ni en un `UPDATE` de SQL directo a
+una tabla satélite (valores EAV, websites, categorías), que es el **piso** del
+sistema: nada puede detectarlo.
 
-**Trabajo:** observar también `catalog_product_attribute_update_before` y
-`catalog_product_to_website_change`; y añadir reconciliación a nivel de contenido —hash por
-partición de `updated_at`, o muestreo— o una cadencia de full sync obligatoria.
+Lo que el cierre deja abierto y le corresponde a otras tareas:
+
+- La **reparación dirigida** de una partición divergente no existe: `reconcile()`
+  detecta y nombra, y el remedio sigue siendo `full_sync`. Releer los SKUs de una
+  partición es el bucle que `delta_sync` ya tiene sin factorizar, y darle un punto de
+  entrada es H3.
+- M7 (la cola crece sin poda) **empeora en magnitud**: una acción masiva sobre 20.000
+  productos escribe ahora 20.000 filas donde antes escribía cero.
 
 ---
 
@@ -86,6 +96,11 @@ opciones importa porque la consolidación de S1 decide por `option_id`.
 
 Insert-only por diseño, sin poda ni retención. Una sola importación masiva escribe 228k filas.
 No hay comando de limpieza ni cron.
+
+Agravado por el cierre de H1: los observers de escritura masiva escriben una fila por
+producto de la selección, así que una acción del grid sobre 20.000 productos deja 20.000
+filas donde antes dejaba cero. El arreglo de H1 es correcto —esas filas son la única
+señal de esas escrituras— y hace que la poda pase de deseable a necesaria.
 
 ---
 
