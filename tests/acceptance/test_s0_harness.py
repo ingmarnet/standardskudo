@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import checksums_payload, skudo_response
+from skudo_testing import checksums_payload, skudo_response, upsert_record
 
 from skudo.acceptance.s0 import run_s0_acceptance
 from skudo.ingest.apply import parse_magento_datetime
@@ -16,7 +16,7 @@ from skudo.ingest.reconcile import partition_of
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.models import Tenant
-from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
+from skudo.mirror.products import ProductIdentity, resolve_scope
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 ENVIRONMENT = json.loads((FIXTURES / "environment_opensource.json").read_text())

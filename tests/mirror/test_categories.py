@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from skudo_testing import set_product_categories
 from sqlalchemy import select
 
 from skudo.magento.environment import parse_environment
@@ -9,7 +10,7 @@ from skudo.mirror.categories import (
     CategoryEffect,
     derive_category_effect,
     set_category_store_state,
-    set_product_categories,
+    set_products_categories,
     upsert_category,
 )
 from skudo.mirror.models import ProductCategoryAssignment, Tenant
@@ -263,3 +264,87 @@ def test_setting_the_same_set_twice_is_idempotent(db_session, tenant):
     set_product_categories(db_session, tenant.id, "SKU1", [20, 15])
 
     assert _assigned(db_session, tenant.id, "SKU1") == [15, 20]
+
+
+# --- El reemplazo de conjunto por LOTE (H3) -----------------------------
+
+
+def test_a_batch_replaces_each_products_set_independently(db_session, tenant):
+    """Mismo significado que de a uno, en dos sentencias para toda la página:
+    cada SKU del lote queda EXACTAMENTE con las categorías que trae, sin que
+    el conjunto de un producto afecte al de otro."""
+    set_products_categories(db_session, tenant.id, {"SKU1": [15, 20], "SKU2": [15]})
+
+    set_products_categories(db_session, tenant.id, {"SKU1": [20], "SKU2": [15, 30]})
+
+    assert _assigned(db_session, tenant.id, "SKU1") == [20]
+    assert _assigned(db_session, tenant.id, "SKU2") == [15, 30]
+
+
+def test_a_batch_with_an_empty_list_clears_that_products_assignments(db_session, tenant):
+    """"Sin categorías" es un estado legítimo y tiene que poder expresarse en
+    un lote: si el SKU sin categorías se saltara, un producto que salió de
+    todas las categorías conservaría las viejas para siempre."""
+    set_products_categories(db_session, tenant.id, {"SKU1": [15, 20], "SKU2": [15]})
+
+    set_products_categories(db_session, tenant.id, {"SKU1": [], "SKU2": [15]})
+
+    assert _assigned(db_session, tenant.id, "SKU1") == []
+    assert _assigned(db_session, tenant.id, "SKU2") == [15]
+
+
+def test_a_batch_does_not_touch_a_sku_outside_it(db_session, tenant):
+    set_products_categories(db_session, tenant.id, {"FUERA": [15]})
+
+    set_products_categories(db_session, tenant.id, {"SKU1": [20]})
+
+    assert _assigned(db_session, tenant.id, "FUERA") == [15]
+
+
+def test_a_batch_does_not_cross_tenants(db_session):
+    a = Tenant(code="a2", name="A", base_url="https://a.test", token_env_var="X")
+    b = Tenant(code="b2", name="B", base_url="https://b.test", token_env_var="Y")
+    db_session.add_all([a, b])
+    db_session.flush()
+    set_products_categories(db_session, b.id, {"SKU1": [15, 20]})
+
+    set_products_categories(db_session, a.id, {"SKU1": [20]})
+
+    assert _assigned(db_session, b.id, "SKU1") == [15, 20]
+
+
+def test_a_whole_page_of_categories_takes_two_statements(db_session, tenant):
+    """El motivo del lote: de a un SKU eran dos sentencias por producto, y el
+    coste dominante era compilar el SQL. Una página son dos, sin importar
+    cuántos productos tenga."""
+    from sqlalchemy import event
+
+    seen: list[str] = []
+    connection = db_session.connection()
+
+    def before(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement.lstrip().split()[0].upper())
+
+    event.listen(connection.engine, "before_cursor_execute", before)
+    try:
+        set_products_categories(
+            db_session, tenant.id, {f"P-{i}": [15, 20] for i in range(200)}
+        )
+    finally:
+        event.remove(connection.engine, "before_cursor_execute", before)
+
+    assert seen.count("DELETE") == 1
+    assert seen.count("INSERT") == 1
+
+
+def _assigned(db_session, tenant_id, sku) -> list[int]:
+    from sqlalchemy import select
+
+    return sorted(
+        db_session.scalars(
+            select(ProductCategoryAssignment.category_magento_id).where(
+                ProductCategoryAssignment.tenant_id == tenant_id,
+                ProductCategoryAssignment.sku == sku,
+            )
+        ).all()
+    )

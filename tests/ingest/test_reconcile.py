@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import skudo_response
+from skudo_testing import skudo_response, upsert_record
 
 from skudo.ingest.reconcile import (
     PARTITION_COUNT,
@@ -15,7 +15,7 @@ from skudo.ingest.reconcile import (
 )
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import Tenant
-from skudo.mirror.products import ProductIdentity, upsert_record
+from skudo.mirror.products import ProductIdentity
 
 MIRRORED_AT = datetime(2026, 9, 1, tzinfo=UTC)
 

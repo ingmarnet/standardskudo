@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from sqlalchemy import delete
+from sqlalchemy import delete, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -97,10 +97,10 @@ def set_category_store_state(
     session.flush()
 
 
-def set_product_categories(
-    session: Session, tenant_id: int, sku: str, category_magento_ids: list[int]
+def set_products_categories(
+    session: Session, tenant_id: int, assignments: dict[str, list[int]]
 ) -> None:
-    """Reemplaza el conjunto completo de categorías de un producto.
+    """Reemplaza el conjunto completo de categorías de VARIOS productos.
 
     Es una operación de conjunto y no de alta suelta a propósito: dar de alta
     sin contraparte deja al producto asignado a una categoría de la que ya
@@ -109,22 +109,45 @@ def set_product_categories(
 
     El alcance del borrado es (tenant, sku) porque en el core de Magento la
     asignación no tiene store view: es global.
+
+    Por qué en lote (H3, medido): de a un SKU eran dos sentencias por
+    producto, y el coste dominante era la compilación del SQL en SQLAlchemy,
+    no la base. Una página de 500 productos pasa de 1.000 sentencias a dos.
+    La semántica es la misma, escrita como conjunto: se borra lo que está en
+    los SKUs de este lote y NO está entre los pares deseados, y se insertan
+    los pares deseados. Un SKU con lista vacía queda cubierto por el primer
+    filtro y pierde todas sus asignaciones, igual que antes.
     """
-    wanted = sorted(set(category_magento_ids))
+    if not assignments:
+        return
+
+    skus = list(assignments)
+    wanted_pairs = sorted(
+        {(sku, category_id) for sku, ids in assignments.items() for category_id in ids}
+    )
 
     stale = [
         ProductCategoryAssignment.tenant_id == tenant_id,
-        ProductCategoryAssignment.sku == sku,
+        ProductCategoryAssignment.sku.in_(skus),
     ]
-    if wanted:
-        stale.append(ProductCategoryAssignment.category_magento_id.notin_(wanted))
+    if wanted_pairs:
+        # Ningún SKU del lote conserva un par que no esté en la lista deseada.
+        # Sin pares deseados el filtro se omite —un `NOT IN ()` vacío no dice
+        # nada— y el borrado se lleva todas las asignaciones de esos SKUs, que
+        # es exactamente lo que "ninguno tiene categorías" significa.
+        stale.append(
+            tuple_(
+                ProductCategoryAssignment.sku,
+                ProductCategoryAssignment.category_magento_id,
+            ).notin_(wanted_pairs)
+        )
     session.execute(delete(ProductCategoryAssignment).where(*stale))
 
-    if wanted:
+    if wanted_pairs:
         stmt = insert(ProductCategoryAssignment).values(
             [
                 {"tenant_id": tenant_id, "sku": sku, "category_magento_id": category_id}
-                for category_id in wanted
+                for sku, category_id in wanted_pairs
             ]
         )
         session.execute(

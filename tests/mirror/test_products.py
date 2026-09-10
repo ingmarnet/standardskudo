@@ -1,14 +1,17 @@
 from datetime import UTC, datetime
 
 import pytest
+from skudo_testing import upsert_record
+from sqlalchemy import event, func, select
 
-from skudo.mirror.models import Tenant
+from skudo.mirror.models import ProductRecord, Tenant
 from skudo.mirror.products import (
     ProductIdentity,
     content_hash,
     get_record,
+    record_values,
     resolve_scope,
-    upsert_record,
+    upsert_records,
 )
 
 
@@ -216,3 +219,94 @@ def test_the_hash_is_stable_for_the_same_store_view_and_content():
     assert content_hash(identity, {"name": "Notebook"}, 1) == content_hash(
         identity, {"name": "Notebook"}, 1
     )
+
+
+# --- La escritura por LOTE (H3) -----------------------------------------
+#
+# El camino de producción escribe una PÁGINA por sentencia. Lo que sigue
+# afirma que el lote no es solo más rápido sino EQUIVALENTE: mismo resultado
+# que el bucle de a una fila, incluidos los dos casos donde un INSERT
+# multi-fila se comporta distinto de N inserts.
+
+
+def _statements(db_session, action) -> list[str]:
+    """Las sentencias SQL que `action` manda a la base."""
+    seen: list[str] = []
+    connection = db_session.connection()
+
+    def before(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(connection.engine, "before_cursor_execute", before)
+    try:
+        action()
+    finally:
+        event.remove(connection.engine, "before_cursor_execute", before)
+    return seen
+
+
+def test_a_page_of_records_is_written_in_a_single_statement(db_session, tenant):
+    """El motivo de existir del lote: de a una sentencia por producto, el coste
+    dominante era COMPILAR el `INSERT ... ON CONFLICT` una vez por producto
+    —6,3 s de 19 s en el perfil de 2.000 productos—, no la base. Para el
+    catálogo piloto son ~36 minutos de puro armado de SQL.
+    """
+    rows = [
+        record_values(
+            tenant.id, 1, ProductIdentity(sku=f"LOTE-{i}"), {"name": f"P{i}"},
+            {"name": "global"}, None,
+        )
+        for i in range(50)
+    ]
+
+    statements = _statements(db_session, lambda: upsert_records(db_session, rows))
+
+    inserts = [s for s in statements if s.lstrip().upper().startswith("INSERT")]
+    assert len(inserts) == 1
+    assert db_session.scalar(
+        select(func.count()).select_from(ProductRecord)
+    ) == 50
+
+
+def test_the_same_sku_twice_in_one_batch_keeps_the_last_one(db_session, tenant):
+    """Postgres rechaza un `ON CONFLICT DO UPDATE` que afecte la misma fila dos
+    veces en la MISMA sentencia ("cannot affect row a second time"), mientras
+    que el bucle de a una fila las aplicaba en orden y ganaba la última. El
+    lote deduplica conservando la última: el cambio de forma no cambia el
+    resultado, y un lote con un SKU repetido no se vuelve una excepción de
+    Postgres a mitad de una pasada de tres horas.
+    """
+    identity = ProductIdentity(sku="REPETIDO")
+    rows = [
+        record_values(tenant.id, 1, identity, {"name": "primero"}, {"name": "global"}, None),
+        record_values(tenant.id, 1, identity, {"name": "ultimo"}, {"name": "global"}, None),
+    ]
+
+    written = upsert_records(db_session, rows)
+
+    assert written == 1
+    assert get_record(db_session, tenant.id, "REPETIDO", 1).attributes["name"] == "ultimo"
+
+
+def test_a_batch_with_mixed_columns_is_refused(db_session, tenant):
+    """Un `INSERT` multi-fila tiene UNA lista de columnas: mezclar filas con y
+    sin `sync_generation` haría que unas heredaran el sello de otras, y el
+    sello es la condición del barrido. Se falla ruidosamente."""
+    con_sello = record_values(
+        tenant.id, 1, ProductIdentity(sku="A"), {}, {}, None, sync_generation=7
+    )
+    sin_sello = record_values(tenant.id, 1, ProductIdentity(sku="B"), {}, {}, None)
+
+    with pytest.raises(ValueError) as raised:
+        upsert_records(db_session, [con_sello, sin_sello])
+
+    assert "sync_generation" in str(raised.value)
+
+
+def test_an_empty_batch_writes_nothing(db_session, tenant):
+    """Un `INSERT` con cero filas es SQL inválido, y "no había nada que
+    escribir" no es un error: la última página de un catálogo cuyo total es
+    múltiplo del tamaño de página llega vacía."""
+    statements = _statements(db_session, lambda: upsert_records(db_session, []))
+
+    assert [s for s in statements if s.lstrip().upper().startswith("INSERT")] == []

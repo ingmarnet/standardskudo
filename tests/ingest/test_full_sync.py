@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import skudo_response
+from skudo_testing import skudo_response, upsert_record
 
 from skudo.ingest.attribute_sync import sync_attributes
 from skudo.ingest.full_sync import full_sync
@@ -255,7 +255,7 @@ def test_a_full_sync_revokes_a_category_the_product_left(db_session, tenant):
 def _seed_stale(db_session, tenant_id, sku, store_id):
     from datetime import UTC, datetime
 
-    from skudo.mirror.products import ProductIdentity, upsert_record
+    from skudo.mirror.products import ProductIdentity
 
     upsert_record(db_session, tenant_id, store_id, ProductIdentity(sku=sku),
                   {"name": "fantasma"}, {"name": "global"},

@@ -21,12 +21,12 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import skudo_response
+from skudo_testing import skudo_response, upsert_record
 
 from skudo.ingest.full_sync import IncompletePassSweep, _sweep, full_sync
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import FullSyncCheckpoint, ProductRecord, Tenant
-from skudo.mirror.products import ProductIdentity, get_record, upsert_record
+from skudo.mirror.products import ProductIdentity, get_record
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 

@@ -15,12 +15,12 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import checksums_payload, skudo_response
+from skudo_testing import checksums_payload, skudo_response, upsert_record
 
 from skudo.ingest.reconcile import reconcile
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import Tenant
-from skudo.mirror.products import ProductIdentity, get_record, upsert_record
+from skudo.mirror.products import ProductIdentity, get_record
 from skudo.mirror.signals import get_signal, upsert_signals
 
 SHARED_SKU = "SKU-COMPARTIDO"

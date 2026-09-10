@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import MIRRORED_AT, checksums_payload, skudo_response
+from skudo_testing import MIRRORED_AT, checksums_payload, skudo_response, upsert_record
 
 from skudo.ingest.reconcile import partition_of, reconcile
 from skudo.ingest.repair import (
@@ -27,7 +27,7 @@ from skudo.ingest.repair import (
 )
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import Tenant
-from skudo.mirror.products import ProductIdentity, get_record, upsert_record
+from skudo.mirror.products import ProductIdentity, get_record
 
 # Dos SKUs de particiones distintas, comprobado en la prueba de abajo: sin eso
 # "reparar sólo una partición" no discriminaría nada.

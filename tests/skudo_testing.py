@@ -63,3 +63,65 @@ def checksums_payload(
             for partition, (count, digest) in sorted(content_partitions(rows).items())
         ],
     }
+
+
+def upsert_record(
+    session,
+    tenant_id: int,
+    store_view_magento_id: int,
+    identity,
+    effective: dict,
+    provenance: dict,
+    magento_updated_at,
+    *,
+    attribute_set_id: int | None = None,
+    type_id: str | None = None,
+    website_ids: list[int] | None = None,
+    sync_generation: int | None = None,
+) -> None:
+    """Escribe UNA fila del espejo. Conveniencia de los tests, no del producto.
+
+    Vivía en `skudo.mirror.products` hasta H3, cuando la escritura pasó a ser
+    por LOTE (`upsert_records`, una sentencia multi-fila por página: el coste
+    dominante era compilar el SQL una vez por producto). El envoltorio de una
+    fila se quedó sin ningún llamador en `src/`, y
+    `tests/mirror/test_write_paths_are_reachable.py` lo señaló — que es
+    exactamente su trabajo: una función de escritura que solo usan los tests
+    afirma un camino de ingesta que no existe.
+
+    Así que el envoltorio se mudó acá, donde sí tiene llamadores y donde su
+    naturaleza queda clara: es andamiaje para sembrar filas en un test. Llama
+    a las MISMAS funciones que el producto (`record_values` +
+    `upsert_records`), así que un test que siembra con esto sigue ejerciendo
+    el camino de escritura real y no una copia.
+    """
+    from skudo.mirror.products import record_values, upsert_records
+
+    upsert_records(
+        session,
+        [
+            record_values(
+                tenant_id,
+                store_view_magento_id,
+                identity,
+                effective,
+                provenance,
+                magento_updated_at,
+                attribute_set_id=attribute_set_id,
+                type_id=type_id,
+                website_ids=website_ids,
+                sync_generation=sync_generation,
+            )
+        ],
+    )
+
+
+def set_product_categories(
+    session, tenant_id: int, sku: str, category_magento_ids: list[int]
+) -> None:
+    """Reemplaza el conjunto de categorías de UN producto. Misma historia que
+    `upsert_record`: el producto escribe por lote (`set_products_categories`) y
+    esta forma de a uno es conveniencia de los tests."""
+    from skudo.mirror.categories import set_products_categories
+
+    set_products_categories(session, tenant_id, {sku: category_magento_ids})

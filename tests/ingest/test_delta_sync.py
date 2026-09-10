@@ -5,13 +5,13 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import skudo_response
+from skudo_testing import set_product_categories, skudo_response, upsert_record
 from sqlalchemy import select
 
 from skudo.ingest.delta_sync import delta_sync
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import SyncWatermark, Tenant
-from skudo.mirror.products import ProductIdentity, get_record, upsert_record
+from skudo.mirror.products import ProductIdentity, get_record
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -236,7 +236,6 @@ def test_a_delta_refresh_revokes_a_category_the_product_left(db_session, seeded)
     terminar con una sola prueba que la 15 se revocó de verdad."""
     from sqlalchemy import select
 
-    from skudo.mirror.categories import set_product_categories
     from skudo.mirror.models import ProductCategoryAssignment
 
     set_product_categories(db_session, seeded.id, "SKU1", [10, 15])
@@ -262,7 +261,6 @@ def test_a_delta_refresh_with_no_categories_clears_all_assignments(db_session, s
     que trata la lista vacía como "no tocar nada"."""
     from sqlalchemy import select
 
-    from skudo.mirror.categories import set_product_categories
     from skudo.mirror.models import ProductCategoryAssignment
 
     set_product_categories(db_session, seeded.id, "SKU1", [10, 15])
@@ -293,21 +291,23 @@ def test_category_replacement_runs_once_per_sku_not_once_per_store_view(
     El espía se pone sobre `skudo.ingest.apply`, que es donde vive el bucle de
     escritura desde H3 (lo comparten `full_sync`, `delta_sync` y la reparación
     dirigida); el `categorized` que hace pasar esta prueba lo sigue pasando
-    `delta_sync`."""
+    `delta_sync`. Desde H3 la escritura es por LOTE, así que lo que se afirma
+    es el conjunto de SKUs que llega en el lote: con dos store views y un solo
+    SKU a refrescar, el SKU tiene que aparecer en UN lote y no en dos."""
     import skudo.ingest.apply as apply_module
 
-    calls: list[str] = []
-    original = apply_module.set_product_categories
+    lotes: list[list[str]] = []
+    original = apply_module.set_products_categories
 
-    def spy(session, tenant_id, sku, category_magento_ids):
-        calls.append(sku)
-        return original(session, tenant_id, sku, category_magento_ids)
+    def spy(session, tenant_id, assignments):
+        lotes.append(sorted(assignments))
+        return original(session, tenant_id, assignments)
 
-    monkeypatch.setattr(apply_module, "set_product_categories", spy)
+    monkeypatch.setattr(apply_module, "set_products_categories", spy)
 
     delta_sync(db_session, make_source(seeded.id), store_view_ids=[1, 3])
 
-    assert calls == ["SKU1"]
+    assert [lote for lote in lotes if lote] == [["SKU1"]]
 
 
 def test_a_poison_pill_date_does_not_block_the_watermark(db_session, seeded):

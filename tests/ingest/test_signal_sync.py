@@ -15,13 +15,13 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import skudo_response
+from skudo_testing import skudo_response, upsert_record
 from sqlalchemy import select
 
 from skudo.ingest.signal_sync import sync_signals
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import ProductSignal, Tenant
-from skudo.mirror.products import ProductIdentity, upsert_record
+from skudo.mirror.products import ProductIdentity
 from skudo.mirror.signals import get_signal
 
 # Señales DISTINTAS por store view a propósito: es la propiedad que el spec
