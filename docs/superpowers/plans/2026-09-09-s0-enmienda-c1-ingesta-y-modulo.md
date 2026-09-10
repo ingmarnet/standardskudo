@@ -487,9 +487,28 @@ que se cuelga es peor que un test que falla: no dice nada y bloquea la suite. A�
 `pytest-timeout` como dependencia de desarrollo y un timeout acotado en los dos tests de
 guarda.
 
-*Aceptación:* construir un `TenantSource` con tenant y credenciales cruzados falla; y si
-se revierte una guarda de avance a mano, su test **falla por timeout** en segundos en vez
-de colgar la suite.
+**A7.3 — `derive_category_effect` revienta con `website_ids` desconocido.** Detectado al
+sabotear los tests de A4: la función hace `in` sobre `product_website_ids` y lanza
+`TypeError` si llega `None`. Y `None` es exactamente lo que tiene toda fila de
+`product_record` espejada antes de la migración `0011`, hasta que una pasada completa la
+rellene. O sea que lo primero que haga S1 —recorrer el espejo evaluando el efecto de
+categoría— fallaría en cada fila preexistente.
+
+El arreglo tiene una trampa que hay que nombrar: devolver
+`is_effective=False, reason="producto_fuera_del_website"` para un `None` sería reportar un
+defecto a partir de un dato **ausente**, que es precisamente lo que la sección 1 del spec
+prohíbe. `None` aquí significa *desconocido*, no *sin websites*.
+
+Añadir un quinto valor de `reason` —`"website_desconocido"`— con `is_effective` en `None`
+o un estado equivalente que la capa de hallazgos sepa tratar como no evaluado, coherente
+con la cobertura (`evaluado` / `no_evaluado` / `no_aplica`) que el spec ya exige en su
+sección 6.4. Un control que no se pudo evaluar queda pendiente, nunca aprobado y nunca
+fallado.
+
+*Aceptación:* construir un `TenantSource` con tenant y credenciales cruzados falla; si se
+revierte una guarda de avance a mano, su test **falla por timeout** en segundos en vez de
+colgar la suite; y `derive_category_effect` con `product_website_ids=None` devuelve el
+estado de desconocido en lugar de lanzar o de inventar un defecto.
 
 ---
 
