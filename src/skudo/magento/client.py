@@ -150,30 +150,70 @@ class MagentoClient:
                 return
             cursor = next_cursor
 
-    def iter_deltas(self, since_id: int, limit: int = 1000) -> Iterator[dict]:
+    def iter_deltas(
+        self, since_id: int, limit: int = 1000, *, since_timestamp: int | None = None
+    ) -> Iterator[dict]:
         """Recorre la cola de cambios desde un watermark, página a página.
 
         La guarda se evalúa ANTES del yield a propósito: quien consume escribe
         el watermark con el `last_change_id` de la página que aplicó, así que
         una página cuyo cursor no sirve no debe llegarle nunca.
+
+        `since_timestamp` (Unix seconds) es la otra mitad del contrato de
+        `/deltas`, la que hasta ahora nadie enviaba. Con Magento_Staging una
+        actualización programada se vuelve ACTIVA cuando pasa su `created_in`,
+        y en ese instante no ocurre ningún evento de Magento: el tiempo
+        transcurre y ya. Un observer no puede suscribirse al paso del tiempo,
+        así que la cola nunca se entera y el espejo serviría el valor viejo
+        indefinidamente (la reconciliación tampoco lo ve: compara conjuntos de
+        SKU, no valores). El módulo resuelve esa ventana en cada lectura y
+        adjunta esos SKUs con `change_id: 0` — un centinela, porque la columna
+        es `identity="true"` y MySQL arranca el AUTO_INCREMENT en 1.
+
+        De ahí las dos reglas de abajo:
+
+        1. Se envía SOLO en la primera petición. Las activaciones no se
+           paginan por change_id: el módulo las adjunta a cada página que
+           reciba el parámetro, así que pedirlas en todas sería reaplicar el
+           mismo conjunto una vez por página.
+        2. `last_change_id: null` con items deja de ser un error CUANDO todos
+           los items son centinelas: significa que no hay filas de cola que
+           paginar, solo activaciones. Se entrega la página (el consumidor
+           necesita esos SKUs) y se termina, porque sin cursor la siguiente
+           petición devolvería exactamente lo mismo para siempre. Con una fila
+           real de cola presente, en cambio, sigue siendo el error que era: no
+           hay con qué avanzar el watermark.
         """
         cursor = since_id
+        first_request = True
         while True:
-            response = self._client.get("/deltas", params={"sinceId": cursor, "limit": limit})
+            params: dict[str, object] = {"sinceId": cursor, "limit": limit}
+            if first_request and since_timestamp is not None:
+                params["sinceTimestamp"] = since_timestamp
+            response = self._client.get("/deltas", params=params)
             response.raise_for_status()
             page = unwrap(response)
+            first_request = False
 
             if not page["items"]:
                 return
 
             next_cursor = page.get("last_change_id")
             if next_cursor is None:
-                raise RuntimeError(
-                    "/deltas devolvió items con last_change_id nulo desde "
-                    f"sinceId={cursor}: no hay cursor con el que avanzar el "
-                    "watermark, así que se aborta en vez de fallar más tarde con "
-                    "un TypeError que no explica nada."
-                )
+                queued = [item for item in page["items"] if item.get("change_id")]
+                if queued:
+                    raise RuntimeError(
+                        "/deltas devolvió items de cola (change_id "
+                        f"{[item['change_id'] for item in queued][:5]}) con "
+                        f"last_change_id nulo desde sinceId={cursor}: no hay "
+                        "cursor con el que avanzar el watermark, así que se "
+                        "aborta en vez de fallar más tarde con un TypeError que "
+                        "no explica nada."
+                    )
+                # Solo activaciones de versión (change_id 0). No hay cola que
+                # paginar: se entrega esta página y se termina.
+                yield page
+                return
             if next_cursor <= cursor:
                 raise RuntimeError(
                     "/deltas no avanza: devolvió items con "

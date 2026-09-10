@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -319,3 +320,123 @@ def test_a_poison_pill_date_does_not_block_the_watermark(db_session, seeded):
     assert report.watermark == 42
     assert report.records_without_timestamp == 1
     assert report.skus_without_timestamp == ["SKU1"]
+
+
+# --- C2: la "última lectura de deltas" persistida ---------------------------
+#
+# Nada enviaba `sinceTimestamp`, así que todo el mecanismo de activaciones
+# programadas del módulo era inalcanzable y el fallo que su propio docblock
+# describe estaba vivo: con Staging activo y 181 productos multiversión, una
+# actualización programada entra en vigor y el espejo sirve el valor viejo
+# indefinidamente. Estas pruebas cablean el parámetro de punta a punta.
+
+ACTIVATION_ONLY_PAGE = {
+    "items": [
+        {"change_id": 0, "sku": "SKU1", "event": "save",
+         "changed_at": "2026-09-05 08:00:00"},
+    ],
+    "last_change_id": None,
+}
+
+
+def make_timestamp_capturing_source(tenant_id: int, deltas_page: dict):
+    """Fuente que además REGISTRA el `sinceTimestamp` de cada petición."""
+    environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
+    sent: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/environment"):
+            return skudo_response(environment)
+        if path.endswith("/deltas"):
+            sent.append(request.url.params.get("sinceTimestamp"))
+            since = int(request.url.params.get("sinceId", 0))
+            if since >= (deltas_page["last_change_id"] or 0) and deltas_page["items"] \
+                    and deltas_page["last_change_id"] is not None:
+                return skudo_response({"items": [], "last_change_id": None})
+            return skudo_response(deltas_page)
+        if path.endswith("/products-by-sku"):
+            return skudo_response({"items": REFRESHED})
+        return httpx.Response(404)
+
+    source = TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"),
+        token="t",
+        transport=httpx.MockTransport(handler),
+    )
+    return source, sent
+
+
+def _last_delta_read_at(db_session, tenant_id):
+    return db_session.scalar(
+        select(SyncWatermark.last_delta_read_at).where(
+            SyncWatermark.tenant_id == tenant_id
+        )
+    )
+
+
+def test_the_first_run_sends_no_timestamp_and_records_the_moment_it_read(
+    db_session, seeded
+):
+    """Sin lectura previa no hay ventana: `created_in > 0` capturaría la
+    versión activa de TODO el catálogo como recién activada. La primera pasada
+    solo deja anotado el instante desde el que la siguiente puede preguntar."""
+    source, sent = make_timestamp_capturing_source(seeded.id, CHANGES)
+
+    delta_sync(db_session, source, store_view_ids=[1])
+
+    assert sent[0] is None
+    assert _last_delta_read_at(db_session, seeded.id) is not None
+
+
+def test_the_second_run_sends_the_recorded_read_minus_the_overlap(db_session, seeded):
+    """La segunda pasada sí pregunta por la ventana, y lo hace con un margen de
+    solape hacia atrás: el `created_in` de Magento lo pone el reloj de SU base,
+    no el nuestro, y una deriva de relojes en el sentido malo se traga una
+    activación para siempre. Con el solape, la deriva causa una reentrega
+    (inofensiva: todo el camino es upsert) en vez de una pérdida.
+
+    Discrimina sobre el VALOR: un `sinceTimestamp` igual al instante de lectura
+    —sin margen— haría fallar la desigualdad de abajo."""
+    from skudo.ingest.delta_sync import DELTA_ACTIVATION_OVERLAP_SECONDS
+
+    first, _ = make_timestamp_capturing_source(seeded.id, CHANGES)
+    delta_sync(db_session, first, store_view_ids=[1])
+    read_at = _last_delta_read_at(db_session, seeded.id)
+
+    second, sent = make_timestamp_capturing_source(seeded.id, CHANGES)
+    delta_sync(db_session, second, store_view_ids=[1])
+
+    assert sent[0] is not None
+    assert int(sent[0]) == int(read_at.timestamp()) - DELTA_ACTIVATION_OVERLAP_SECONDS
+
+
+def test_a_version_activation_refreshes_the_sku_without_moving_the_change_id(
+    db_session, seeded
+):
+    """El caso que las dos mitades del contrato se contradecían sobre: una
+    página cuyos únicos items son activaciones de versión (`change_id: 0`,
+    `last_change_id: null`). Se aplica —el SKU se refresca de verdad— y el
+    watermark de change_id NO se mueve, porque esas filas no son de la cola.
+
+    Si el watermark tomara el `last_change_id` nulo, la columna quedaría en
+    NULL/0 y la próxima pasada reprocesaría la cola entera."""
+    db_session.execute(
+        SyncWatermark.__table__.insert().values(
+            tenant_id=seeded.id, last_change_id=99,
+            last_delta_read_at=datetime(2026, 9, 5, tzinfo=UTC),
+        )
+    )
+    db_session.flush()
+    source, sent = make_timestamp_capturing_source(seeded.id, ACTIVATION_ONLY_PAGE)
+
+    report = delta_sync(db_session, source, store_view_ids=[1])
+
+    assert sent[0] is not None, "la activación solo llega si se envía sinceTimestamp"
+    assert get_record(db_session, seeded.id, "SKU1", 1).attributes["name"] == (
+        "Notebook corregido"
+    )
+    assert report.watermark == 99
+    assert db_session.scalar(
+        select(SyncWatermark.last_change_id).where(SyncWatermark.tenant_id == seeded.id)
+    ) == 99

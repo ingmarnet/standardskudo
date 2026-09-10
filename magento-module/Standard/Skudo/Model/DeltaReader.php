@@ -36,7 +36,7 @@ class DeltaReader implements DeltaReaderInterface
 
         $rows = $connection->fetchAll($select);
 
-        $items = array_map(
+        $queued = array_map(
             static fn (array $row): array => [
                 'change_id' => (int) $row['change_id'],
                 'sku' => (string) $row['sku'],
@@ -51,12 +51,13 @@ class DeltaReader implements DeltaReaderInterface
         // deben moverlo, así que last_change_id se calcula ANTES de unirlas.
         $lastChangeId = $rows === [] ? null : (int) end($rows)['change_id'];
 
+        $activated = [];
         if ($sinceTimestamp !== null && $this->activeVersionResolver->hasVersioning()) {
             foreach ($this->activatedVersions($connection, $sinceTimestamp) as $row) {
                 // change_id 0 es un centinela seguro SOLO porque la columna
                 // se declara `identity="true"` en db_schema.xml, y MySQL
                 // arranca AUTO_INCREMENT en 1: change_id real nunca es 0.
-                $items[] = [
+                $activated[] = [
                     'change_id' => 0,
                     'sku' => (string) $row['sku'],
                     'event' => 'save',
@@ -64,6 +65,15 @@ class DeltaReader implements DeltaReaderInterface
                 ];
             }
         }
+
+        // Las activaciones van PRIMERO: su change_id es 0, el más bajo
+        // posible, y este endpoint promete los items en orden ascendente de
+        // change_id. El lado Python (`delta_sync`) resuelve las colisiones de
+        // un mismo SKU dentro de una página con "gana el último evento"
+        // apoyándose exactamente en esa promesa; con las activaciones al final,
+        // un SKU con un `delete` real de la cola y una activación en la misma
+        // página terminaría refrescado en vez de borrado.
+        $items = array_merge($activated, $queued);
 
         return WebApiEnvelope::wrap([
             'items' => $items,

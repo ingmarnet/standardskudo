@@ -260,6 +260,18 @@ class SyncWatermark(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    # Hasta qué instante se leyeron las ACTIVACIONES de versión programada
+    # (`sinceTimestamp` de `/deltas`), que es una pregunta distinta de
+    # `last_change_id`: la cola solo registra eventos, y una versión que se
+    # vuelve activa porque pasó su `created_in` no dispara ninguno.
+    #
+    # NULL significa "nunca se leyó con ventana de tiempo", no "desde la época
+    # Unix": mandar 0 haría que `created_in > 0` devolviera la versión activa
+    # del catálogo entero como recién activada. `delta_sync` distingue los dos
+    # casos y en el primero no envía el parámetro.
+    last_delta_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class ProductSignal(Base):

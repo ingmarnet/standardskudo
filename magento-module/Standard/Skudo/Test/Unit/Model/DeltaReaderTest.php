@@ -158,6 +158,46 @@ class DeltaReaderTest extends TestCase
     }
 
     /**
+     * C2: las filas de activación llevan `change_id: 0` y se emiten ANTES que
+     * las de la cola, porque el orden ascendente de change_id es un contrato
+     * del endpoint del que `delta_sync` depende: resuelve las colisiones de un
+     * mismo SKU dentro de una página con "gana el último evento". Con las
+     * activaciones al final, un SKU borrado (change_id real, event `delete`) y
+     * activado en la misma página terminaría refrescado en vez de borrado, que
+     * es la dirección equivocada.
+     *
+     * Discrimina sobre el ORDEN, no sobre el contenido: si se volviera a
+     * adjuntar al final, los dos arrays tendrían los mismos elementos y solo
+     * esta secuencia falla.
+     */
+    public function testVersionActivationsComeBeforeQueueRowsSoChangeIdStaysAscending(): void
+    {
+        $queueRows = [
+            ['change_id' => 5, 'sku' => 'DE-LA-COLA', 'event' => 'delete',
+             'changed_at' => '2026-01-01 00:00:00'],
+        ];
+        $entityRows = [
+            ['sku' => 'ACTIVADO', 'created_in' => self::NOW - 100, 'updated_in' => 2_147_483_647],
+        ];
+
+        $selects = [];
+        $reader = $this->makeReader(hasVersioning: true, queueRows: $queueRows, entityRows: $entityRows, selects: $selects);
+
+        $result = $this->payloadOf(
+            $reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 200)
+        );
+
+        $this->assertSame(
+            [0, 5],
+            array_column($result['items'], 'change_id'),
+            'los items deben venir en orden ascendente de change_id: el centinela 0 primero'
+        );
+        $this->assertSame(['ACTIVADO', 'DE-LA-COLA'], array_column($result['items'], 'sku'));
+        // El watermark sigue saliendo solo de las filas reales de cola.
+        $this->assertSame(5, $result['last_change_id']);
+    }
+
+    /**
      * @param mixed[] $queueRows
      * @param mixed[] $entityRows
      * @param list<DeltaFakeSelect> $selects

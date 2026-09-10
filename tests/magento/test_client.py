@@ -282,3 +282,91 @@ def test_checksums_returns_the_object_and_not_the_reindexed_pair():
         return skudo_response({"product_count": 3, "sku_digest": "abc"})
 
     assert make_client(handler).checksums(1) == {"product_count": 3, "sku_digest": "abc"}
+
+
+# --- C2: activaciones de versión programada ---------------------------------
+#
+# Con Magento_Staging, una actualización programada se vuelve activa cuando
+# pasa su `created_in`, y en ese instante NO ocurre ningún evento: el tiempo
+# simplemente transcurre, y un observer no puede suscribirse a eso. Por eso
+# `/deltas` acepta `sinceTimestamp` y devuelve esos SKUs con `change_id: 0` y
+# `last_change_id: null` — filas que no son de la cola y no deben mover el
+# watermark de change_id.
+#
+# `iter_deltas` abortaba con RuntimeError ante exactamente esa forma: los dos
+# lados tenían tests verdes afirmando mitades contradictorias del contrato.
+
+
+def test_iter_deltas_sends_the_timestamp_only_on_the_first_page():
+    """Las activaciones no se paginan por change_id: el módulo las adjunta a
+    CADA página que recibe `sinceTimestamp`, así que pedirlas en todas sería
+    reaplicar el mismo conjunto una vez por página. Pertenecen a una sola.
+
+    Discrimina por la lista de valores, no por presencia: si se enviara en
+    todas, la lista sería ['1000', '1000'] y no ['1000', None]."""
+    sent: list[str | None] = []
+    pages = {
+        0: {"items": [{"change_id": 1, "sku": "A"}], "last_change_id": 1},
+        1: {"items": [], "last_change_id": None},
+    }
+
+    def handler(request):
+        sent.append(request.url.params.get("sinceTimestamp"))
+        return skudo_response(pages[int(request.url.params["sinceId"])])
+
+    list(make_client(handler).iter_deltas(0, since_timestamp=1000))
+
+    assert sent == ["1000", None]
+
+
+def test_iter_deltas_sends_no_timestamp_when_the_last_read_is_unknown():
+    """Primera lectura de deltas de un tenant: no hay 'última lectura'. Mandar
+    0 haría que `created_in > 0` capturara la versión activa de TODO el
+    catálogo como si se acabara de activar."""
+    sent: list[str | None] = []
+
+    def handler(request):
+        sent.append(request.url.params.get("sinceTimestamp"))
+        return skudo_response({"items": [], "last_change_id": None})
+
+    list(make_client(handler).iter_deltas(0))
+
+    assert sent == [None]
+
+
+def test_a_page_of_only_version_activations_is_delivered_and_ends_the_walk():
+    """La forma que `DeltaReader::getChanges()` emite cuando la cola está vacía
+    pero hay versiones recién activadas: items con `change_id: 0` y
+    `last_change_id: null`. Antes esto era un RuntimeError; ahora se entrega
+    (el consumidor necesita esos SKUs) y se termina, porque un `last_change_id`
+    nulo significa que no queda nada de cola que paginar — seguir pidiendo
+    devolvería la misma página para siempre."""
+    def handler(request):
+        return skudo_response(
+            {"items": [{"change_id": 0, "sku": "PROGRAMADO", "event": "save"}],
+             "last_change_id": None}
+        )
+
+    pages = list(make_client(handler).iter_deltas(0, since_timestamp=1000))
+
+    assert len(pages) == 1
+    assert pages[0]["items"][0]["sku"] == "PROGRAMADO"
+
+
+def test_a_null_cursor_with_a_real_queue_row_still_aborts():
+    """La guarda original NO se relaja del todo: un item con `change_id`
+    distinto de cero es una fila real de cola, y si viene sin `last_change_id`
+    no hay con qué avanzar el watermark — reaplicaríamos esa página para
+    siempre. Solo el centinela `change_id: 0` está exento.
+
+    Es lo que distingue este arreglo de 'borrar la guarda': con la guarda
+    borrada, este caso pasaría en silencio."""
+    def handler(request):
+        return skudo_response(
+            {"items": [{"change_id": 0, "sku": "PROGRAMADO"},
+                       {"change_id": 88, "sku": "REAL"}],
+             "last_change_id": None}
+        )
+
+    with pytest.raises(RuntimeError, match="last_change_id"):
+        list(make_client(handler).iter_deltas(0, since_timestamp=1000))
