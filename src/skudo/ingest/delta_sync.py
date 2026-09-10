@@ -5,12 +5,10 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from skudo.ingest.full_sync import note_unreadable_timestamp, parse_magento_datetime
+from skudo.ingest.apply import apply_items
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes
-from skudo.mirror.categories import set_product_categories
 from skudo.mirror.models import ProductRecord, SyncWatermark
-from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
 
 # Margen de solape, en segundos, al pedir las activaciones de versión
 # programada. `created_in` lo pone el reloj de la base de Magento; el instante
@@ -167,37 +165,15 @@ def delta_sync(
         categorized: set[str] = set()
 
         for store_id in store_view_ids:
-            for item in client.products_by_sku(store_id, to_refresh):
-                identity = ProductIdentity(
-                    sku=item["sku"],
-                    mpn=item.get("mpn"),
-                    model=item.get("model"),
-                    gtin=item.get("gtin"),
-                    variant_key=item.get("variant_key"),
-                )
-                effective, provenance = resolve_scope(
-                    item["global_values"], item["store_values"], scopes
-                )
-                magento_updated_at = parse_magento_datetime(item.get("updated_at"))
-                if magento_updated_at is None:
-                    note_unreadable_timestamp(report, item["sku"])
-                upsert_record(
-                    session, tenant_id, store_id, identity, effective, provenance,
-                    magento_updated_at,
-                    attribute_set_id=item.get("attribute_set_id"),
-                    type_id=item.get("type_id"),
-                    website_ids=item["website_ids"],
-                )
-                if item["sku"] not in categorized:
-                    # Conjunto completo, no alta suelta: lo que el payload no
-                    # trae deja de estar asignado, igual que en `full_sync`.
-                    # Una lista vacía es un estado legítimo ("sin categorías")
-                    # y debe dejar al producto sin asignaciones, no saltarse.
-                    set_product_categories(
-                        session, tenant_id, item["sku"], item["category_ids"]
-                    )
-                    categorized.add(item["sku"])
-                report.records_updated += 1
+            report.records_updated += apply_items(
+                session,
+                tenant_id,
+                store_id,
+                client.products_by_sku(store_id, to_refresh),
+                scopes,
+                report,
+                categorized=categorized,
+            )
 
         # Una página cuyos items son SOLO activaciones de versión llega con
         # `last_change_id: null` a propósito (ver `DeltaReader::getChanges()` y

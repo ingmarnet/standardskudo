@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from skudo.ingest.full_sync import parse_magento_datetime
+from skudo.ingest.apply import parse_magento_datetime
 
 
 def test_a_well_formed_date_is_parsed_as_utc():

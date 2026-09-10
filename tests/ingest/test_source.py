@@ -32,11 +32,20 @@ def test_the_sync_entry_points_take_no_separate_tenant_id():
     """La firma es la garantía. Mientras el id del tenant y el cliente sean dos
     argumentos independientes, desemparejarlos es una llamada válida."""
     for function, expected in (
+        # `full_sync` lleva además `page_size` y `restart` (H3), que son
+        # opciones de la pasada y no identidad: lo que esta prueba vigila es
+        # que el tenant no vuelva a viajar separado del cliente, así que se
+        # comparan los parámetros POSICIONALES.
         (full_sync, ["session", "source", "store_view_ids"]),
         (delta_sync, ["session", "source", "store_view_ids"]),
         (reconcile, ["session", "source", "store_view_magento_id"]),
     ):
-        assert list(inspect.signature(function).parameters) == expected
+        positional = [
+            name
+            for name, parameter in inspect.signature(function).parameters.items()
+            if parameter.kind is not inspect.Parameter.KEYWORD_ONLY
+        ]
+        assert positional == expected
 
 
 def test_the_source_carries_the_tenant_and_builds_its_own_client():

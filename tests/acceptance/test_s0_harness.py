@@ -8,9 +8,10 @@ import pytest
 from skudo_testing import checksums_payload, skudo_response
 
 from skudo.acceptance.s0 import run_s0_acceptance
+from skudo.ingest.apply import parse_magento_datetime
 from skudo.ingest.attribute_sync import sync_attributes
 from skudo.ingest.category_sync import sync_categories
-from skudo.ingest.full_sync import full_sync, parse_magento_datetime
+from skudo.ingest.full_sync import full_sync
 from skudo.ingest.reconcile import partition_of
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes

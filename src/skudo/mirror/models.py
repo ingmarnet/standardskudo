@@ -308,3 +308,51 @@ class ProductSignal(Base):
     observed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class FullSyncCheckpoint(Base):
+    """Progreso de la pasada completa, por (tenant, store view).
+
+    H3. `full_sync` hacía UN `commit()` al final: para el catálogo piloto son
+    ~457.000 upserts más un par delete+insert de categorías por producto en
+    una sola transacción de Postgres. Un fallo a la tercera hora no dejaba
+    nada, y la pasada siguiente empezaba de cero. Esta tabla es lo que
+    convierte esa pasada en reanudable: se escribe en la MISMA transacción que
+    la página que acaba de aplicarse, así que el cursor guardado y los datos
+    del espejo avanzan juntos o no avanzan.
+
+    Tres columnas cargan todo el peso:
+
+    - `generation`: el sello de `product_sync_generation_seq` con el que esta
+      pasada marca las filas que toca. Una reanudación TIENE que continuar la
+      MISMA generación: si tomara una nueva, el barrido del final —que borra
+      lo que no lleva el sello de la pasada— se llevaría por delante todo lo
+      que la pasada interrumpida ya había escrito.
+    - `next_cursor`: el cursor opaco de `/products` con el que pedir la
+      página siguiente. NULL con `pass_complete = false` significa "todavía
+      no se pidió ninguna página"; NULL con `pass_complete = true`, "no hay
+      más páginas".
+    - `pass_complete`: el sello de que la pasada de ESTA store view vio la
+      última página. Es la precondición del barrido, y se lee de la BASE (no
+      de una variable local) justamente para que un barrido sobre una pasada
+      a medias no sea expresable. Ver `full_sync._sweep`.
+    """
+
+    __tablename__ = "full_sync_checkpoint"
+    __table_args__ = (UniqueConstraint("tenant_id", "store_view_magento_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    store_view_magento_id: Mapped[int] = mapped_column(Integer)
+    generation: Mapped[int] = mapped_column(BigInteger)
+    next_cursor: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    pages_done: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    records_written: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    pass_complete: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    swept: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

@@ -288,17 +288,22 @@ def test_category_replacement_runs_once_per_sku_not_once_per_store_view(
     `catalog_category_product`), así que aplicarla una vez por store view
     repetiría el mismo reemplazo de conjunto N veces. Con dos store views y un
     solo SKU a refrescar, la llamada debe ocurrir una sola vez: si el guard se
-    borrara, esta prueba vería 2 llamadas en vez de 1."""
-    import skudo.ingest.delta_sync as delta_sync_module
+    borrara, esta prueba vería 2 llamadas en vez de 1.
+
+    El espía se pone sobre `skudo.ingest.apply`, que es donde vive el bucle de
+    escritura desde H3 (lo comparten `full_sync`, `delta_sync` y la reparación
+    dirigida); el `categorized` que hace pasar esta prueba lo sigue pasando
+    `delta_sync`."""
+    import skudo.ingest.apply as apply_module
 
     calls: list[str] = []
-    original = delta_sync_module.set_product_categories
+    original = apply_module.set_product_categories
 
     def spy(session, tenant_id, sku, category_magento_ids):
         calls.append(sku)
         return original(session, tenant_id, sku, category_magento_ids)
 
-    monkeypatch.setattr(delta_sync_module, "set_product_categories", spy)
+    monkeypatch.setattr(apply_module, "set_product_categories", spy)
 
     delta_sync(db_session, make_source(seeded.id), store_view_ids=[1, 3])
 

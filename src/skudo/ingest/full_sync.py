@@ -1,14 +1,13 @@
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
-from sqlalchemy import Sequence, delete, select
+from sqlalchemy import Sequence, delete, func, select
 from sqlalchemy.orm import Session
 
+from skudo.ingest.apply import apply_items
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes
-from skudo.mirror.categories import set_product_categories
-from skudo.mirror.models import ProductRecord
-from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
+from skudo.mirror.models import FullSyncCheckpoint, ProductRecord
 from skudo.mirror.topology import sync_topology
 
 # Secuencia de la base: cada pasada completa toma un valor propio con el que
@@ -16,71 +15,123 @@ from skudo.mirror.topology import sync_topology
 # sello sea único sin depender de la resolución ni de la monotonía del reloj.
 SYNC_GENERATION_SEQUENCE = Sequence("product_sync_generation_seq")
 
+# Tamaño de página del recorrido por cursor, y por tanto de la transacción:
+# se confirma UNA vez por página. 500 es el default del módulo
+# (`ProductReader::getPage`) y deja una transacción de ~500 upserts más sus
+# categorías, que Postgres cierra en decenas de milisegundos.
+FULL_SYNC_PAGE_SIZE = 500
 
-# Cuántos SKUs con fecha ilegible se nombran en el reporte. Un conteo solo dice
-# que hay filas afectadas; una muestra acotada dice cuáles mirar.
-UNTIMESTAMPED_SAMPLE_SIZE = 20
+
+class IncompletePassSweep(RuntimeError):
+    """El barrido se pidió para una store view cuya pasada no terminó.
+
+    No es un caso a evitar con cuidado: es el que convierte una interrupción
+    inofensiva en la pérdida del espejo entero. Con commit por página, una
+    pasada interrumpida deja el espejo PARCIALMENTE actualizado —correcto y
+    esperado—, pero si el barrido corriera igual borraría todo lo que esa
+    pasada no llegó a ver, que es casi todo el catálogo. Por eso `_sweep`
+    exige el sello persistido de "pasada completa" y lanza esto si no está,
+    en vez de confiar en que ningún camino lo llame antes de tiempo.
+    """
 
 
 class FullSyncReport(BaseModel):
+    # Sello de la pasada. Una reanudación reporta el MISMO valor que la
+    # pasada que continúa: es lo que permite verificar desde fuera que no
+    # empezó una generación nueva.
+    generation: int = 0
+    resumed: bool = False
     records_written: int = 0
     records_deleted: int = 0
     pages_fetched: int = 0
+    # Store views cuya pasada terminó y fue barrida EN ESTA invocación.
+    store_views_completed: list[int] = []
+    # Store views que esta invocación no volvió a recorrer porque la pasada
+    # de esta misma generación ya las había terminado y barrido.
+    store_views_already_done: list[int] = []
     records_without_timestamp: int = 0
     skus_without_timestamp: list[str] = []
 
 
-def parse_magento_datetime(raw: str | None) -> datetime | None:
-    """Magento devuelve 'YYYY-MM-DD HH:MM:SS' en UTC, sin zona explícita.
+def _checkpoint(
+    session: Session, tenant_id: int, store_id: int
+) -> FullSyncCheckpoint | None:
+    return session.scalar(
+        select(FullSyncCheckpoint).where(
+            FullSyncCheckpoint.tenant_id == tenant_id,
+            FullSyncCheckpoint.store_view_magento_id == store_id,
+        )
+    )
 
-    Política explícita para lo que no se puede interpretar —la cadena vacía y el
-    '0000-00-00 00:00:00' que MySQL admite y los catálogos heredados contienen—:
-    es DESCONOCIDO, y se devuelve None. Ni una excepción, que abortaría la
-    página entera y en `delta_sync` bloquearía el avance del watermark y con él
-    toda sincronización posterior; ni una fecha de relleno, que sería un dato
-    falso con aspecto confiable. Quien llama reporta el caso.
 
-    Se acepta —y se DESCARTA— una fracción de segundo. `catalog_product_entity
-    .updated_at` es un `timestamp` sin precisión fraccionaria, así que en
-    Magento tal como se instala esto no pasa nunca; pasa si un tenant alteró la
-    columna. El caso importa por H1: el digest de contenido de `/checksums`
-    canonicaliza el timestamp al segundo (`ContentDigest::timestampToken()`) y
-    este lado tiene que llegar al MISMO texto desde el valor que guardó. Si acá
-    la fracción hiciera fallar el parseo, el espejo guardaría NULL, su token
-    sería 'desconocido' contra un timestamp real del otro lado, y la
-    reconciliación reportaría deriva PERMANENTE que ningún re-sync limpiaría.
+def _open_generation(session: Session, tenant_id: int) -> int | None:
+    """La generación de una pasada que quedó a medias, si hay una.
+
+    "A medias" es NO (pasada completa Y barrida): una store view cuya última
+    página se aplicó pero cuyo barrido no llegó a correr también está a
+    medias, y hay que volver a ella con su MISMA generación para que el
+    barrido siga siendo posible. Si tomara una generación nueva, el sello de
+    todo lo que esa pasada ya escribió quedaría viejo y el barrido lo borraría.
+
+    Se toma el máximo por si dos store views quedaran abiertas en
+    generaciones distintas (una pasada anterior interrumpida y otra
+    reiniciada con `--restart`): la más reciente es la que se continúa, y la
+    vieja se cierra sola cuando su store view vuelva a recorrerse.
     """
-    if raw is None:
-        return None
-    candidate = raw.strip()
-    if not candidate or candidate.startswith("0000-00-00"):
-        return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
-        try:
-            # Sin microsegundos: es la misma canonicalización al segundo que
-            # hace el módulo, en el mismo lugar del ciclo.
-            return datetime.strptime(candidate, fmt).replace(microsecond=0, tzinfo=UTC)
-        except ValueError:
-            continue
-    return None
+    return session.scalar(
+        select(func.max(FullSyncCheckpoint.generation)).where(
+            FullSyncCheckpoint.tenant_id == tenant_id,
+            ~(FullSyncCheckpoint.pass_complete & FullSyncCheckpoint.swept),
+        )
+    )
 
 
-def note_unreadable_timestamp(report, sku: str) -> None:
-    """Anota en el reporte que un SKU llegó sin fecha interpretable."""
-    report.records_without_timestamp += 1
-    if len(report.skus_without_timestamp) < UNTIMESTAMPED_SAMPLE_SIZE:
-        report.skus_without_timestamp.append(sku)
+def _start_pass(
+    session: Session, tenant_id: int, store_id: int, generation: int
+) -> FullSyncCheckpoint:
+    """Deja el checkpoint de esa store view listo para esta generación.
+
+    Si ya existe uno de la MISMA generación sin terminar, se continúa desde su
+    cursor. Si es de otra generación, se reinicia: el cursor de una pasada
+    anterior no significa nada para esta.
+    """
+    checkpoint = _checkpoint(session, tenant_id, store_id)
+    if checkpoint is None:
+        checkpoint = FullSyncCheckpoint(
+            tenant_id=tenant_id,
+            store_view_magento_id=store_id,
+            generation=generation,
+            next_cursor=None,
+            pages_done=0,
+            records_written=0,
+            pass_complete=False,
+            swept=False,
+        )
+        session.add(checkpoint)
+    elif checkpoint.generation != generation:
+        checkpoint.generation = generation
+        checkpoint.next_cursor = None
+        checkpoint.pages_done = 0
+        checkpoint.records_written = 0
+        checkpoint.pass_complete = False
+        checkpoint.swept = False
+    checkpoint.updated_at = datetime.now(UTC)
+    session.flush()
+    return checkpoint
 
 
 def full_sync(
     session: Session,
     source: TenantSource,
     store_view_ids: list[int],
+    *,
+    page_size: int = FULL_SYNC_PAGE_SIZE,
+    restart: bool = False,
 ) -> FullSyncReport:
-    """Carga completa del catálogo, una pasada por store view.
+    """Carga completa del catálogo, una pasada por store view, REANUDABLE.
 
-    Se recorre por store view porque los valores de override viven en ese scope:
-    una sola pasada global no permitiría saber qué heredó cada tienda.
+    Se recorre por store view porque los valores de override viven en ese
+    scope: una sola pasada global no permitiría saber qué heredó cada tienda.
 
     Recibe un `TenantSource` y no `(client, tenant_id)` para que el catálogo que
     se lee y el espejo en el que se escribe no puedan ser de tenants distintos.
@@ -91,6 +142,26 @@ def full_sync(
     procedencia de cada override queda en DESCONOCIDO —que es la verdad, no un
     fallo silencioso, y el criterio de aceptación `procedencia_de_scope` lo
     reprueba—. Se lee UNA vez por pasada, no por producto.
+
+    COMMIT POR PÁGINA (H3). Antes había UN `commit()` al final: para el
+    catálogo piloto, ~457.000 upserts más un par delete+insert de categorías
+    por producto en una sola transacción de Postgres, sin lotes y sin
+    reanudación. Un fallo a la tercera hora no dejaba nada. Ahora cada página
+    se confirma con su punto de reanudación en la MISMA transacción
+    (`full_sync_checkpoint`), así que los datos y el cursor avanzan juntos o
+    no avanzan.
+
+    El modo de fallo que eso INTRODUCE, y cómo se cierra: una pasada
+    interrumpida deja el espejo parcialmente actualizado. Eso es aceptable —lo
+    que había sigue siendo el último hecho observado— pero el BARRIDO deja de
+    serlo: barrer "lo que esta pasada no selló" sobre una pasada que vio tres
+    páginas de cuatrocientas borraría casi todo el catálogo. La precondición
+    del barrido es el sello persistido `pass_complete`, que `_sweep` lee de la
+    base, así que un barrido sobre una pasada a medias no es expresable.
+
+    REANUDACIÓN: por defecto se continúa la pasada abierta, con su MISMA
+    generación. Con `restart=True` se toma una generación nueva y los
+    checkpoints se reinician.
     """
     tenant_id = source.tenant_id
     client = source.client
@@ -98,49 +169,67 @@ def full_sync(
     sync_topology(session, tenant_id, profile)
 
     report = FullSyncReport()
-    generation = session.scalar(select(SYNC_GENERATION_SEQUENCE.next_value()))
+    open_generation = None if restart else _open_generation(session, tenant_id)
+    if open_generation is None:
+        generation = session.scalar(select(SYNC_GENERATION_SEQUENCE.next_value()))
+    else:
+        generation = open_generation
+        report.resumed = True
+    report.generation = generation
+    # La topología y la generación se confirman antes de la primera página:
+    # sin esto, la primera página arrastraría el snapshot de entorno en su
+    # transacción y un fallo ahí perdería también la sonda.
+    session.commit()
+
     scopes = declared_scopes(session, tenant_id)
 
     for store_id in store_view_ids:
-        for page in client.iter_products(store_id):
+        checkpoint = _checkpoint(session, tenant_id, store_id)
+        if (
+            checkpoint is not None
+            and checkpoint.generation == generation
+            and checkpoint.pass_complete
+            and checkpoint.swept
+        ):
+            # Ya terminada y barrida en ESTA generación: volver a recorrerla
+            # sería releer el catálogo entero para reescribir lo mismo.
+            report.store_views_already_done.append(store_id)
+            continue
+
+        checkpoint = _start_pass(session, tenant_id, store_id, generation)
+        cursor = checkpoint.next_cursor
+        session.commit()
+
+        while not checkpoint.pass_complete:
+            page = client.products_page(store_id, limit=page_size, cursor=cursor)
             report.pages_fetched += 1
-            for item in page["items"]:
-                identity = ProductIdentity(
-                    sku=item["sku"],
-                    mpn=item.get("mpn"),
-                    model=item.get("model"),
-                    gtin=item.get("gtin"),
-                    variant_key=item.get("variant_key"),
-                )
-                effective, provenance = resolve_scope(
-                    item["global_values"], item["store_values"], scopes
-                )
-                magento_updated_at = parse_magento_datetime(item.get("updated_at"))
-                if magento_updated_at is None:
-                    note_unreadable_timestamp(report, item["sku"])
-                upsert_record(
-                    session,
-                    tenant_id,
-                    store_id,
-                    identity,
-                    effective,
-                    provenance,
-                    magento_updated_at,
-                    attribute_set_id=item.get("attribute_set_id"),
-                    type_id=item.get("type_id"),
-                    website_ids=item["website_ids"],
-                    sync_generation=generation,
-                )
-                # Conjunto completo, no alta suelta: lo que el payload no trae
-                # deja de estar asignado.
-                set_product_categories(
-                    session, tenant_id, item["sku"], item["category_ids"]
-                )
-                report.records_written += 1
+            applied = apply_items(
+                session,
+                tenant_id,
+                store_id,
+                page["items"],
+                scopes,
+                report,
+                sync_generation=generation,
+            )
+            report.records_written += applied
+
+            cursor = page.get("next_cursor")
+            checkpoint.next_cursor = cursor
+            checkpoint.pages_done += 1
+            checkpoint.records_written += applied
+            # El sello de "vio la última página" se escribe en la MISMA
+            # transacción que la última página, no antes: si el commit no
+            # llega, la pasada sigue estando a medias y el barrido sigue
+            # prohibido.
+            checkpoint.pass_complete = cursor is None
+            checkpoint.updated_at = datetime.now(UTC)
+            session.commit()
 
         report.records_deleted += _sweep(session, tenant_id, store_id, generation)
+        report.store_views_completed.append(store_id)
+        session.commit()
 
-    session.commit()
     return report
 
 
@@ -151,7 +240,31 @@ def _sweep(session: Session, tenant_id: int, store_id: int, generation: int) -> 
     porque el conjunto que la pasada acaba de ver es la verdad completa de ESA
     tienda y de ninguna otra. El filtro por (tenant, store view) es lo que
     impide que barrer PY se lleve por delante BR, o el espejo de otro tenant.
+
+    La precondición se lee de la BASE y no de una variable del llamador: el
+    checkpoint de esa store view tiene que existir, ser de ESTA generación y
+    llevar `pass_complete`. Con commit por página, un barrido sobre una pasada
+    a medias borraría todo lo que la pasada no alcanzó a recorrer —que es la
+    mayor parte del catálogo—, así que la comprobación vive acá adentro y no
+    en el llamador: ningún camino puede omitirla.
     """
+    checkpoint = _checkpoint(session, tenant_id, store_id)
+    if checkpoint is None or checkpoint.generation != generation:
+        raise IncompletePassSweep(
+            f"no hay checkpoint de la generación {generation} para la store view "
+            f"{store_id} del tenant {tenant_id}: no se puede barrer una pasada "
+            "que esta generación no registró. Barrer sin ese sello borraría "
+            "todas las filas que la pasada no alcanzó a sellar."
+        )
+    if not checkpoint.pass_complete:
+        raise IncompletePassSweep(
+            f"la pasada de la store view {store_id} (generación {generation}, "
+            f"{checkpoint.pages_done} página(s) aplicada(s)) NO llegó a la última "
+            "página: barrer ahora borraría todo lo que falta por recorrer. Se "
+            "aborta; la reanudación continúa desde el cursor guardado y el "
+            "barrido corre cuando la pasada termine."
+        )
+
     result = session.execute(
         delete(ProductRecord).where(
             ProductRecord.tenant_id == tenant_id,
@@ -159,4 +272,7 @@ def _sweep(session: Session, tenant_id: int, store_id: int, generation: int) -> 
             ProductRecord.sync_generation != generation,
         )
     )
+    checkpoint.swept = True
+    checkpoint.updated_at = datetime.now(UTC)
+    session.flush()
     return result.rowcount or 0

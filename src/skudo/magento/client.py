@@ -137,33 +137,48 @@ class MagentoClient:
         raise_for_status(response)
         return parse_environment(unwrap(response))
 
-    def iter_products(self, store_id: int, limit: int = 500) -> Iterator[dict]:
-        """Recorre el catálogo página a página. Cada yield es una página completa.
+    def products_page(
+        self, store_id: int, limit: int = 500, cursor: str | None = None
+    ) -> dict:
+        """UNA página del catálogo, desde el cursor que se le pase.
+
+        Es la unidad que `full_sync` necesita desde H3: con commit por página
+        y reanudación, quien recorre tiene que poder EMPEZAR en un cursor
+        guardado, y un generador que siempre arranca en None no lo permite.
+        `iter_products` se construye encima para quien quiera el recorrido
+        entero.
 
         Con guarda de avance: un módulo que devuelve el mismo `next_cursor`
-        mantiene el bucle pidiendo la misma página para siempre. Un bucle
-        infinito en un ingestor no se nota mientras pasa; se nota semanas
-        después, como espejo desactualizado sin causa aparente.
+        que se le envió mantendría al llamador pidiendo la misma página para
+        siempre. Un bucle infinito en un ingestor no se nota mientras pasa; se
+        nota semanas después, como espejo desactualizado sin causa aparente.
+        La guarda vive ACÁ y no en el bucle del llamador para que los tres
+        caminos que paginan productos la tengan sin repetirla.
         """
-        cursor: str | None = None
+        params: dict[str, object] = {"storeId": store_id, "limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        response = self._client.get("/products", params=params)
+        raise_for_status(response)
+        page = unwrap(response)
+
+        next_cursor = page.get("next_cursor")
+        if next_cursor and next_cursor == cursor:
+            raise RuntimeError(
+                "/products no avanza: el módulo devolvió el mismo next_cursor "
+                f"({next_cursor!r}) que se le envió, para storeId={store_id}. "
+                "Se aborta en vez de pedir la misma página indefinidamente."
+            )
+        return page
+
+    def iter_products(
+        self, store_id: int, limit: int = 500, cursor: str | None = None
+    ) -> Iterator[dict]:
+        """Recorre el catálogo página a página. Cada yield es una página completa."""
         while True:
-            params: dict[str, object] = {"storeId": store_id, "limit": limit}
-            if cursor:
-                params["cursor"] = cursor
-            response = self._client.get("/products", params=params)
-            raise_for_status(response)
-            page = unwrap(response)
-
-            next_cursor = page.get("next_cursor")
-            if next_cursor and next_cursor == cursor:
-                raise RuntimeError(
-                    "/products no avanza: el módulo devolvió el mismo next_cursor "
-                    f"({next_cursor!r}) que se le envió, para storeId={store_id}. "
-                    "Se aborta en vez de pedir la misma página indefinidamente."
-                )
-
+            page = self.products_page(store_id, limit=limit, cursor=cursor)
             yield page
-
+            next_cursor = page.get("next_cursor")
             if not next_cursor:
                 return
             cursor = next_cursor
