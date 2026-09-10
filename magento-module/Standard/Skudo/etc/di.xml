@@ -13,4 +13,6 @@
                 type="Standard\Skudo\Model\ChecksumReader"/>
     <preference for="Standard\Skudo\Api\AttributeReaderInterface"
                 type="Standard\Skudo\Model\AttributeReader"/>
+    <preference for="Standard\Skudo\Api\CategoryReaderInterface"
+                type="Standard\Skudo\Model\CategoryReader"/>
 </config>

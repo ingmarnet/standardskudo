@@ -97,6 +97,79 @@ class ActiveVersionResolverTest extends TestCase
         $this->assertSame([], $select->wheres);
     }
 
+    /**
+     * S0 Task A3: `catalog_category_entity` también es staged (row_id,
+     * created_in/updated_in) — hallazgo verificado contra la instancia de
+     * referencia y no mencionado por el brief original de la tarea.
+     * CategoryReader debe poder pedirle a esta MISMA clase que pruebe el
+     * esquema de `catalog_category_entity`, no el de
+     * `catalog_product_entity`.
+     */
+    public function testHasVersioningChecksTheGivenTableNotJustCatalogProductEntity(): void
+    {
+        $connection = $this->createMock(AdapterInterface::class);
+        $connection->method('tableColumnExists')
+            ->with('catalog_category_entity', $this->logicalOr('created_in', 'updated_in'))
+            ->willReturn(true);
+
+        $resource = $this->createMock(ResourceConnection::class);
+        $resource->method('getConnection')->willReturn($connection);
+        $resource->method('getTableName')->willReturnArgument(0);
+
+        $resolver = new ActiveVersionResolver($resource);
+
+        $this->assertTrue($resolver->hasVersioning('catalog_category_entity'));
+    }
+
+    /**
+     * Memoización por tabla, no global: si `catalog_product_entity` ya se
+     * probó como versionada, una tabla distinta sin esas columnas no debe
+     * heredar ese resultado cacheado.
+     */
+    public function testHasVersioningMemoizationIsPerTableNotGlobal(): void
+    {
+        $connection = $this->createMock(AdapterInterface::class);
+        $connection->method('tableColumnExists')->willReturnCallback(
+            static fn (string $table, string $column): bool => $table === 'catalog_product_entity'
+        );
+
+        $resource = $this->createMock(ResourceConnection::class);
+        $resource->method('getConnection')->willReturn($connection);
+        $resource->method('getTableName')->willReturnArgument(0);
+
+        $resolver = new ActiveVersionResolver($resource);
+
+        $this->assertTrue($resolver->hasVersioning('catalog_product_entity'));
+        $this->assertFalse($resolver->hasVersioning('catalog_category_entity'));
+        $this->assertTrue($resolver->hasVersioning('catalog_product_entity'));
+    }
+
+    /**
+     * applyToSelect() para una tabla que no es catalog_product_entity debe
+     * probar el esquema de ESA tabla, no la por-defecto.
+     */
+    public function testApplyToSelectUsesTheGivenTableToDecideWhetherToFilter(): void
+    {
+        $connection = $this->createMock(AdapterInterface::class);
+        $connection->method('tableColumnExists')->willReturnCallback(
+            static fn (string $table, string $column): bool => $table === 'catalog_category_entity'
+        );
+
+        $resource = $this->createMock(ResourceConnection::class);
+        $resource->method('getConnection')->willReturn($connection);
+        $resource->method('getTableName')->willReturnArgument(0);
+
+        $resolver = new ActiveVersionResolver($resource);
+        $select = new RecordingSelect();
+
+        $resolver->applyToSelect($select, 'e.', 'catalog_category_entity');
+
+        $this->assertSame(
+            ['e.created_in <= UNIX_TIMESTAMP()', 'e.updated_in > UNIX_TIMESTAMP()'],
+            $select->wheres
+        );
+    }
+
     private function resolver(bool $hasVersioning): ActiveVersionResolver
     {
         $connection = $this->createMock(AdapterInterface::class);
