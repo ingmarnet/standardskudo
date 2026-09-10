@@ -299,7 +299,8 @@ array asociativo y un `stdClass` son indistinguibles— y hace tres cosas:
 
 ### El barrido, campo por campo
 
-Los 15 nodos con forma de objeto JSON de los ocho endpoints. "Mapa" = claves
+Los 25 nodos con forma de objeto JSON de los ocho endpoints (los 5 payloads
+raíz incluidos). "Mapa" = claves
 que dependen de los datos, puede quedar vacío, **debe** llevar `(object)`.
 "Registro fijo" = claves literales en el código, no puede quedar vacío, no
 puede colapsar.

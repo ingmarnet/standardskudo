@@ -46,7 +46,8 @@ use Standard\Skudo\Model\VersioningSchema;
  * MECÁNICA y cubrir el conjunto entero, o el cuarto campo con esta forma
  * repetirá la historia. De ahí las tres pruebas de abajo.
  *
- * El barrido completo, campo por campo, y por qué cada uno cae donde cae:
+ * El barrido completo (25 nodos con forma de objeto, contando los 5 payloads
+ * raíz que la tabla omite), y por qué cada uno cae donde cae:
  *
  * | endpoint            | ruta                              | forma        |
  * |---------------------|-----------------------------------|--------------|
