@@ -10,7 +10,9 @@ independiente de que el cambio realmente se aplicó.
 
 ## Estado
 
-En diseño. No hay código todavía.
+S0 en curso: módulo Magento `Standard_Skudo` (ocho endpoints de lectura: entorno,
+productos, atributos, categorías, deltas, señales y checksums) más un ingestor
+y espejo canónico en Python. 154 tests Python y 78 tests PHP en verde.
 
 ## Documentación
 
@@ -24,7 +26,7 @@ En diseño. No hay código todavía.
 
 Un atributo filtrable vacío no es un problema estético: es un producto que el cliente
 no puede encontrar. Un peso mal cargado no es un dato sucio: es un flete mal cotizado.
-StandardStandardSkudo detecta esos defectos, los prioriza por impacto comercial y esfuerzo, y
+StandardSkudo detecta esos defectos, los prioriza por impacto comercial y esfuerzo, y
 propone las correcciones con la evidencia de dónde salió cada dato, para que un humano
 las apruebe.
 

@@ -5,6 +5,7 @@ lista de resultados, no un booleano: cuando algo falla hay que saber qué.
 """
 
 import argparse
+import itertools
 import sys
 
 from pydantic import BaseModel
@@ -15,7 +16,23 @@ from skudo.config import Settings
 from skudo.ingest.reconcile import DriftReport, reconcile
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import distinct_option_ids, option_labels
-from skudo.mirror.models import Attribute, ProductRecord, Tenant
+from skudo.mirror.categories import derive_category_effect
+from skudo.mirror.models import (
+    Attribute,
+    Category,
+    CategoryStoreState,
+    ProductCategoryAssignment,
+    ProductRecord,
+    StoreGroup,
+    StoreView,
+    Tenant,
+)
+from skudo.mirror.topology import root_category_id as store_root_category_id
+
+# Cuántas asignaciones producto-categoría se recorren para el criterio 5. Un
+# conteo entero sobre 200k SKUs es caro y no aporta nada que una muestra
+# acotada no confirme ya: mismo criterio de `_procedencia_de_scope`.
+CATEGORY_EFFECT_SAMPLE_SIZE = 500
 
 
 class CriterionResult(BaseModel):
@@ -117,6 +134,129 @@ def _identidad_de_opciones(session, tenant_id) -> CriterionResult:
     )
 
 
+def _website_id_of_store(session, tenant_id: int, store_view_id: int) -> int | None:
+    """La store view no conoce su website directamente: lo hereda de su grupo,
+    igual que `topology.root_category_id`."""
+    group_magento_id = session.scalar(
+        select(StoreView.group_magento_id).where(
+            StoreView.tenant_id == tenant_id, StoreView.magento_id == store_view_id
+        )
+    )
+    if group_magento_id is None:
+        return None
+    return session.scalar(
+        select(StoreGroup.website_magento_id).where(
+            StoreGroup.tenant_id == tenant_id, StoreGroup.magento_id == group_magento_id
+        )
+    )
+
+
+def _efecto_de_categoria(
+    session, tenant_id: int, store_view_ids: list[int]
+) -> CriterionResult:
+    """Hay datos de categoría en el espejo y `derive_category_effect`,
+    alimentado ENTERAMENTE desde filas del espejo, distingue entre store
+    views para al menos un producto.
+
+    Sin categorías o sin asignaciones producto-categoría el criterio falla en
+    vez de aprobar por vacuidad, igual que `identidad_de_opciones` exige
+    `translated > 0`: un espejo vacío no demuestra nada.
+
+    Un efecto `None` (`website_desconocido`, Task A7.3) no es un defecto ni
+    una coincidencia: es un control no evaluado. Se cuenta aparte y nunca
+    entra en la comparación de "distinto entre store views", así que ni
+    infla los aciertos ni se reporta como fallo inventado a partir de un dato
+    ausente.
+    """
+    if not session.scalar(
+        select(func.count()).select_from(Category).where(Category.tenant_id == tenant_id)
+    ):
+        return CriterionResult(
+            name="efecto_de_categoria", passed=False,
+            detail="sin categorías en el espejo: nada que evaluar",
+        )
+
+    assignments = session.execute(
+        select(ProductCategoryAssignment.sku, ProductCategoryAssignment.category_magento_id)
+        .where(ProductCategoryAssignment.tenant_id == tenant_id)
+        .limit(CATEGORY_EFFECT_SAMPLE_SIZE)
+    ).all()
+    if not assignments:
+        return CriterionResult(
+            name="efecto_de_categoria", passed=False,
+            detail="sin asignaciones producto-categoría en el espejo: nada que evaluar",
+        )
+
+    store_pairs = list(itertools.combinations(store_view_ids, 2))
+    discriminating = 0
+    evaluated_pairs = 0
+    not_evaluated_pairs = 0
+
+    for sku, category_magento_id in assignments:
+        path = session.scalar(
+            select(Category.path).where(
+                Category.tenant_id == tenant_id, Category.magento_id == category_magento_id
+            )
+        )
+        if path is None:
+            continue  # categoría referenciada pero no espejada: no evaluable
+
+        for store_a, store_b in store_pairs:
+            effects = []
+            for store_id in (store_a, store_b):
+                is_active = session.scalar(
+                    select(CategoryStoreState.is_active).where(
+                        CategoryStoreState.tenant_id == tenant_id,
+                        CategoryStoreState.category_magento_id == category_magento_id,
+                        CategoryStoreState.store_view_magento_id == store_id,
+                    )
+                )
+                if is_active is None:
+                    break  # sin estado por tienda para esta categoría: no aplica
+
+                try:
+                    root = store_root_category_id(session, tenant_id, store_id)
+                except KeyError:
+                    break  # store view sin topología espejada: no evaluable
+
+                website_ids = session.scalar(
+                    select(ProductRecord.website_ids).where(
+                        ProductRecord.tenant_id == tenant_id,
+                        ProductRecord.sku == sku,
+                        ProductRecord.store_view_magento_id == store_id,
+                    )
+                )
+                effects.append(
+                    derive_category_effect(
+                        assignment_path=path,
+                        root_category_id=root,
+                        is_active_in_store=is_active,
+                        product_website_ids=website_ids,
+                        store_website_id=_website_id_of_store(session, tenant_id, store_id),
+                    )
+                )
+            else:
+                effect_a, effect_b = effects
+                if effect_a.is_effective is None or effect_b.is_effective is None:
+                    not_evaluated_pairs += 1
+                    continue
+                evaluated_pairs += 1
+                if (effect_a.is_effective, effect_a.reason) != (
+                    effect_b.is_effective, effect_b.reason,
+                ):
+                    discriminating += 1
+
+    return CriterionResult(
+        name="efecto_de_categoria",
+        passed=discriminating > 0,
+        detail=(
+            f"{discriminating} producto(s) con efecto de categoría distinto entre "
+            f"store views; {evaluated_pairs} par(es) evaluado(s), "
+            f"{not_evaluated_pairs} sin evaluar por website_desconocido"
+        ),
+    )
+
+
 def run_s0_acceptance(
     session: Session, source: TenantSource, store_view_ids: list[int]
 ) -> list[CriterionResult]:
@@ -132,6 +272,7 @@ def run_s0_acceptance(
         _score_por_store_view(session, tenant_id, store_view_ids, drift),
         _procedencia_de_scope(session, tenant_id),
         _identidad_de_opciones(session, tenant_id),
+        _efecto_de_categoria(session, tenant_id, store_view_ids),
     ]
 
 
