@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from skudo.ingest.full_sync import note_unreadable_timestamp, parse_magento_datetime
 from skudo.ingest.source import TenantSource
+from skudo.mirror.categories import set_product_categories
 from skudo.mirror.models import ProductRecord, SyncWatermark
 from skudo.mirror.products import ProductIdentity, resolve_scope, upsert_record
 
@@ -95,6 +96,14 @@ def delta_sync(
             )
             report.records_deleted += result.rowcount or 0
 
+        # Set de SKUs cuyas categorías ya se reemplazaron en esta página. La
+        # asignación producto-categoría es GLOBAL (sin store view), así que
+        # aplicarla una vez por SKU es correcto; el bucle de abajo itera por
+        # store view para `upsert_record`, y sin este guard se repetiría el
+        # mismo reemplazo de conjunto una vez por cada store view, trabajo
+        # idéntico redundante.
+        categorized: set[str] = set()
+
         for store_id in store_view_ids:
             for item in client.products_by_sku(store_id, to_refresh):
                 identity = ProductIdentity(
@@ -117,6 +126,15 @@ def delta_sync(
                     type_id=item.get("type_id"),
                     website_ids=item["website_ids"],
                 )
+                if item["sku"] not in categorized:
+                    # Conjunto completo, no alta suelta: lo que el payload no
+                    # trae deja de estar asignado, igual que en `full_sync`.
+                    # Una lista vacía es un estado legítimo ("sin categorías")
+                    # y debe dejar al producto sin asignaciones, no saltarse.
+                    set_product_categories(
+                        session, tenant_id, item["sku"], item["category_ids"]
+                    )
+                    categorized.add(item["sku"])
                 report.records_updated += 1
 
         report.watermark = page["last_change_id"]

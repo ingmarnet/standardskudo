@@ -217,6 +217,92 @@ BAD_DATE_REFRESHED = [
 ]
 
 
+REFRESHED_ONE_FEWER_CATEGORY = [
+    {**REFRESHED[0], "category_ids": [10]},
+]
+
+REFRESHED_NO_CATEGORIES = [
+    {**REFRESHED[0], "category_ids": []},
+]
+
+
+def test_a_delta_refresh_revokes_a_category_the_product_left(db_session, seeded):
+    """Caso de aceptación de A5: un producto refrescado por delta con una
+    categoría menos queda con una categoría menos en el espejo. Empezar con
+    UNA sola categoría no discriminaría un `set_product_categories` que solo
+    diera de alta sin revocar (la 10 se insertaría igual); empezar con dos y
+    terminar con una sola prueba que la 15 se revocó de verdad."""
+    from sqlalchemy import select
+
+    from skudo.mirror.categories import set_product_categories
+    from skudo.mirror.models import ProductCategoryAssignment
+
+    set_product_categories(db_session, seeded.id, "SKU1", [10, 15])
+    db_session.commit()
+
+    delta_sync(
+        db_session, make_source(seeded.id, refreshed=REFRESHED_ONE_FEWER_CATEGORY),
+        store_view_ids=[1],
+    )
+
+    assert db_session.scalars(
+        select(ProductCategoryAssignment.category_magento_id).where(
+            ProductCategoryAssignment.tenant_id == seeded.id,
+            ProductCategoryAssignment.sku == "SKU1",
+        )
+    ).all() == [10]
+
+
+def test_a_delta_refresh_with_no_categories_clears_all_assignments(db_session, seeded):
+    """Una lista vacía es un estado legítimo ("sin categorías"), no "sin
+    información": debe dejar cero asignaciones, no dejarlas intactas. Empezar
+    con asignaciones no vacías es lo que discrimina esto de una implementación
+    que trata la lista vacía como "no tocar nada"."""
+    from sqlalchemy import select
+
+    from skudo.mirror.categories import set_product_categories
+    from skudo.mirror.models import ProductCategoryAssignment
+
+    set_product_categories(db_session, seeded.id, "SKU1", [10, 15])
+    db_session.commit()
+
+    delta_sync(
+        db_session, make_source(seeded.id, refreshed=REFRESHED_NO_CATEGORIES),
+        store_view_ids=[1],
+    )
+
+    assert db_session.scalars(
+        select(ProductCategoryAssignment.category_magento_id).where(
+            ProductCategoryAssignment.tenant_id == seeded.id,
+            ProductCategoryAssignment.sku == "SKU1",
+        )
+    ).all() == []
+
+
+def test_category_replacement_runs_once_per_sku_not_once_per_store_view(
+    db_session, seeded, monkeypatch
+):
+    """La asignación producto-categoría es global (sin store_id en
+    `catalog_category_product`), así que aplicarla una vez por store view
+    repetiría el mismo reemplazo de conjunto N veces. Con dos store views y un
+    solo SKU a refrescar, la llamada debe ocurrir una sola vez: si el guard se
+    borrara, esta prueba vería 2 llamadas en vez de 1."""
+    import skudo.ingest.delta_sync as delta_sync_module
+
+    calls: list[str] = []
+    original = delta_sync_module.set_product_categories
+
+    def spy(session, tenant_id, sku, category_magento_ids):
+        calls.append(sku)
+        return original(session, tenant_id, sku, category_magento_ids)
+
+    monkeypatch.setattr(delta_sync_module, "set_product_categories", spy)
+
+    delta_sync(db_session, make_source(seeded.id), store_view_ids=[1, 3])
+
+    assert calls == ["SKU1"]
+
+
 def test_a_poison_pill_date_does_not_block_the_watermark(db_session, seeded):
     """Este es el caso grave: si una fecha ilegible aborta la página, el
     watermark no avanza y NINGUNA sincronización posterior puede progresar. El
