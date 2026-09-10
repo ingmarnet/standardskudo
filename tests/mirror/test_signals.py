@@ -102,3 +102,73 @@ def test_a_known_value_can_replace_an_unknown_one(db_session, tenant):
     row = get_signal(db_session, tenant.id, "SKU3", 1)
     assert row.units_sold == 7
     assert row.search_demand == 12
+
+
+# --- M3: una señal no sobrevive a su producto -------------------------------
+
+
+def _seed_record(db_session, tenant_id: int, sku: str, store_view: int) -> None:
+    from datetime import UTC, datetime
+
+    from skudo_testing import upsert_record
+
+    from skudo.mirror.products import ProductIdentity
+
+    upsert_record(
+        db_session, tenant_id, store_view, ProductIdentity(sku=sku),
+        {"name": sku}, {"name": "global"}, datetime(2026, 9, 1, tzinfo=UTC),
+    )
+
+
+def test_a_signal_of_a_sku_with_no_product_record_is_deleted(db_session, tenant):
+    """S1 prioriza los hallazgos POR señal: un SKU fantasma con facturación no
+    es un hallazgo fabricado más, es el PRIMERO que un humano ve."""
+    from skudo.mirror.signals import delete_orphan_signals
+
+    upsert_signals(db_session, tenant.id, 1, ROWS)
+
+    assert delete_orphan_signals(db_session, tenant.id) == 2
+    assert get_signal(db_session, tenant.id, "SKU1", 1) is None
+
+
+def test_a_signal_of_a_product_mirrored_in_another_store_view_survives(db_session, tenant):
+    """La prueba de "demasiado amplio": la señal es POR tienda y el producto
+    puede estar espejado sólo en la otra. Sigue siendo describible, así que su
+    señal no es huérfana."""
+    from skudo.mirror.signals import delete_orphan_signals
+
+    _seed_record(db_session, tenant.id, "SKU1", 3)
+    upsert_signals(db_session, tenant.id, 1, ROWS[:1])
+
+    assert delete_orphan_signals(db_session, tenant.id) == 0
+    assert get_signal(db_session, tenant.id, "SKU1", 1) is not None
+
+
+def test_cleaning_one_tenants_signals_never_touches_another_tenants(db_session, tenant):
+    """El mismo sku huérfano en los dos tenants: la forma débil —"el otro está
+    vacío"— no podría pasar por casualidad."""
+    from skudo.mirror.signals import delete_orphan_signals
+
+    other = Tenant(code="otro", name="Otro", base_url="https://y.test", token_env_var="T2")
+    db_session.add(other)
+    db_session.flush()
+    upsert_signals(db_session, tenant.id, 1, ROWS[:1])
+    upsert_signals(db_session, other.id, 1, ROWS[:1])
+
+    assert delete_orphan_signals(db_session, tenant.id) == 1
+    assert get_signal(db_session, other.id, "SKU1", 1) is not None
+
+
+def test_a_record_of_another_tenant_does_not_make_a_signal_look_alive(db_session, tenant):
+    """La otra dirección del filtro por tenant, la que dejaría la limpieza
+    demasiado estrecha: sin el filtro en el `EXISTS`, el producto del otro
+    tenant con el mismo sku salvaría a la señal rancia para siempre."""
+    from skudo.mirror.signals import delete_orphan_signals
+
+    other = Tenant(code="otro", name="Otro", base_url="https://y.test", token_env_var="T2")
+    db_session.add(other)
+    db_session.flush()
+    _seed_record(db_session, other.id, "SKU1", 1)
+    upsert_signals(db_session, tenant.id, 1, ROWS[:1])
+
+    assert delete_orphan_signals(db_session, tenant.id) == 1

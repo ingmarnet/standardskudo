@@ -11,6 +11,7 @@ from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.models import (
     ProductCategoryAssignment,
     ProductRecord,
+    ProductSignal,
     SyncWatermark,
 )
 
@@ -33,6 +34,8 @@ class DeltaSyncReport(BaseModel):
     # M3: las asignaciones producto-categoría del SKU borrado, que hasta este
     # cierre quedaban huérfanas en el espejo.
     category_assignments_deleted: int = 0
+    # Y sus señales comerciales, por la misma razón.
+    signals_deleted: int = 0
     watermark: int = 0
     records_without_timestamp: int = 0
     skus_without_timestamp: list[str] = []
@@ -182,6 +185,13 @@ def delta_sync(
                 )
             )
             report.category_assignments_deleted += orphaned.rowcount or 0
+            signals = session.execute(
+                delete(ProductSignal).where(
+                    ProductSignal.tenant_id == tenant_id,
+                    ProductSignal.sku.in_(to_delete),
+                )
+            )
+            report.signals_deleted += signals.rowcount or 0
 
         # Set de SKUs cuyas categorías ya se reemplazaron en esta página. La
         # asignación producto-categoría es GLOBAL (sin store view), así que

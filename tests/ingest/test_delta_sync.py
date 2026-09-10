@@ -517,3 +517,22 @@ def test_a_delete_in_one_tenant_leaves_the_other_tenants_assignments_alone(
     assert report.category_assignments_deleted == 1
     assert _assignment_pairs(db_session, other.id) == {("SKU9", 15), ("SKU9", 22)}
     assert get_record(db_session, other.id, "SKU9", 1) is not None
+
+
+def test_a_deleted_products_signals_go_with_it(db_session, seeded):
+    """Misma transacción que su registro y sus categorías: S1 prioriza por
+    señal, así que un fantasma con facturación encabezaría la lista."""
+    from skudo.mirror.signals import get_signal, upsert_signals
+
+    upsert_signals(db_session, seeded.id, 1, [{"sku": "SKU9", "units_sold": 9,
+                                               "uses_msi": False}])
+    upsert_signals(db_session, seeded.id, 1, [{"sku": "SKU1", "units_sold": 1,
+                                               "uses_msi": False}])
+    db_session.flush()
+
+    report = delta_sync(db_session, make_source(seeded.id), store_view_ids=[1])
+
+    assert report.signals_deleted == 1
+    assert get_signal(db_session, seeded.id, "SKU9", 1) is None
+    # La del producto vivo sigue ahí: el borrado va por lista explícita.
+    assert get_signal(db_session, seeded.id, "SKU1", 1) is not None

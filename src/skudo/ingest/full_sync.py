@@ -15,6 +15,7 @@ from skudo.ingest.sweep import IncompletePassSweep, next_generation
 from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.categories import delete_orphan_category_assignments
 from skudo.mirror.models import FullSyncCheckpoint, ProductRecord
+from skudo.mirror.signals import delete_orphan_signals
 from skudo.mirror.topology import sync_topology
 
 # Tamaño de página del recorrido por cursor, y por tanto de la transacción:
@@ -36,6 +37,8 @@ class FullSyncReport(BaseModel):
     # pasada de escala de H3 fueron 457.762, una por cada `ProductRecord` que
     # el barrido soltó, porque `_sweep` borraba esa tabla y ninguna más.
     category_assignments_deleted: int = 0
+    # Señales comerciales que quedaron sin producto, misma historia.
+    signals_deleted: int = 0
     pages_fetched: int = 0
     # Store views cuya pasada terminó y fue barrida EN ESTA invocación.
     store_views_completed: list[int] = []
@@ -241,6 +244,10 @@ def full_sync(
     report.category_assignments_deleted = delete_orphan_category_assignments(
         session, tenant_id
     )
+    # Y la señal comercial del producto que ya no está, por la misma razón y
+    # con la misma forma: S1 prioriza POR señal, así que un SKU fantasma con
+    # facturación sería el primer hallazgo que un humano ve.
+    report.signals_deleted = delete_orphan_signals(session, tenant_id)
     session.commit()
 
     return report

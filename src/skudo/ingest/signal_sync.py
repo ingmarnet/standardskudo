@@ -57,10 +57,16 @@ def sync_signals(
     esa tienda no tiene datos de búsqueda en la ventana. Colapsarlos en cero
     sería afirmar una medición que nadie hizo.
 
-    No hay barrido: un SKU que deja de vender simplemente deja de aparecer en
-    la respuesta, y su fila anterior sigue siendo el último hecho observado
-    —fechado por `observed_at`—, no una mentira. Decidir cuándo una señal
-    caduca es del consumidor, no del espejo.
+    No hay barrido por VENTA: un SKU que deja de vender simplemente deja de
+    aparecer en la respuesta, y su fila anterior sigue siendo el último hecho
+    observado —fechado por `observed_at`—, no una mentira. Decidir cuándo una
+    señal caduca es del consumidor, no del espejo.
+
+    Sí lo hay, desde M3, por EXISTENCIA: una señal de un SKU que el espejo ya
+    no contiene no describe nada, y S1 prioriza por señal. La borran
+    `mirror.signals.delete_orphan_signals` (al final de la pasada completa) y
+    el camino de borrado de `delta_sync`. Son dos preguntas distintas: dejó de
+    vender / dejó de existir.
 
     Contrato de población (A1), la mitad de este lado: `/signals` promete
     servir la MISMA población que `/products` — el módulo la recorta

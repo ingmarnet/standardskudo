@@ -1,8 +1,8 @@
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from skudo.mirror.models import ProductSignal
+from skudo.mirror.models import ProductRecord, ProductSignal
 
 _UPDATABLE = (
     "units_sold", "revenue", "salable_qty", "physical_qty",
@@ -50,3 +50,42 @@ def get_signal(
             ProductSignal.store_view_magento_id == store_view_magento_id,
         )
     )
+
+
+def delete_orphan_signals(session: Session, tenant_id: int) -> int:
+    """Borra las señales cuyo `(tenant_id, sku)` no tiene `product_record`.
+
+    Misma forma y mismo razonamiento que
+    `categories.delete_orphan_category_assignments`, sobre otra tabla: una
+    señal de un SKU que el espejo ya no contiene describe un producto
+    inexistente, y S1 PRIORIZA los hallazgos por señal. Un SKU fantasma con
+    facturación no sería un hallazgo fabricado más: sería el PRIMERO que un
+    humano ve.
+
+    No contradice el "no hay barrido" que `sync_signals` declara. Aquello es
+    sobre un SKU que deja de VENDER —su última medición sigue siendo el último
+    hecho observado, fechado, y decidir cuándo caduca es del consumidor—;
+    esto es sobre un SKU que deja de EXISTIR, y de él no hay nada que
+    priorizar. El caso además está declarado como violación de contrato desde
+    A1 (`signals_without_product_record` en el reporte de la pasada), así que
+    la limpieza no lo esconde: `sync_signals` lo cuenta y lo nombra cuando
+    escribe, mucho antes de que esto corra.
+
+    `EXISTS` por CUALQUIER store view del tenant, igual que en las
+    asignaciones: la señal es por tienda, pero un producto vivo en una tienda
+    y retirado de la otra sigue siendo describible. Los dos filtros por tenant
+    cargan el mismo peso que allá.
+    """
+    has_record = (
+        select(ProductRecord.id)
+        .where(
+            ProductRecord.tenant_id == tenant_id,
+            ProductRecord.sku == ProductSignal.sku,
+        )
+        .exists()
+    )
+    result = session.execute(
+        delete(ProductSignal).where(ProductSignal.tenant_id == tenant_id, ~has_record)
+    )
+    session.flush()
+    return result.rowcount or 0
