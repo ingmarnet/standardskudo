@@ -1,7 +1,9 @@
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from skudo.ingest.source import TenantSource
+from skudo.mirror.models import ProductRecord
 from skudo.mirror.signals import upsert_signals
 
 # Ventana por defecto de la agregación comercial, en días. La misma que el
@@ -13,6 +15,16 @@ DEFAULT_SIGNAL_WINDOW_DAYS = 90
 class SignalSyncReport(BaseModel):
     store_views_read: int = 0
     signals_written: int = 0
+    # A1: SKUs con señal para los que el espejo no tiene NI UN
+    # `product_record` en NINGUNA store view. El contrato de `/signals` dice
+    # que su población es la de `/products` (ver
+    # `SignalReader::restrictToCatalogPopulation()`), así que esto debería
+    # ser siempre 0 y una violación del contrato tiene que ser VISIBLE, no
+    # silenciosa. No se descartan las filas: descartarlas del lado del
+    # espejo escondería el desacuerdo entre los dos lados, que es
+    # exactamente lo que dejó pasar el hallazgo. Se cuentan y se nombran.
+    signals_without_product_record: int = 0
+    skus_without_product_record: list[str] = []
 
 
 def sync_signals(
@@ -49,15 +61,49 @@ def sync_signals(
     la respuesta, y su fila anterior sigue siendo el último hecho observado
     —fechado por `observed_at`—, no una mentira. Decidir cuándo una señal
     caduca es del consumidor, no del espejo.
+
+    Contrato de población (A1), la mitad de este lado: `/signals` promete
+    servir la MISMA población que `/products` — el módulo la recorta
+    explícitamente (`SignalReader::restrictToCatalogPopulation()`), porque
+    `sales_order_item` no es una tabla versionada y sin el recorte devolvía
+    SKUs que ningún otro endpoint puede describir. Verificado sobre HTTP
+    real: el espejo quedaba con una fila de `product_signal` para un SKU sin
+    un solo `product_record` en ninguna store view, y cualquier priorización
+    "por dinero" que una las dos tablas lo perdía o lo unía mal.
+
+    Este lado no vuelve a implementar el recorte —dos definiciones de la
+    misma población compitiendo es el defecto C2 otra vez— pero tampoco
+    confía a ciegas: cuenta los SKUs con señal que el espejo no puede
+    describir y los NOMBRA en el reporte. Si el número deja de ser 0, el
+    contrato se rompió en algún lado y se ve en el reporte de la pasada, no
+    tres fases después en una consulta que une las dos tablas.
     """
     tenant_id = source.tenant_id
     client = source.client
     report = SignalSyncReport()
 
+    signalled_skus: set[str] = set()
     for store_id in store_view_ids:
         rows = client.signals(store_id, days=days)
+        signalled_skus.update(str(row["sku"]) for row in rows)
         report.store_views_read += 1
         report.signals_written += upsert_signals(session, tenant_id, store_id, rows)
+
+    if signalled_skus:
+        # Una sola consulta al final, no una por store view: la pregunta es
+        # "¿el espejo puede describir este SKU en ALGUNA store view?", que es
+        # la condición que hace utilizable una fila de `product_signal`.
+        mirrored = set(
+            session.scalars(
+                select(ProductRecord.sku).where(
+                    ProductRecord.tenant_id == tenant_id,
+                    ProductRecord.sku.in_(sorted(signalled_skus)),
+                )
+            ).all()
+        )
+        orphans = sorted(signalled_skus - mirrored)
+        report.signals_without_product_record = len(orphans)
+        report.skus_without_product_record = orphans
 
     session.commit()
     return report

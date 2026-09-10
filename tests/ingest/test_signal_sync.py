@@ -21,6 +21,7 @@ from sqlalchemy import select
 from skudo.ingest.signal_sync import sync_signals
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import ProductSignal, Tenant
+from skudo.mirror.products import ProductIdentity, upsert_record
 from skudo.mirror.signals import get_signal
 
 # Señales DISTINTAS por store view a propósito: es la propiedad que el spec
@@ -135,3 +136,73 @@ def test_reingesting_refreshes_instead_of_duplicating(db_session, tenant):
     assert len(db_session.scalars(
         select(ProductSignal.id).where(ProductSignal.tenant_id == tenant.id)
     ).all()) == 1
+
+
+def test_a_signal_for_a_sku_the_mirror_cannot_describe_is_reported_not_hidden(
+    db_session, tenant
+):
+    """A1: el contrato dice que la población de `/signals` es la de
+    `/products`. Este lado no lo reimplementa —dos definiciones de la misma
+    población compitiendo es C2 otra vez— pero tampoco se calla si el
+    contrato se rompe.
+
+    Sobre HTTP real el espejo terminó con una fila de `product_signal` para
+    `SKU-GAMMA`, del que no tenía ni un `product_record` en ninguna store
+    view, y nadie se enteró: `sync_signals` reportaba
+    `{"store_views_read": 2, "signals_written": 5}` y nada más. Cualquier
+    priorización "por dinero" que una las dos tablas lo pierde o lo une mal.
+
+    Discrimina: `SKU1` está espejado, `SKU-HUERFANO` no. Si el contador se
+    borrara, `signals_without_product_record` sería 0 y la lista vacía.
+    """
+    upsert_record(
+        db_session,
+        tenant.id,
+        1,
+        ProductIdentity(sku="SKU1"),
+        effective={"name": "Uno"},
+        provenance={"name": "global"},
+        magento_updated_at=None,
+    )
+    db_session.flush()
+
+    orphan = {
+        1: [
+            SIGNALS_BY_STORE[1][0],
+            {"sku": "SKU-HUERFANO", "units_sold": 2, "revenue": 50.0, "salable_qty": 4.0,
+             "physical_qty": None, "uses_msi": True, "margin": None, "search_demand": 0},
+        ]
+    }
+    source, _ = make_source(tenant.id, by_store=orphan)
+
+    report = sync_signals(db_session, source, store_view_ids=[1])
+
+    # La fila se escribe igual: descartarla del lado del espejo escondería el
+    # desacuerdo entre los dos lados, que es justo lo que dejó pasar esto.
+    assert report.signals_written == 2
+    assert report.signals_without_product_record == 1
+    assert report.skus_without_product_record == ["SKU-HUERFANO"]
+
+
+def test_no_orphans_reported_when_every_signalled_sku_is_mirrored(db_session, tenant):
+    """El caso normal, y la contra-guarda del test de arriba: con el contrato
+    respetado el contador es 0 y la lista vacía. Sin este test, un contador
+    que devolviera siempre "todo huérfano" pasaría el otro."""
+    upsert_record(
+        db_session,
+        tenant.id,
+        1,
+        ProductIdentity(sku="SKU1"),
+        effective={"name": "Uno"},
+        provenance={"name": "global"},
+        magento_updated_at=None,
+    )
+    db_session.flush()
+
+    source, _ = make_source(tenant.id, by_store={1: SIGNALS_BY_STORE[1]})
+
+    report = sync_signals(db_session, source, store_view_ids=[1])
+
+    assert report.signals_written == 1
+    assert report.signals_without_product_record == 0
+    assert report.skus_without_product_record == []

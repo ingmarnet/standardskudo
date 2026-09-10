@@ -9,6 +9,16 @@ interface SignalReaderInterface
      * Señales comerciales por store view, para que el lado Python (Task 12)
      * pueda ordenar hallazgos por dinero en vez de por prolijidad.
      *
+     * POBLACIÓN (A1, contrato explícito): la respuesta se limita a los SKUs
+     * que `/products` sirve para esta instancia — la población que Magento
+     * considera activa — intersectada con los que tuvieron al menos una
+     * venta en la ventana. Un SKU vendido cuyo producto ya no está activo
+     * en el catálogo NO aparece. La razón: `sales_order_item` no es una
+     * tabla versionada, así que sin este recorte el endpoint reportaba
+     * señales de SKUs que ningún otro endpoint puede describir, y el espejo
+     * quedaba con filas de `product_signal` sin un solo `product_record`
+     * asociado. Ver `Model\SignalReader::restrictToCatalogPopulation()`.
+     *
      * Cada item trae `null` (nunca 0, nunca "") cuando el dato es
      * DESCONOCIDO: `salable_qty` sin MSI o sin su tabla de índice,
      * `physical_qty` sin fila de stock, `margin` sin costo cargado,

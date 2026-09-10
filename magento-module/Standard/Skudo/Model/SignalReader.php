@@ -81,6 +81,7 @@ class SignalReader implements SignalReaderInterface
         $usesMsi = self::usesMsi($this->modules);
 
         $rows = $this->salesRows($connection, $storeId, $days, $usesMsi);
+        $this->restrictToCatalogPopulation($rows);
 
         $this->attachInventory($rows, $usesMsi, $storeId);
         $this->attachMargin($rows, $storeId);
@@ -156,6 +157,80 @@ class SignalReader implements SignalReaderInterface
     }
 
     /**
+     * A1/A2: recorta la respuesta a la MISMA población que sirve
+     * `/products`.
+     *
+     * El contrato, explícito porque hasta ahora no lo era: `/signals`
+     * reporta señales de PRODUCTOS DEL CATÁLOGO, no de líneas de pedido.
+     * Un SKU que se vendió pero que el catálogo ya no tiene activo no
+     * aparece.
+     *
+     * Sin esto, `salesRows()` hace `FROM sales_order_item`, que no es una
+     * tabla staged y no recibe el filtro de versión de Magento, así que
+     * `/signals` devolvía SKUs que `/products` no devuelve nunca. Dos
+     * consecuencias verificadas sobre HTTP real contra la instancia de
+     * desarrollo:
+     *
+     *   1. El espejo quedaba con una fila de `product_signal` para un SKU
+     *      del que no tiene NI UN `product_record` en ninguna store view.
+     *      Cualquier priorización "por dinero" que una las dos tablas lo
+     *      pierde o lo une mal, y el espejo afirma una señal comercial
+     *      sobre un producto que no puede describir.
+     *   2. Peor: `physical_qty` llegaba NULL para un producto que SÍ tiene
+     *      fila en `cataloginventory_stock_item`. `attachInventory()` une
+     *      esa tabla legacy con `catalog_product_entity` para traducir
+     *      product_id a sku, y Magento pone su filtro de versión en la
+     *      CONDICIÓN DEL JOIN; si el producto no está en la población
+     *      activa, el join no encuentra fila y la cantidad física
+     *      desaparece. En la misma respuesta `salable_qty` sí llegaba
+     *      (`inventory_stock_N` no es staged y no lleva filtro), así que el
+     *      payload se contradecía a sí mismo: lo vendible conocido y lo
+     *      físico "no se sabe". Medido: `{"sku":"SKU-GAMMA",
+     *      "salable_qty":4,"physical_qty":null}` con `product_id = 1003,
+     *      qty = 5` en la tabla de stock. Un desconocido fabricado a partir
+     *      de un conocido, que es el mayor riesgo que nombra el spec.
+     *
+     * Los dos se cierran con el recorte, y no con un parche en el join: en
+     * cuanto la población es la misma, la fila de entidad SIEMPRE existe
+     * para todo SKU de la respuesta, así que un `physical_qty` nulo vuelve
+     * a significar lo único que debe significar — no hay fila de stock.
+     *
+     * Es una consulta aparte y un filtro en PHP, no un JOIN dentro de la
+     * agregación de ventas, a propósito: unir `sales_order_item` con la
+     * tabla de entidad antes del `GROUP BY` multiplicaría `SUM(qty_ordered)`
+     * por cada fila de entidad que el join devuelva, y la única garantía de
+     * que devuelve una sola es la de Magento. Un error de conteo de dinero
+     * es peor que una consulta más.
+     *
+     * @param array<string, mixed[]> $rows
+     */
+    private function restrictToCatalogPopulation(array &$rows): void
+    {
+        if ($rows === []) {
+            return;
+        }
+
+        $connection = $this->resource->getConnection();
+        // Sin where de versión propio: es exactamente el mismo FROM que usan
+        // `ProductReader` y `ChecksumReader`, así que la población que
+        // Magento acota es la misma para los tres. Ver Model\VersioningSchema.
+        $select = $connection->select()
+            ->from(['e' => $this->resource->getTableName('catalog_product_entity')], ['sku' => 'e.sku'])
+            ->where('e.sku IN (?)', array_keys($rows));
+
+        $inCatalog = [];
+        foreach ($connection->fetchCol($select) as $sku) {
+            $inCatalog[(string) $sku] = true;
+        }
+
+        foreach (array_keys($rows) as $sku) {
+            if (!isset($inCatalog[$sku])) {
+                unset($rows[$sku]);
+            }
+        }
+    }
+
+    /**
      * Cantidad física siempre que haya fila de stock; vendible solo si MSI
      * está activo Y su tabla de índice existe. Se devuelven aparte para que
      * el ingestor no tenga que adivinar cuál está mirando (Ruling 2): con
@@ -180,9 +255,14 @@ class SignalReader implements SignalReaderInterface
         // por row_id, una intersección parcial que coincide por casualidad
         // de rango de IDs). Por eso acá NO se usa EntityKeyResolver — sería
         // la reimplementación que la Ruling 3 previene, aplicada al revés:
-        // forzar row_id a una tabla que nunca lo usa. El filtro de versión
-        // activa SÍ aplica al lado `e` del join (para no traer el mismo
-        // stock físico una vez por cada versión programada de un producto).
+        // forzar row_id a una tabla que nunca lo usa.
+        //
+        // Magento pone su filtro de versión en la CONDICIÓN de este join, y
+        // por eso `restrictToCatalogPopulation()` corre ANTES: si un SKU de
+        // $rows no estuviera en la población activa, este join no
+        // encontraría fila y `physical_qty` saldría NULL con la fila de
+        // stock existiendo (A2). Con la población ya recortada, un NULL acá
+        // significa lo único que debe significar: no hay fila de stock.
         $physical = $connection->select()
             ->from(['si' => $stockItem], ['qty' => 'si.qty'])
             ->join(['e' => $entity], 'e.entity_id = si.product_id', ['sku' => 'e.sku'])

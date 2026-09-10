@@ -185,6 +185,109 @@ class SignalReaderTest extends TestCase
     }
 
     /**
+     * A1: la población de `/signals` es la de `/products`, no la de
+     * `sales_order_item`.
+     *
+     * `salesRows()` hace FROM de `sales_order_item`, que no es una tabla
+     * versionada y por tanto no recibe el filtro de Magento. Sin el
+     * recorte, un SKU vendido cuyo producto no está en la población activa
+     * del catálogo salía en `/signals` y no salía nunca en `/products`, y
+     * el espejo quedaba con una fila de `product_signal` para un SKU del
+     * que no tiene ni un `product_record`. Medido sobre HTTP real contra la
+     * instancia de desarrollo: `/signals?storeId=1` devolvía `SKU-GAMMA` y
+     * `/products?storeId=1` no.
+     *
+     * La fixture de `catalog_product_entity` es la población del catálogo:
+     * SKU1 está, SKU-FUERA-DEL-CATALOGO no. Si se borrara el recorte, esta
+     * prueba devolvería dos items y fallaría.
+     */
+    public function testASoldSkuOutsideTheCatalogPopulationIsNotReported(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
+                    ['sku' => 'SKU-FUERA-DEL-CATALOGO', 'units_sold' => '2',
+                     'revenue' => '50.0000', 'revenue_missing' => '0'],
+                ],
+                // La consulta de margen también hace FROM de esta tabla, así
+                // que la fila lleva sus columnas: sin `cost`, margin queda
+                // en null, que no es lo que esta prueba mide.
+                'catalog_product_entity' => [
+                    ['sku' => 'SKU1', 'store_id' => 0, 'code' => 'price', 'value' => '100.0000'],
+                ],
+            ],
+        );
+
+        $items = $this->payloadOf($reader->getSignals(storeId: 1))['items'];
+
+        $this->assertSame(['SKU1'], array_column($items, 'sku'));
+    }
+
+    /**
+     * A2: `physical_qty` no puede llegar NULL para un SKU de la respuesta
+     * que SÍ tiene fila de stock.
+     *
+     * Era el peor de los dos: un desconocido fabricado a partir de un
+     * conocido. `attachInventory()` une `cataloginventory_stock_item` con
+     * `catalog_product_entity` para traducir product_id a sku, y Magento
+     * pone su filtro de versión en la CONDICIÓN de ese join; para un SKU
+     * fuera de la población activa el join no encontraba fila y la cantidad
+     * física desaparecía, mientras `salable_qty` sí llegaba (su tabla no es
+     * staged). El payload se contradecía a sí mismo. Medido sobre HTTP
+     * real: `{"sku":"SKU-GAMMA","salable_qty":4,"physical_qty":null}` con
+     * `product_id = 1003, qty = 5` en la tabla de stock.
+     *
+     * Con la población recortada, todo SKU de la respuesta tiene fila de
+     * entidad, así que el join resuelve siempre: acá el SKU que queda
+     * reporta su cantidad física, y el que se cae no reporta nada — nunca
+     * una fila con lo vendible conocido y lo físico "no se sabe".
+     */
+    public function testNoReportedRowHasUnknownPhysicalQtyWhileSalableQtyIsKnown(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: true,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
+                    ['sku' => 'SKU-FUERA-DEL-CATALOGO', 'units_sold' => '2',
+                     'revenue' => '50.0000', 'revenue_missing' => '0'],
+                ],
+                'catalog_product_entity' => [
+                    ['sku' => 'SKU1', 'store_id' => 0, 'code' => 'price', 'value' => '100.0000'],
+                ],
+                // El join de stock físico ya viene "unido" en esta fixture y
+                // sólo trae el SKU de la población activa: es exactamente lo
+                // que el filtro de Magento hace en la condición del join.
+                'cataloginventory_stock_item' => [['sku' => 'SKU1', 'qty' => '9.0000']],
+                'inventory_stock_sales_channel' => [['stock_id' => '2']],
+                'inventory_stock_2' => [
+                    ['sku' => 'SKU1', 'qty' => '4.0000'],
+                    ['sku' => 'SKU-FUERA-DEL-CATALOGO', 'qty' => '4.0000'],
+                ],
+                'store' => [['website_id' => '1']],
+                'store_website' => [['code' => 'base']],
+            ],
+        );
+
+        $items = $this->payloadOf($reader->getSignals(storeId: 1))['items'];
+
+        $this->assertSame(['SKU1'], array_column($items, 'sku'));
+        foreach ($items as $item) {
+            if ($item['salable_qty'] !== null) {
+                $this->assertNotNull(
+                    $item['physical_qty'],
+                    "{$item['sku']} reporta lo vendible como conocido y lo físico como "
+                    . 'desconocido: una contradicción interna del payload (A2)'
+                );
+            }
+        }
+        $this->assertSame(9.0, $items[0]['physical_qty']);
+        $this->assertSame(4.0, $items[0]['salable_qty']);
+    }
+
+    /**
      * Ruling 2, el caso central de esta tarea: el atributo `cost` ausente
      * (o vacío) deja margin en NULL. Calcularlo como 0 falsearía la
      * priorización comercial exactamente como advierte la Ruling.
@@ -609,6 +712,23 @@ class SignalReaderTest extends TestCase
                 $column = $select->columns[0] ?? null;
                 $row = $tableRows[0];
                 return $column !== null && array_key_exists($column, $row) ? $row[$column] : false;
+            }
+        );
+        // `restrictToCatalogPopulation()` (A1/A2) pregunta con fetchCol()
+        // qué SKUs de los vendidos están en la población del catálogo. Si la
+        // fixture declara `catalog_product_entity`, manda esa lista; si no,
+        // el default es "todos los vendidos están en el catálogo", que es el
+        // caso normal y el que las demás pruebas de este archivo quieren.
+        // La prueba que ejercita el recorte declara la tabla explícitamente.
+        $connection->method('fetchCol')->willReturnCallback(
+            static function (SignalFakeSelect $select) use ($fixtures): array {
+                if ($select->table !== 'catalog_product_entity') {
+                    return [];
+                }
+                if (!array_key_exists('catalog_product_entity', $fixtures)) {
+                    return array_column($fixtures['sales_order_item'] ?? [], 'sku');
+                }
+                return array_column($fixtures['catalog_product_entity'], 'sku');
             }
         );
         // El nombre de tabla ya no es siempre 'inventory_stock_1': ahora
