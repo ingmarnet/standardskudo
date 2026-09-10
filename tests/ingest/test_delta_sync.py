@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -68,9 +69,8 @@ def make_source(tenant_id: int, changes=CHANGES, refreshed=None) -> TenantSource
             return httpx.Response(200, json={"items": refreshed or REFRESHED})
         return httpx.Response(404)
 
-    return TenantSource(
-        tenant_id=tenant_id,
-        base_url="https://x.test",
+    return TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"),
         token="t",
         transport=httpx.MockTransport(handler),
     )

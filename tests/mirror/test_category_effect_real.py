@@ -17,6 +17,7 @@ test demuestra.
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -111,8 +112,8 @@ def make_source(tenant_id: int) -> TenantSource:
             return httpx.Response(200, json=CATEGORIES_PAGE)
         return httpx.Response(404)
 
-    return TenantSource(
-        tenant_id=tenant_id, base_url="https://x.test", token="t",
+    return TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"), token="t",
         transport=httpx.MockTransport(handler),
     )
 

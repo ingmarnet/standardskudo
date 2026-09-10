@@ -9,8 +9,10 @@ hay llamador de producción, así que es el momento de hacerlo imposible.
 """
 
 import inspect
+from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from skudo.ingest.delta_sync import delta_sync
 from skudo.ingest.full_sync import full_sync
@@ -18,6 +20,12 @@ from skudo.ingest.reconcile import reconcile
 from skudo.ingest.source import TenantSource
 from skudo.magento.client import MagentoClient
 from skudo.mirror.models import Tenant
+
+
+def _row(tenant_id: int, base_url: str):
+    """Un objeto con `.id`/`.base_url`, tal como `from_tenant` los lee de un
+    `Tenant`, sin necesitar sesión de base de datos para estos tests."""
+    return SimpleNamespace(id=tenant_id, base_url=base_url)
 
 
 def test_the_sync_entry_points_take_no_separate_tenant_id():
@@ -32,7 +40,7 @@ def test_the_sync_entry_points_take_no_separate_tenant_id():
 
 
 def test_the_source_carries_the_tenant_and_builds_its_own_client():
-    source = TenantSource(tenant_id=7, base_url="https://a.test", token="secreto")
+    source = TenantSource.from_tenant(_row(7, "https://a.test"), token="secreto")
 
     assert source.tenant_id == 7
     assert isinstance(source.client, MagentoClient)
@@ -40,7 +48,7 @@ def test_the_source_carries_the_tenant_and_builds_its_own_client():
 
 
 def test_the_client_is_built_once_and_reused():
-    source = TenantSource(tenant_id=7, base_url="https://a.test", token="secreto")
+    source = TenantSource.from_tenant(_row(7, "https://a.test"), token="secreto")
 
     assert source.client is source.client
 
@@ -59,15 +67,15 @@ def test_the_source_is_built_from_the_tenant_row(db_session):
 
 def test_the_token_never_shows_up_in_the_repr():
     """El repr acaba en logs y en trazas de tests que fallan."""
-    source = TenantSource(tenant_id=7, base_url="https://a.test", token="secreto")
+    source = TenantSource.from_tenant(_row(7, "https://a.test"), token="secreto")
 
     assert "secreto" not in repr(source)
     assert "7" in repr(source)
 
 
 def test_closing_the_source_closes_its_client():
-    source = TenantSource(
-        tenant_id=7, base_url="https://a.test", token="t",
+    source = TenantSource.from_tenant(
+        _row(7, "https://a.test"), token="t",
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
     )
     client = source.client
@@ -75,3 +83,25 @@ def test_closing_the_source_closes_its_client():
     source.close()
 
     assert client._client.is_closed
+
+
+def test_direct_construction_is_rejected_even_with_a_matched_pair():
+    """`from_tenant()` es la única vía pública. Si esta guarda se borrara, la
+    construcción directa —aquí con un par emparejado, no cruzado— dejaría de
+    lanzar y este test lo detectaría."""
+    with pytest.raises(TypeError, match="from_tenant"):
+        TenantSource(tenant_id=7, base_url="https://a.test", token="secreto")
+
+
+def test_a_crossed_tenant_and_credentials_pair_cannot_be_constructed():
+    """El caso que de verdad importa: alguien intenta atar el id del tenant B
+    a la base_url y el token del tenant A. Si `__init__` aceptara los tres por
+    separado, esta construcción tendría éxito y produciría exactamente el peor
+    fallo posible en un multi-tenant: el catálogo de A escribiéndose en el
+    espejo de B, sin ningún error en ningún lado."""
+    tenant_a_url = "https://a.test"
+    tenant_a_token = "token-de-a"
+    tenant_b_id = 99
+
+    with pytest.raises(TypeError, match="from_tenant"):
+        TenantSource(tenant_id=tenant_b_id, base_url=tenant_a_url, token=tenant_a_token)

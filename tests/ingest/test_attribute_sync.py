@@ -5,6 +5,8 @@ criterio 4 del spec: una opción con etiquetas distintas por store view acaba
 en el espejo como UNA sola `option_id` con varias etiquetas.
 """
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 from sqlalchemy import func, select
@@ -80,9 +82,8 @@ def make_source(tenant_id: int, page: dict = COLOR_PAGE) -> TenantSource:
             return httpx.Response(200, json=page)
         return httpx.Response(404)
 
-    return TenantSource(
-        tenant_id=tenant_id,
-        base_url="https://x.test",
+    return TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"),
         token="t",
         transport=httpx.MockTransport(handler),
     )

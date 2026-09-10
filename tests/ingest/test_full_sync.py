@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -69,9 +70,8 @@ def make_source(
             return httpx.Response(200, json=page_2 if cursor else page_1)
         return httpx.Response(404)
 
-    return TenantSource(
-        tenant_id=tenant_id,
-        base_url="https://x.test",
+    return TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"),
         token="token",
         transport=httpx.MockTransport(handler),
     )

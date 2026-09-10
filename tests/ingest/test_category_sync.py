@@ -6,6 +6,8 @@ espejo real. La forma del payload es exactamente la que Task A3 documentó en
 `task-A3-report.md`.
 """
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 from sqlalchemy import select
@@ -51,9 +53,8 @@ def make_source(tenant_id: int) -> TenantSource:
             return httpx.Response(200, json=PAGE_2 if cursor else PAGE_1)
         return httpx.Response(404)
 
-    return TenantSource(
-        tenant_id=tenant_id,
-        base_url="https://x.test",
+    return TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"),
         token="token",
         transport=httpx.MockTransport(handler),
     )
@@ -155,8 +156,8 @@ def test_a_second_sync_updates_rather_than_duplicates_when_data_changes(db_sessi
             return httpx.Response(200, json=changed_page)
         return httpx.Response(404)
 
-    source = TenantSource(
-        tenant_id=tenant.id, base_url="https://x.test", token="t",
+    source = TenantSource.from_tenant(
+        tenant, token="t",
         transport=httpx.MockTransport(handler),
     )
     sync_categories(db_session, source, store_view_ids=[1, 3])

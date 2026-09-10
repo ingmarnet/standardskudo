@@ -11,6 +11,7 @@ visible dentro del espejo de otro.
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -33,9 +34,8 @@ def make_source(tenant_id: int, skus: list[str]) -> TenantSource:
             )
         return httpx.Response(404)
 
-    return TenantSource(
-        tenant_id=tenant_id,
-        base_url="https://x.test",
+    return TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"),
         token="t",
         transport=httpx.MockTransport(handler),
     )
