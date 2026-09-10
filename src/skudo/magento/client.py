@@ -58,6 +58,36 @@ class MagentoClient:
                 return
             cursor = next_cursor
 
+    def iter_attributes(self, limit: int = 500) -> Iterator[dict]:
+        """Recorre los atributos (con sus opciones y etiquetas) página a página.
+
+        Mismo esquema que `iter_products`: cursor de paginación opaco, guarda de
+        avance para que un `next_cursor` repetido aborte en vez de pedir la misma
+        página para siempre, y `next_cursor: null` como única señal de fin.
+        """
+        cursor: str | None = None
+        while True:
+            params: dict[str, object] = {"limit": limit}
+            if cursor:
+                params["cursor"] = cursor
+            response = self._client.get("/attributes", params=params)
+            response.raise_for_status()
+            page = response.json()
+
+            next_cursor = page.get("next_cursor")
+            if next_cursor and next_cursor == cursor:
+                raise RuntimeError(
+                    "/attributes no avanza: el módulo devolvió el mismo next_cursor "
+                    f"({next_cursor!r}) que se le envió. Se aborta en vez de pedir "
+                    "la misma página indefinidamente."
+                )
+
+            yield page
+
+            if not next_cursor:
+                return
+            cursor = next_cursor
+
     def iter_deltas(self, since_id: int, limit: int = 1000) -> Iterator[dict]:
         """Recorre la cola de cambios desde un watermark, página a página.
 
