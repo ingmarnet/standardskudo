@@ -17,11 +17,17 @@ class EnvironmentProbeTest extends TestCase
 {
     use UnwrapsWebApiEnvelope;
 
+    /**
+     * @param int[]|null $salesChannelStockIds Los `stock_id` que
+     *     `inventory_stock_sales_channel` mapea, o null para que la tabla no
+     *     exista (MSI ausente o instalación sin su esquema).
+     */
     private function probe(
         bool $hasStaging,
         bool $hasRowId,
         bool $hasMsi,
         string $edition = 'Community',
+        ?array $salesChannelStockIds = null,
     ): EnvironmentProbe {
         $metadata = $this->createMock(ProductMetadataInterface::class);
         $metadata->method('getEdition')->willReturn($edition);
@@ -49,6 +55,13 @@ class EnvironmentProbeTest extends TestCase
         // reventar antes de llegar a las aserciones sobre product_entity_key.
         $connection->method('select')->willReturn($select);
         $connection->method('fetchOne')->willReturn('0');
+        $connection->method('isTableExists')->willReturnCallback(
+            static fn (string $table): bool => $table === 'inventory_stock_sales_channel'
+                && $salesChannelStockIds !== null
+        );
+        $connection->method('fetchCol')->willReturn(
+            array_map('strval', $salesChannelStockIds ?? [])
+        );
 
         $resource = $this->createMock(ResourceConnection::class);
         $resource->method('getConnection')->willReturn($connection);
@@ -66,6 +79,75 @@ class EnvironmentProbeTest extends TestCase
         $keyResolver = new EntityKeyResolver($resource);
 
         return new EnvironmentProbe($metadata, $modules, $resource, $storeManager, $keyResolver);
+    }
+
+    // --- M6: `default_stock_id` no se inventa ------------------------------
+    //
+    // Devolvía 1 siempre que MSI estuviera presente. Verificado contra la
+    // instancia de referencia: los canales de venta mapean `base -> 2` y
+    // `website_br -> 3`, y el Stock 1 ("Default Stock") no sirve a NINGÚN
+    // sitio. `SignalReader::resolveStockId()` ya lo hacía bien —devuelve null
+    // en vez de adivinar—; la sonda, cuyo propósito declarado es que "nada
+    // aquí se asume", codificaba la respuesta equivocada.
+
+    public function testDefaultStockIdIsNullWhenMsiIsAbsent(): void
+    {
+        $profile = $this->payloadOf($this->probe(
+            hasStaging: false,
+            hasRowId: false,
+            hasMsi: false,
+        )->getProfile());
+
+        $this->assertNull($profile['default_stock_id']);
+    }
+
+    public function testDefaultStockIdIsNullWhenSalesChannelsPointAtSeveralStocks(): void
+    {
+        // El caso REAL de esta instancia: dos sitios, dos stocks distintos.
+        // No existe un "stock por defecto" que responda por los dos, así que
+        // la respuesta honesta es DESCONOCIDO — y el 1 que se devolvía no era
+        // solo genérico: no lo usa nadie.
+        $profile = $this->payloadOf($this->probe(
+            hasStaging: false,
+            hasRowId: false,
+            hasMsi: true,
+            salesChannelStockIds: [2, 3],
+        )->getProfile());
+
+        $this->assertNull(
+            $profile['default_stock_id'],
+            'con varios stocks mapeados no hay uno por defecto: 1 sería una respuesta inventada'
+        );
+    }
+
+    public function testDefaultStockIdIsTheOnlyMappedStockWhenThereIsExactlyOne(): void
+    {
+        // Cuando la instancia SÍ tiene una respuesta inequívoca se reporta,
+        // porque decir "desconocido" ahí también sería falso. El 7 discrimina:
+        // un `return 1` seguiría pasando las dos pruebas de arriba.
+        $profile = $this->payloadOf($this->probe(
+            hasStaging: false,
+            hasRowId: false,
+            hasMsi: true,
+            salesChannelStockIds: [7],
+        )->getProfile());
+
+        $this->assertSame(7, $profile['default_stock_id']);
+    }
+
+    public function testDefaultStockIdIsNullWhenMsiIsInstalledButHasNoSalesChannelTable(): void
+    {
+        // Ruling 1 de Task 12: el módulo puede figurar instalado sin su
+        // esquema (y al revés). Sin la tabla no hay de dónde saberlo.
+        $profile = $this->payloadOf($this->probe(
+            hasStaging: false,
+            hasRowId: false,
+            hasMsi: true,
+            salesChannelStockIds: null,
+        )->getProfile());
+
+        $this->assertTrue($profile['msi_enabled']);
+        $this->assertNull($profile['default_stock_id']);
     }
 
     public function testOpenSourceReportsEntityId(): void

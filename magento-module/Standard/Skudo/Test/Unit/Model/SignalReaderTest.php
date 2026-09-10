@@ -81,7 +81,7 @@ class SignalReaderTest extends TestCase
             usesMsi: false,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'cataloginventory_stock_item' => [
                     ['sku' => 'SKU1', 'qty' => '9.0000'],
@@ -110,7 +110,7 @@ class SignalReaderTest extends TestCase
             usesMsi: true,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'cataloginventory_stock_item' => [
                     ['sku' => 'SKU1', 'qty' => '9.0000'],
@@ -142,7 +142,7 @@ class SignalReaderTest extends TestCase
             usesMsi: true,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'cataloginventory_stock_item' => [
                     ['sku' => 'SKU1', 'qty' => '9.0000'],
@@ -174,7 +174,7 @@ class SignalReaderTest extends TestCase
             usesMsi: false,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'cataloginventory_stock_item' => [],
             ],
@@ -196,7 +196,7 @@ class SignalReaderTest extends TestCase
             usesMsi: false,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 // Solo llega 'price': 'cost' nunca se cargó para este SKU.
                 'catalog_product_entity' => [
@@ -221,7 +221,7 @@ class SignalReaderTest extends TestCase
             usesMsi: false,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'catalog_product_entity' => [
                     ['sku' => 'SKU1', 'code' => 'cost', 'value' => '15.0000', 'store_id' => 0],
@@ -247,7 +247,7 @@ class SignalReaderTest extends TestCase
             usesMsi: false,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'catalog_product_entity' => [
                     ['sku' => 'SKU1', 'code' => 'cost', 'value' => '', 'store_id' => 0],
@@ -275,7 +275,7 @@ class SignalReaderTest extends TestCase
             usesMsi: false,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'catalog_product_entity' => [
                     ['sku' => 'SKU1', 'code' => 'cost', 'value' => '10.0000', 'store_id' => 0],
@@ -311,7 +311,7 @@ class SignalReaderTest extends TestCase
             usesMsi: false,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'catalog_product_entity' => [
                     ['sku' => 'SKU1', 'code' => 'cost', 'value' => '10.0000', 'store_id' => 0],
@@ -350,7 +350,7 @@ class SignalReaderTest extends TestCase
             usesMsi: true,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'cataloginventory_stock_item' => [
                     ['sku' => 'SKU1', 'qty' => '9.0000'],
@@ -388,7 +388,7 @@ class SignalReaderTest extends TestCase
             usesMsi: true,
             fixtures: [
                 'sales_order_item' => [
-                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000'],
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
                 ],
                 'cataloginventory_stock_item' => [
                     ['sku' => 'SKU1', 'qty' => '9.0000'],
@@ -411,6 +411,158 @@ class SignalReaderTest extends TestCase
 
         $this->assertNull($item['salable_qty']);
         $this->assertSame(9.0, $item['physical_qty'], 'physical_qty no depende de la resolución de stock MSI');
+    }
+
+    // --- M1: search_demand desconocido no es cero -------------------------
+    //
+    // `SignalReaderInterface` lo tipaba `int` y `salesRows()` lo sembraba en 0,
+    // así que ProductSignal.search_demand —cuyo NULL reserva "no tenemos datos
+    // de búsqueda de esa tienda"— no podía producirse nunca. Dato real:
+    // `search_query` tiene DOS filas en toda la instancia, las dos de store 1.
+    // Toda señal de BR decía "nadie buscó nada en Brasil", que es una
+    // afirmación de medición hecha sin datos.
+
+    public function testSearchDemandIsNullWhenTheStoreViewHasNoSearchDataAtAll(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000',
+                     'revenue_missing' => '0'],
+                ],
+                // Ni una fila de búsqueda para esta tienda en la ventana: el
+                // caso real de la store view BR.
+                'search_query' => [],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 3)));
+
+        $this->assertNull(
+            $item['search_demand'],
+            'sin datos de búsqueda de esa tienda, la demanda es DESCONOCIDA, no cero'
+        );
+    }
+
+    public function testSearchDemandIsZeroWhenTheStoreHasSearchDataButNoneMatches(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000',
+                     'revenue_missing' => '0'],
+                ],
+                // La tienda SÍ tiene búsquedas; ninguna menciona SKU1.
+                'search_query' => [
+                    ['query_text' => 'heladera', 'popularity' => '40'],
+                ],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+
+        $this->assertSame(
+            0,
+            $item['search_demand'],
+            'con datos de búsqueda, que nadie buscara este SKU es un cero REAL'
+        );
+    }
+
+    public function testSearchDemandAccumulatesPopularityOfMatchingQueries(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000',
+                     'revenue_missing' => '0'],
+                ],
+                'search_query' => [
+                    ['query_text' => 'notebook sku1', 'popularity' => '40'],
+                    ['query_text' => 'SKU1 barato', 'popularity' => '2'],
+                    ['query_text' => 'heladera', 'popularity' => '99'],
+                ],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+
+        $this->assertSame(42, $item['search_demand']);
+    }
+
+    // --- M2: revenue con importes nulos es desconocido, no una suma menor ---
+    //
+    // `SUM(oi.row_total_incl_tax)` salta los NULL, y 3.238 de los 20.202 ítems
+    // de pedido de los últimos 90 días de esta instancia los tienen (16%). Una
+    // suma parcial subestima en silencio; un SKU con TODOS sus importes nulos
+    // daba `SUM = NULL` -> `(float) null` -> 0.0, reportado como un cero real
+    // junto a `units_sold > 0`. Es la señal de dinero que gobierna la
+    // priorización entera.
+
+    public function testRevenueIsNullWhenSomeOrderItemsHaveNoAmount(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    // 3 de los ítems del SKU sumaron 100; el resto no tenía
+                    // importe. 100.0 no es la facturación: es una cota
+                    // inferior de tamaño desconocido.
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000',
+                     'revenue_missing' => '3'],
+                ],
+                'search_query' => [],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+
+        $this->assertSame(5, $item['units_sold'], 'las unidades sí se conocen');
+        $this->assertNull(
+            $item['revenue'],
+            'una suma a la que le faltan importes es desconocida, no una cifra menor'
+        );
+    }
+
+    public function testRevenueIsNullWhenEveryOrderItemAmountIsNull(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    // SUM() sobre puros NULL devuelve NULL. Antes esto era
+                    // `(float) null` = 0.0: un cero creíble y falso al lado de
+                    // `units_sold = 5`.
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => null,
+                     'revenue_missing' => '5'],
+                ],
+                'search_query' => [],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+
+        $this->assertNull($item['revenue']);
+    }
+
+    public function testRevenueIsTheRealSumWhenNoAmountIsMissing(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000',
+                     'revenue_missing' => '0'],
+                ],
+                'search_query' => [],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+
+        $this->assertSame(100.0, $item['revenue']);
     }
 
     /** @param mixed[] $result */
@@ -445,6 +597,13 @@ class SignalReaderTest extends TestCase
         $connection->method('fetchOne')->willReturnCallback(
             static function (SignalFakeSelect $select) use ($fixtures) {
                 $tableRows = $fixtures[$select->table] ?? [];
+                // Un COUNT(*) sobre una tabla sin filas devuelve 0, no false:
+                // es la diferencia entre "la consulta no encontró nada" y
+                // "esta tienda no tiene datos de búsqueda", que es justo lo
+                // que attachSearchDemand() pregunta.
+                if (($select->columns[0] ?? null) === 'COUNT(*)') {
+                    return (string) count($tableRows);
+                }
                 if ($tableRows === []) {
                     return false;
                 }

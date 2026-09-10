@@ -11,8 +11,12 @@ interface SignalReaderInterface
      *
      * Cada item trae `null` (nunca 0, nunca "") cuando el dato es
      * DESCONOCIDO: `salable_qty` sin MSI o sin su tabla de índice,
-     * `physical_qty` sin fila de stock, `margin` sin costo cargado. `null`
-     * y "cero real" son hechos comerciales distintos y no deben colapsarse.
+     * `physical_qty` sin fila de stock, `margin` sin costo cargado,
+     * `revenue` cuando algún ítem de pedido de la ventana no tiene importe
+     * (`SUM()` salta los NULL y devolvería una cifra menor con aspecto
+     * exacto), y `search_demand` cuando esa store view no tiene NI UNA fila
+     * de `search_query` en la ventana. `null` y "cero real" son hechos
+     * comerciales distintos y no deben colapsarse.
      *
      * `uses_msi` indica de qué mundo salieron los números de cantidad, para
      * que el lado Python no tenga que adivinar si un `salable_qty` nulo es
@@ -32,8 +36,9 @@ interface SignalReaderInterface
      * @param int $storeId
      * @param int $days Ventana de la agregación de ventas y de search_query.
      * @return mixed[] [{"items": list<array{sku: string, units_sold: int,
-     *     revenue: float, salable_qty: float|null, physical_qty: float|null,
-     *     uses_msi: bool, margin: float|null, search_demand: int}>}]
+     *     revenue: float|null, salable_qty: float|null,
+     *     physical_qty: float|null, uses_msi: bool, margin: float|null,
+     *     search_demand: int|null}>}]
      */
     public function getSignals(int $storeId, int $days = 90): array;
 }

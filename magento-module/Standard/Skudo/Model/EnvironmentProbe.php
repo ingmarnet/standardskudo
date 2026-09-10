@@ -29,6 +29,7 @@ class EnvironmentProbe implements EnvironmentProbeInterface
     public function getProfile(): array
     {
         $hasStaging = $this->modules->has('Magento_Staging');
+        $hasMsi = $this->modules->has('Magento_InventoryApi');
 
         return WebApiEnvelope::wrap([
             'edition' => $this->metadata->getEdition(),
@@ -37,14 +38,58 @@ class EnvironmentProbe implements EnvironmentProbeInterface
             // Staging instalado sigue usando entity_id.
             'product_entity_key' => $this->keyResolver->resolve(),
             'staging_enabled' => $hasStaging,
-            'msi_enabled' => $this->modules->has('Magento_InventoryApi'),
-            'default_stock_id' => $this->modules->has('Magento_InventoryApi') ? 1 : null,
+            'msi_enabled' => $hasMsi,
+            'default_stock_id' => $this->defaultStockId($hasMsi),
             'websites' => $this->websites(),
             'store_groups' => $this->storeGroups(),
             'store_views' => $this->storeViews(),
             'counts' => $this->counts(),
             'module_version' => self::MODULE_VERSION,
         ]);
+    }
+
+    /**
+     * El stock de MSI que sirve a esta instancia, o null si no hay UNO solo.
+     *
+     * Antes devolvía 1 en cuanto MSI estuviera presente. Verificado contra la
+     * instancia de referencia (solo lectura): los canales de venta mapean
+     * `base -> 2` y `website_br -> 3`, y el Stock 1 ("Default Stock") no
+     * está asignado a ningún sitio — el 1 no era un valor genérico, era el
+     * valor equivocado. `SignalReader::resolveStockId()` ya resolvía esto bien
+     * para su caso (store -> website -> canal de venta -> stock_id) y devuelve
+     * null en vez de adivinar; esta sonda, cuyo propósito declarado es que
+     * "nada aquí se asume", codificaba la respuesta contraria.
+     *
+     * La sonda no tiene store view: informa una propiedad de la instancia. Por
+     * eso solo puede responder cuando la respuesta es INEQUÍVOCA — exactamente
+     * un stock mapeado por los canales de venta—, y dice null cuando hay
+     * varios (no existe "el" stock por defecto: depende del sitio, y quien
+     * necesite esa precisión la obtiene por store view de `/signals`), cuando
+     * no hay ninguno, cuando MSI está ausente, o cuando el módulo figura
+     * instalado pero su tabla no existe (Ruling 1 de Task 12: las dos
+     * direcciones de esa discrepancia se dan en la práctica).
+     *
+     * No referencia ninguna clase de `Magento\\InventorySalesApi\\*`: se lee la
+     * tabla, para que este módulo cargue igual en una instancia sin MSI.
+     */
+    private function defaultStockId(bool $hasMsi): ?int
+    {
+        if (!$hasMsi) {
+            return null;
+        }
+
+        $connection = $this->resource->getConnection();
+        $table = $this->resource->getTableName('inventory_stock_sales_channel');
+        if (!$connection->isTableExists($table)) {
+            return null;
+        }
+
+        $stockIds = array_values(array_unique(array_map(
+            'intval',
+            $connection->fetchCol($connection->select()->from($table, ['stock_id']))
+        )));
+
+        return count($stockIds) === 1 ? $stockIds[0] : null;
     }
 
     private function websites(): array

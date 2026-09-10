@@ -98,10 +98,10 @@ class SignalReader implements SignalReaderInterface
      * costo de attachSearchDemand() (ver ahí).
      *
      * @return array<string, mixed[]> Filas por SKU, con salable_qty,
-     *     physical_qty y margin ya en NULL (Ruling 2: el valor por defecto
-     *     de "todavía no se supo" es desconocido, no cero) para que
-     *     attachInventory()/attachMargin() solo los toquen cuando SÍ hay
-     *     dato.
+     *     physical_qty, margin y search_demand ya en NULL (Ruling 2: el
+     *     valor por defecto de "todavía no se supo" es desconocido, no
+     *     cero) para que attachInventory()/attachMargin()/
+     *     attachSearchDemand() solo los toquen cuando SÍ hay dato.
      */
     private function salesRows(AdapterInterface $connection, int $storeId, int $days, bool $usesMsi): array
     {
@@ -110,6 +110,13 @@ class SignalReader implements SignalReaderInterface
                 'sku' => 'oi.sku',
                 'units_sold' => 'SUM(oi.qty_ordered)',
                 'revenue' => 'SUM(oi.row_total_incl_tax)',
+                // Ruling 2 aplicada al dinero: SUM() SALTA los NULL, así que
+                // una facturación parcial sale como si fuera la total. En la
+                // instancia de referencia 3.238 de los 20.202 ítems de pedido
+                // de los últimos 90 días tienen `row_total_incl_tax IS NULL`
+                // (16%). Se cuenta cuántos faltan para poder decir
+                // "desconocido" en vez de una cifra menor con aspecto exacto.
+                'revenue_missing' => 'SUM(CASE WHEN oi.row_total_incl_tax IS NULL THEN 1 ELSE 0 END)',
             ])
             ->join(
                 ['o' => $this->resource->getTableName('sales_order')],
@@ -122,15 +129,27 @@ class SignalReader implements SignalReaderInterface
 
         $rows = [];
         foreach ($connection->fetchAll($select) as $row) {
+            // `revenue` es la suma SOLO si no le falta ningún importe: con
+            // uno solo nulo, el total real es mayor en una cantidad
+            // desconocida, y con todos nulos SUM() devuelve NULL y el
+            // `(float)` lo convertía en un 0.0 creíble al lado de
+            // `units_sold > 0`. Los dos casos son DESCONOCIDO, no una cifra.
+            $revenue = $row['revenue'] === null || (int) $row['revenue_missing'] > 0
+                ? null
+                : (float) $row['revenue'];
+
             $rows[(string) $row['sku']] = [
                 'sku' => (string) $row['sku'],
                 'units_sold' => (int) $row['units_sold'],
-                'revenue' => (float) $row['revenue'],
+                'revenue' => $revenue,
                 'salable_qty' => null,
                 'physical_qty' => null,
                 'uses_msi' => $usesMsi,
                 'margin' => null,
-                'search_demand' => 0,
+                // Ruling 2: el valor por defecto de "todavía no se supo" es
+                // desconocido. attachSearchDemand() lo baja a 0 solo cuando
+                // comprueba que esta store view SÍ tiene datos de búsqueda.
+                'search_demand' => null,
             ];
         }
 
@@ -390,8 +409,38 @@ class SignalReader implements SignalReaderInterface
         }
 
         $connection = $this->resource->getConnection();
+        $searchQuery = $this->resource->getTableName('search_query');
+
+        // Ruling 2 aplicada a la demanda: si esta store view no tiene NI UNA
+        // fila de búsqueda en la ventana, no hay medición que reportar y
+        // search_demand se queda en NULL para todos sus SKUs. Dato real: la
+        // tabla `search_query` de esta instancia tiene DOS filas en total, las
+        // dos de la store 1 — con el 0 sembrado, toda señal de BR afirmaba
+        // "nadie buscó nada en Brasil", una medición hecha sin datos.
+        //
+        // La cuenta va SIN el `popularity > 0` de abajo a propósito: ese filtro
+        // es una cota de costo, no parte de la pregunta. Una tienda cuyas
+        // búsquedas nunca se repitieron sí tiene datos de búsqueda, y ahí un
+        // cero es un cero real.
+        $hasSearchData = (int) $connection->fetchOne(
+            $connection->select()
+                ->from($searchQuery, ['searches' => 'COUNT(*)'])
+                ->where('store_id = ?', $storeId)
+                ->where('updated_at >= DATE_SUB(NOW(), INTERVAL ? DAY)', $days)
+        ) > 0;
+
+        if (!$hasSearchData) {
+            return;
+        }
+
+        // A partir de acá el cero es un hecho: la tienda tiene búsquedas y
+        // ninguna menciona este SKU.
+        foreach (array_keys($rows) as $sku) {
+            $rows[$sku]['search_demand'] = 0;
+        }
+
         $select = $connection->select()
-            ->from($this->resource->getTableName('search_query'), ['query_text', 'popularity'])
+            ->from($searchQuery, ['query_text', 'popularity'])
             ->where('store_id = ?', $storeId)
             ->where('updated_at >= DATE_SUB(NOW(), INTERVAL ? DAY)', $days)
             ->where('popularity > 0')
