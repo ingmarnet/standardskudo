@@ -20,13 +20,21 @@ interface AttributeReaderInterface
      * respuesta sin paginar sería enorme, y las opciones solo se leen para
      * los atributos de la página actual.
      *
+     *
+     * La respuesta viaja ENVUELTA un nivel (`WebApiEnvelope::wrap()`):
+     * `[<payload>]`, no `<payload>`. `ServiceOutputProcessor::convertValue()`
+     * reindexa el primer nivel de todo `mixed[]` y descartaría las claves del
+     * payload; envolverlo hace que el `foreach` devuelva la misma lista de un
+     * elemento y el payload llegue intacto. El lado Python desenvuelve con
+     * `response.json()[0]`. Ver `Model\WebApiEnvelope`.
+     *
      * @param int $limit
      * @param string|null $cursor
-     * @return mixed[] {"items": list<array{code: string, label: string,
+     * @return mixed[] [{"items": list<array{code: string, label: string,
      *     frontend_input: string, declared_scope: string, is_filterable: bool,
      *     is_required: bool, attribute_set_ids: int[],
      *     options: list<array{option_id: int, labels: object}>}>,
-     *     "next_cursor": string|null}
+     *     "next_cursor": string|null}]
      */
     public function getPage(int $limit = 500, ?string $cursor = null): array;
 }

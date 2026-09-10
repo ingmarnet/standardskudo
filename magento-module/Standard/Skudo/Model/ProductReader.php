@@ -42,18 +42,18 @@ class ProductReader implements ProductReaderInterface
 
         $rows = $this->resource->getConnection()->fetchAll($select);
         if ($rows === []) {
-            return ['items' => [], 'next_cursor' => null];
+            return WebApiEnvelope::wrap(['items' => [], 'next_cursor' => null]);
         }
 
         $items = $this->projectRows($rows, $keyColumn, $storeId);
         $keys = array_column($rows, 'key');
 
-        return [
+        return WebApiEnvelope::wrap([
             'items' => $items,
             'next_cursor' => count($rows) < $limit
                 ? null
                 : $this->cursor->encode((int) $keys[array_key_last($keys)]),
-        ];
+        ]);
     }
 
     public function getBySku(int $storeId, array $skus): array
@@ -67,7 +67,7 @@ class ProductReader implements ProductReaderInterface
         }
 
         if ($skus === []) {
-            return ['items' => []];
+            return WebApiEnvelope::wrap(['items' => []]);
         }
 
         $keyColumn = $this->entityKeyResolver->resolve();
@@ -79,7 +79,7 @@ class ProductReader implements ProductReaderInterface
 
         $rows = $this->resource->getConnection()->fetchAll($select);
 
-        return ['items' => $this->projectRows($rows, $keyColumn, $storeId)];
+        return WebApiEnvelope::wrap(['items' => $this->projectRows($rows, $keyColumn, $storeId)]);
     }
 
     /**

@@ -21,6 +21,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 from sqlalchemy import select
 
 from skudo.ingest.category_sync import sync_categories
@@ -105,11 +106,11 @@ def make_source(tenant_id: int) -> TenantSource:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/environment"):
-            return httpx.Response(200, json=environment)
+            return skudo_response(environment)
         if path.endswith("/products"):
-            return httpx.Response(200, json=PRODUCTS_PAGE)
+            return skudo_response(PRODUCTS_PAGE)
         if path.endswith("/categories"):
-            return httpx.Response(200, json=CATEGORIES_PAGE)
+            return skudo_response(CATEGORIES_PAGE)
         return httpx.Response(404)
 
     return TenantSource.from_tenant(

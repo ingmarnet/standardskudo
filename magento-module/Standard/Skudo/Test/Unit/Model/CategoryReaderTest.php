@@ -8,6 +8,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\CategoryReader;
 use Standard\Skudo\Model\Cursor;
@@ -44,6 +45,8 @@ use Standard\Skudo\Model\EntityKeyResolver;
  */
 class CategoryReaderTest extends TestCase
 {
+    use UnwrapsWebApiEnvelope;
+
     private const CATEGORY_ENTITY_TYPE_ID = 3;
     private const NAME_ATTRIBUTE_ID = 45;
     private const IS_ACTIVE_ATTRIBUTE_ID = 46;
@@ -211,7 +214,7 @@ class CategoryReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: true, categoryRows: [], selects: $selects);
 
-        $reader->getPage(limit: 10);
+        $this->payloadOf($reader->getPage(limit: 10));
 
         $entitySelect = $this->entitySelect($selects);
         $this->assertContains('e.created_in <= UNIX_TIMESTAMP()', array_column($entitySelect->wheres, 'cond'));
@@ -223,7 +226,7 @@ class CategoryReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: false, hasVersioning: false, categoryRows: [], selects: $selects);
 
-        $reader->getPage(limit: 10);
+        $this->payloadOf($reader->getPage(limit: 10));
 
         $entitySelect = $this->entitySelect($selects);
         foreach ($entitySelect->wheres as $where) {
@@ -261,7 +264,7 @@ class CategoryReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: true, categoryRows: $categoryRows, selects: $selects);
 
-        $result = $reader->getPage(limit: 10);
+        $result = $this->payloadOf($reader->getPage(limit: 10));
 
         $this->assertCount(1, $result['items']);
         $this->assertSame([1, 2, 222, 252], $result['items'][0]['path']);
@@ -282,13 +285,13 @@ class CategoryReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: false, categoryRows: $categoryRows, selects: $selects);
 
-        $firstPage = $reader->getPage(limit: 2);
+        $firstPage = $this->payloadOf($reader->getPage(limit: 2));
 
         $this->assertSame([100, 200], array_column($firstPage['items'], 'category_id'));
         $this->assertNotNull($firstPage['next_cursor']);
         $this->assertSame(200, (new Cursor())->decode($firstPage['next_cursor']));
 
-        $secondPage = $reader->getPage(limit: 2, cursor: $firstPage['next_cursor']);
+        $secondPage = $this->payloadOf($reader->getPage(limit: 2, cursor: $firstPage['next_cursor']));
 
         $this->assertSame([300], array_column($secondPage['items'], 'category_id'));
         $this->assertNull($secondPage['next_cursor']);
@@ -309,7 +312,7 @@ class CategoryReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: false, categoryRows: $categoryRows, selects: $selects);
 
-        $result = $reader->getPage(limit: 10);
+        $result = $this->payloadOf($reader->getPage(limit: 10));
 
         $this->assertSame(252, $result['items'][0]['category_id']);
         // El cursor pagina sobre row_id (9001), no sobre entity_id (252).
@@ -322,7 +325,7 @@ class CategoryReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: false, categoryRows: $categoryRows, selects: $selects);
 
-        return $reader->getPage(limit: 10);
+        return $this->payloadOf($reader->getPage(limit: 10));
     }
 
     /**
@@ -342,7 +345,7 @@ class CategoryReaderTest extends TestCase
             nameRows: $nameRows,
         );
 
-        return $reader->getPage(limit: 10);
+        return $this->payloadOf($reader->getPage(limit: 10));
     }
 
     /**

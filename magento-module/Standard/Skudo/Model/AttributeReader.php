@@ -100,7 +100,7 @@ class AttributeReader implements AttributeReaderInterface
 
         $rows = $connection->fetchAll($select);
         if ($rows === []) {
-            return ['items' => [], 'next_cursor' => null];
+            return WebApiEnvelope::wrap(['items' => [], 'next_cursor' => null]);
         }
 
         $attributeIds = array_map(static fn (array $row): int => (int) $row['attribute_id'], $rows);
@@ -122,12 +122,12 @@ class AttributeReader implements AttributeReaderInterface
             ];
         }
 
-        return [
+        return WebApiEnvelope::wrap([
             'items' => $items,
             'next_cursor' => count($rows) < $limit
                 ? null
                 : $this->cursor->encode($attributeIds[array_key_last($attributeIds)]),
-        ];
+        ]);
     }
 
     /**

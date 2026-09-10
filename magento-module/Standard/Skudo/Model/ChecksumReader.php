@@ -87,9 +87,9 @@ class ChecksumReader implements ChecksumReaderInterface
         // coordinar colación ni paginación.
         sort($skus, SORT_STRING);
 
-        return [
+        return WebApiEnvelope::wrap([
             'product_count' => count($skus),
             'sku_digest' => hash('sha256', implode("\n", $skus)),
-        ];
+        ]);
     }
 }

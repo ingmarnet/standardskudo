@@ -30,11 +30,19 @@ interface CategoryReaderInterface
      * Paginación por cursor (keyset) sobre la clave de entidad resuelta por
      * EntityKeyResolver, nunca offset — misma razón que ProductReader.
      *
+     *
+     * La respuesta viaja ENVUELTA un nivel (`WebApiEnvelope::wrap()`):
+     * `[<payload>]`, no `<payload>`. `ServiceOutputProcessor::convertValue()`
+     * reindexa el primer nivel de todo `mixed[]` y descartaría las claves del
+     * payload; envolverlo hace que el `foreach` devuelva la misma lista de un
+     * elemento y el payload llegue intacto. El lado Python desenvuelve con
+     * `response.json()[0]`. Ver `Model\WebApiEnvelope`.
+     *
      * @param int $limit
      * @param string|null $cursor
-     * @return mixed[] {"items": list<array{category_id: int, path: int[],
+     * @return mixed[] [{"items": list<array{category_id: int, path: int[],
      *     default_name: string, store_states: list<array{store_id: int,
-     *     is_active: bool, name: string}>}>, "next_cursor": string|null}
+     *     is_active: bool, name: string}>}>, "next_cursor": string|null}]
      */
     public function getPage(int $limit = 500, ?string $cursor = null): array;
 }

@@ -65,10 +65,10 @@ class DeltaReader implements DeltaReaderInterface
             }
         }
 
-        return [
+        return WebApiEnvelope::wrap([
             'items' => $items,
             'last_change_id' => $lastChangeId,
-        ];
+        ]);
     }
 
     /**

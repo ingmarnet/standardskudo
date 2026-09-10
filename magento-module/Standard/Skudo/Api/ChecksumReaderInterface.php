@@ -16,8 +16,16 @@ interface ChecksumReaderInterface
      * porqué (mirror_count/sku_digest del espejo se calculan sobre TODO el
      * catálogo por store view, no una vista filtrada por visibilidad).
      *
+     *
+     * La respuesta viaja ENVUELTA un nivel (`WebApiEnvelope::wrap()`):
+     * `[<payload>]`, no `<payload>`. `ServiceOutputProcessor::convertValue()`
+     * reindexa el primer nivel de todo `mixed[]` y descartaría las claves del
+     * payload; envolverlo hace que el `foreach` devuelva la misma lista de un
+     * elemento y el payload llegue intacto. El lado Python desenvuelve con
+     * `response.json()[0]`. Ver `Model\WebApiEnvelope`.
+     *
      * @param int $storeId
-     * @return mixed[] {"product_count": int, "sku_digest": string}
+     * @return mixed[] [{"product_count": int, "sku_digest": string}]
      */
     public function getChecksums(int $storeId): array;
 }

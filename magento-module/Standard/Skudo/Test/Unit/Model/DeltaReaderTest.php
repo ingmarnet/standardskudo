@@ -6,6 +6,7 @@ namespace Standard\Skudo\Test\Unit\Model;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\DeltaReader;
 
@@ -25,6 +26,8 @@ use Standard\Skudo\Model\DeltaReader;
  */
 class DeltaReaderTest extends TestCase
 {
+    use UnwrapsWebApiEnvelope;
+
     private const NOW = 2_000_000_000;
 
     public function testGetChangesReturnsQueueRowsOrderedByChangeIdAboveSinceId(): void
@@ -37,7 +40,7 @@ class DeltaReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasVersioning: false, queueRows: $queueRows, entityRows: [], selects: $selects);
 
-        $result = $reader->getChanges(sinceId: 2, limit: 10);
+        $result = $this->payloadOf($reader->getChanges(sinceId: 2, limit: 10));
 
         $this->assertSame(
             [
@@ -87,7 +90,7 @@ class DeltaReaderTest extends TestCase
 
         $reader = $this->readerFor($connection);
 
-        $result = $reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 200);
+        $result = $this->payloadOf($reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 200));
 
         $this->assertSame([], $result['items'], 'no debería agregarse nada cuando el esquema no tiene versionado');
         $this->assertFalse(
@@ -110,7 +113,7 @@ class DeltaReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasVersioning: true, queueRows: [], entityRows: $entityRows, selects: $selects);
 
-        $result = $reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 200);
+        $result = $this->payloadOf($reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 200));
 
         $this->assertSame(
             [
@@ -145,7 +148,7 @@ class DeltaReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasVersioning: true, queueRows: [], entityRows: $entityRows, selects: $selects);
 
-        $result = $reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 50);
+        $result = $this->payloadOf($reader->getChanges(sinceId: 0, limit: 10, sinceTimestamp: self::NOW - 50));
 
         $this->assertSame([], $result['items']);
         $this->assertTrue(

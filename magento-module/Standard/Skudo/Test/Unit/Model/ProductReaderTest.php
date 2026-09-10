@@ -7,6 +7,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Exception\InputException;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
@@ -28,12 +29,14 @@ use Standard\Skudo\Model\ProductReader;
  */
 class ProductReaderTest extends TestCase
 {
+    use UnwrapsWebApiEnvelope;
+
     public function testActiveVersionFilterIsAddedWhenVersioningColumnsArePresent(): void
     {
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: true, fixtureRows: [], selects: $selects);
 
-        $reader->getPage(storeId: 1, limit: 10);
+        $this->payloadOf($reader->getPage(storeId: 1, limit: 10));
 
         $entitySelect = $this->entitySelect($selects);
         $this->assertWhereConditionExists($entitySelect, 'e.created_in <= UNIX_TIMESTAMP()');
@@ -45,7 +48,7 @@ class ProductReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: false, hasVersioning: false, fixtureRows: [], selects: $selects);
 
-        $reader->getPage(storeId: 1, limit: 10);
+        $this->payloadOf($reader->getPage(storeId: 1, limit: 10));
 
         $entitySelect = $this->entitySelect($selects);
         foreach ($entitySelect->wheres as $where) {
@@ -79,7 +82,7 @@ class ProductReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: true, fixtureRows: $fixtureRows, selects: $selects);
 
-        $result = $reader->getBySku(1, ['NGO-T2092']);
+        $result = $this->payloadOf($reader->getBySku(1, ['NGO-T2092']));
 
         $this->assertCount(1, $result['items']);
         $this->assertSame('NGO-T2092', $result['items'][0]['sku']);
@@ -94,7 +97,7 @@ class ProductReaderTest extends TestCase
         $skus = array_map(static fn (int $i): string => "SKU-{$i}", range(1, 101));
 
         $this->expectException(InputException::class);
-        $reader->getBySku(1, $skus);
+        $this->payloadOf($reader->getBySku(1, $skus));
     }
 
     public function testGetBySkuAcceptsExactlyOneHundredSkus(): void
@@ -106,7 +109,7 @@ class ProductReaderTest extends TestCase
 
         // 100 no debe rechazarse: solo lo que excede el tope. El fixture está
         // vacío a propósito, así que basta con que no lance InputException.
-        $result = $reader->getBySku(1, $skus);
+        $result = $this->payloadOf($reader->getBySku(1, $skus));
 
         $this->assertSame(['items' => []], $result);
     }
@@ -131,7 +134,7 @@ class ProductReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: false, fixtureRows: $fixtureRows, selects: $selects);
 
-        $result = $reader->getPage(storeId: 1, limit: 10);
+        $result = $this->payloadOf($reader->getPage(storeId: 1, limit: 10));
 
         $this->assertSame(['A', 'B', 'C'], array_column($result['items'], 'sku'));
     }
@@ -150,7 +153,7 @@ class ProductReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: false, fixtureRows: $fixtureRows, selects: $selects);
 
-        $result = $reader->getPage(storeId: 1, limit: 2);
+        $result = $this->payloadOf($reader->getPage(storeId: 1, limit: 2));
 
         $this->assertCount(2, $result['items']);
         $this->assertNotNull($result['next_cursor']);
@@ -170,7 +173,7 @@ class ProductReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: false, fixtureRows: $fixtureRows, selects: $selects);
 
-        $result = $reader->getPage(storeId: 1, limit: 5);
+        $result = $this->payloadOf($reader->getPage(storeId: 1, limit: 5));
 
         $this->assertCount(2, $result['items']);
         $this->assertNull($result['next_cursor']);
@@ -181,7 +184,7 @@ class ProductReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasRowId: true, hasVersioning: true, fixtureRows: [], selects: $selects);
 
-        $result = $reader->getBySku(1, []);
+        $result = $this->payloadOf($reader->getBySku(1, []));
 
         $this->assertSame(['items' => []], $result);
         $this->assertSame([], $selects, 'no debería haber ejecutado ninguna consulta');

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 from sqlalchemy import select
 
 from skudo.ingest.delta_sync import delta_sync
@@ -59,14 +60,14 @@ def make_source(tenant_id: int, changes=CHANGES, refreshed=None) -> TenantSource
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/environment"):
-            return httpx.Response(200, json=environment)
+            return skudo_response(environment)
         if path.endswith("/deltas"):
             since = int(request.url.params.get("sinceId", 0))
             if since >= (changes["last_change_id"] or 0):
-                return httpx.Response(200, json={"items": [], "last_change_id": None})
-            return httpx.Response(200, json=changes)
+                return skudo_response({"items": [], "last_change_id": None})
+            return skudo_response(changes)
         if path.endswith("/products-by-sku"):
-            return httpx.Response(200, json={"items": refreshed or REFRESHED})
+            return skudo_response({"items": refreshed or REFRESHED})
         return httpx.Response(404)
 
     return TenantSource.from_tenant(

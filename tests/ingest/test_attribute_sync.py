@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 from sqlalchemy import func, select
 
 from skudo.ingest.attribute_sync import sync_attributes
@@ -78,8 +79,8 @@ def make_source(tenant_id: int, page: dict = COLOR_PAGE) -> TenantSource:
         if request.url.path.endswith("/attributes"):
             cursor = request.url.params.get("cursor")
             if cursor:
-                return httpx.Response(200, json={"items": [], "next_cursor": None})
-            return httpx.Response(200, json=page)
+                return skudo_response({"items": [], "next_cursor": None})
+            return skudo_response(page)
         return httpx.Response(404)
 
     return TenantSource.from_tenant(

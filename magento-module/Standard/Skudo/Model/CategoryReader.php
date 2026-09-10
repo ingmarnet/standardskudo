@@ -93,7 +93,7 @@ class CategoryReader implements CategoryReaderInterface
 
         $rows = $connection->fetchAll($select);
         if ($rows === []) {
-            return ['items' => [], 'next_cursor' => null];
+            return WebApiEnvelope::wrap(['items' => [], 'next_cursor' => null]);
         }
 
         $keys = array_map(static fn (array $row): int => (int) $row['key'], $rows);
@@ -116,12 +116,12 @@ class CategoryReader implements CategoryReaderInterface
             ];
         }
 
-        return [
+        return WebApiEnvelope::wrap([
             'items' => $items,
             'next_cursor' => count($rows) < $limit
                 ? null
                 : $this->cursor->encode($keys[array_key_last($keys)]),
-        ];
+        ]);
     }
 
     private function baseCategorySelect(AdapterInterface $connection, string $keyColumn): Select

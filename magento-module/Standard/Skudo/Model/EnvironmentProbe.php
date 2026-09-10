@@ -30,7 +30,7 @@ class EnvironmentProbe implements EnvironmentProbeInterface
     {
         $hasStaging = $this->modules->has('Magento_Staging');
 
-        return [
+        return WebApiEnvelope::wrap([
             'edition' => $this->metadata->getEdition(),
             'version' => $this->metadata->getVersion(),
             // La clave se detecta del esquema, no de la edición: Commerce sin
@@ -44,7 +44,7 @@ class EnvironmentProbe implements EnvironmentProbeInterface
             'store_views' => $this->storeViews(),
             'counts' => $this->counts(),
             'module_version' => self::MODULE_VERSION,
-        ];
+        ]);
     }
 
     private function websites(): array

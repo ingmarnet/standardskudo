@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 
 from skudo.ingest.reconcile import reconcile, sku_digest
 from skudo.ingest.source import TenantSource
@@ -29,9 +30,7 @@ STORE_VIEW = 1
 def make_source(tenant_id: int, skus: list[str]) -> TenantSource:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/checksums"):
-            return httpx.Response(
-                200, json={"product_count": len(skus), "sku_digest": sku_digest(skus)}
-            )
+            return skudo_response({"product_count": len(skus), "sku_digest": sku_digest(skus)})
         return httpx.Response(404)
 
     return TenantSource.from_tenant(

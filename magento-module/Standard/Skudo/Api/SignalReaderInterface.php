@@ -21,11 +21,19 @@ interface SignalReaderInterface
      * `search_demand` es una atribución aproximada (ver
      * SignalReader::attachSearchDemand()), no una medición.
      *
+     *
+     * La respuesta viaja ENVUELTA un nivel (`WebApiEnvelope::wrap()`):
+     * `[<payload>]`, no `<payload>`. `ServiceOutputProcessor::convertValue()`
+     * reindexa el primer nivel de todo `mixed[]` y descartaría las claves del
+     * payload; envolverlo hace que el `foreach` devuelva la misma lista de un
+     * elemento y el payload llegue intacto. El lado Python desenvuelve con
+     * `response.json()[0]`. Ver `Model\WebApiEnvelope`.
+     *
      * @param int $storeId
      * @param int $days Ventana de la agregación de ventas y de search_query.
-     * @return mixed[] {"items": list<array{sku: string, units_sold: int,
+     * @return mixed[] [{"items": list<array{sku: string, units_sold: int,
      *     revenue: float, salable_qty: float|null, physical_qty: float|null,
-     *     uses_msi: bool, margin: float|null, search_demand: int}>}
+     *     uses_msi: bool, margin: float|null, search_demand: int}>}]
      */
     public function getSignals(int $storeId, int $days = 90): array;
 }

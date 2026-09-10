@@ -6,6 +6,7 @@ namespace Standard\Skudo\Test\Unit\Model;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\ChecksumReader;
 
@@ -35,6 +36,8 @@ use Standard\Skudo\Model\ChecksumReader;
  */
 class ChecksumReaderTest extends TestCase
 {
+    use UnwrapsWebApiEnvelope;
+
     /**
      * Calculado independientemente en Python:
      *   hashlib.sha256("\n".join(sorted(["SKU-A","SKU-B","SKU-C"])).encode("utf-8")).hexdigest()
@@ -56,7 +59,7 @@ class ChecksumReaderTest extends TestCase
             $this->entityRow('SKU-C'),
         ]);
 
-        $result = $reader->getChecksums(storeId: 1);
+        $result = $this->payloadOf($reader->getChecksums(storeId: 1));
 
         $this->assertSame(3, $result['product_count']);
         $this->assertSame(self::EXPECTED_DIGEST, $result['sku_digest']);
@@ -78,7 +81,7 @@ class ChecksumReaderTest extends TestCase
             $this->entityRow('SKU-B'),
         ]);
 
-        $result = $reader->getChecksums(storeId: 1);
+        $result = $this->payloadOf($reader->getChecksums(storeId: 1));
 
         $this->assertSame(self::EXPECTED_DIGEST, $result['sku_digest']);
     }
@@ -128,7 +131,7 @@ class ChecksumReaderTest extends TestCase
 
         $reader = $this->makeReader(hasVersioning: true, entityRows: $entityRows);
 
-        $result = $reader->getChecksums(storeId: 1);
+        $result = $this->payloadOf($reader->getChecksums(storeId: 1));
 
         // Solo dos SKUs activos (SKU-A una vez, SKU-B una vez), no tres filas.
         $this->assertSame(2, $result['product_count']);
@@ -141,7 +144,7 @@ class ChecksumReaderTest extends TestCase
         $selects = [];
         $reader = $this->makeReader(hasVersioning: false, entityRows: [$this->entityRow('SKU-A')], selects: $selects);
 
-        $reader->getChecksums(storeId: 1);
+        $this->payloadOf($reader->getChecksums(storeId: 1));
 
         // Sin columnas de versionado, ActiveVersionResolver no agrega
         // ningún where(): la consulta queda vacía de condiciones (no solo

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 
 from skudo.acceptance.s0 import run_s0_acceptance
 from skudo.ingest.attribute_sync import sync_attributes
@@ -37,16 +38,13 @@ def make_source(tenant_id: int, skus: list[str] | dict[int, list[str]]) -> Tenan
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/environment"):
-            return httpx.Response(200, json=environment)
+            return skudo_response(environment)
         if request.url.path.endswith("/checksums"):
             store_skus = skus_of(int(request.url.params["storeId"]))
-            return httpx.Response(
-                200,
-                json={
+            return skudo_response({
                     "product_count": len(store_skus),
                     "sku_digest": sku_digest(store_skus),
-                },
-            )
+            })
         return httpx.Response(404)
 
     return TenantSource.from_tenant(
@@ -77,9 +75,7 @@ def make_attribute_source(tenant_id: int, page: dict = COLOR_ATTRIBUTE_PAGE) -> 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/attributes"):
             cursor = request.url.params.get("cursor")
-            return httpx.Response(
-                200, json={"items": [], "next_cursor": None} if cursor else page
-            )
+            return skudo_response({"items": [], "next_cursor": None} if cursor else page)
         return httpx.Response(404)
 
     return TenantSource.from_tenant(
@@ -138,25 +134,18 @@ def make_ingestion_source(
         path = request.url.path
         cursor = request.url.params.get("cursor")
         if path.endswith("/environment"):
-            return httpx.Response(200, json=ENVIRONMENT)
+            return skudo_response(ENVIRONMENT)
         if path.endswith("/checksums"):
-            return httpx.Response(
-                200,
-                json={
+            return skudo_response({
                     "product_count": len(checksum_skus),
                     "sku_digest": sku_digest(checksum_skus),
-                },
-            )
+            })
         if path.endswith("/products"):
-            return httpx.Response(200, json=products_page)
+            return skudo_response(products_page)
         if path.endswith("/categories"):
-            return httpx.Response(
-                200, json={"items": [], "next_cursor": None} if cursor else categories_page
-            )
+            return skudo_response({"items": [], "next_cursor": None} if cursor else categories_page)
         if path.endswith("/attributes"):
-            return httpx.Response(
-                200, json={"items": [], "next_cursor": None} if cursor else attributes_page
-            )
+            return skudo_response({"items": [], "next_cursor": None} if cursor else attributes_page)
         return httpx.Response(404)
 
     return TenantSource.from_tenant(

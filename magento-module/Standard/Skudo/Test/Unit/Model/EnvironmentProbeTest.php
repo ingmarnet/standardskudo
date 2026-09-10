@@ -9,11 +9,14 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\EntityKeyResolver;
 use Standard\Skudo\Model\EnvironmentProbe;
 
 class EnvironmentProbeTest extends TestCase
 {
+    use UnwrapsWebApiEnvelope;
+
     private function probe(
         bool $hasStaging,
         bool $hasRowId,
@@ -67,12 +70,12 @@ class EnvironmentProbeTest extends TestCase
 
     public function testOpenSourceReportsEntityId(): void
     {
-        $profile = $this->probe(
+        $profile = $this->payloadOf($this->probe(
             hasStaging: false,
             hasRowId: false,
             hasMsi: true,
             edition: 'Community',
-        )->getProfile();
+        )->getProfile());
 
         $this->assertSame('Community', $profile['edition']);
         $this->assertSame('entity_id', $profile['product_entity_key']);
@@ -82,12 +85,12 @@ class EnvironmentProbeTest extends TestCase
 
     public function testCommerceWithStagingReportsRowId(): void
     {
-        $profile = $this->probe(
+        $profile = $this->payloadOf($this->probe(
             hasStaging: true,
             hasRowId: true,
             hasMsi: true,
             edition: 'Enterprise',
-        )->getProfile();
+        )->getProfile());
 
         $this->assertSame('row_id', $profile['product_entity_key']);
         $this->assertTrue($profile['staging_enabled']);
@@ -100,12 +103,12 @@ class EnvironmentProbeTest extends TestCase
         // la columna row_id no existe en el esquema. Si la detección
         // mirara getEdition() en vez de tableColumnExists(), este caso
         // reportaría row_id incorrectamente y el test fallaría.
-        $profile = $this->probe(
+        $profile = $this->payloadOf($this->probe(
             hasStaging: false,
             hasRowId: false,
             hasMsi: false,
             edition: 'Enterprise',
-        )->getProfile();
+        )->getProfile());
 
         $this->assertSame('Enterprise', $profile['edition']);
         $this->assertSame('entity_id', $profile['product_entity_key']);

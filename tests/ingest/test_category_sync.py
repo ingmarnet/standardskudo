@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 from sqlalchemy import select
 
 from skudo.ingest.category_sync import sync_categories
@@ -50,7 +51,7 @@ def make_source(tenant_id: int) -> TenantSource:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/categories"):
             cursor = request.url.params.get("cursor")
-            return httpx.Response(200, json=PAGE_2 if cursor else PAGE_1)
+            return skudo_response(PAGE_2 if cursor else PAGE_1)
         return httpx.Response(404)
 
     return TenantSource.from_tenant(
@@ -138,7 +139,7 @@ def test_a_second_sync_updates_rather_than_duplicates_when_data_changes(db_sessi
         if request.url.path.endswith("/categories"):
             cursor = request.url.params.get("cursor")
             if cursor:
-                return httpx.Response(200, json={"items": [], "next_cursor": None})
+                return skudo_response({"items": [], "next_cursor": None})
             changed_page = {
                 "items": [
                     {
@@ -153,7 +154,7 @@ def test_a_second_sync_updates_rather_than_duplicates_when_data_changes(db_sessi
                 ],
                 "next_cursor": None,
             }
-            return httpx.Response(200, json=changed_page)
+            return skudo_response(changed_page)
         return httpx.Response(404)
 
     source = TenantSource.from_tenant(

@@ -11,6 +11,38 @@ from skudo.magento.environment import EnvironmentProfile, parse_environment
 PRODUCTS_BY_SKU_CHUNK = 100
 
 
+def unwrap(response: httpx.Response) -> dict:
+    """Desenvuelve el payload de una respuesta del módulo Standard_Skudo.
+
+    Magento no serializa lo que un método de web API devuelve: lo pasa antes
+    por `ServiceOutputProcessor::convertValue()`, que para un `@return mixed[]`
+    hace `foreach ($data as $datum) { $result[] = $datum; }` y REINDEXA el
+    primer nivel, descartando sus claves. Un `{"items": [...], "next_cursor":
+    "x"}` llegaba acá como `[[...], "x"]`: `page.get("next_cursor")` reventaba
+    con `AttributeError` sobre una lista, y `parse_environment` con un error de
+    pydantic — sobre HTTP real, en los OCHO endpoints a la vez, mientras cada
+    test de los dos lados afirmaba en verde la forma anterior a esa conversión.
+
+    El módulo envuelve ahora cada payload un nivel (`WebApiEnvelope::wrap()`,
+    `return [$payload]`), que el `foreach` deja intacto, y acá se desenvuelve.
+
+    La comprobación es explícita y no un `[0]` a secas para que un módulo viejo
+    —o uno al que alguien le revierta el envoltorio— falle con un mensaje que
+    nombra la causa, en vez de con un `AttributeError` tres funciones más
+    abajo que no explica nada.
+    """
+    body = response.json()
+    if not isinstance(body, list) or len(body) != 1 or not isinstance(body[0], dict):
+        raise RuntimeError(
+            f"{response.request.url.path} no devolvió el payload envuelto que "
+            "Standard_Skudo declara: se esperaba una lista de un solo objeto "
+            "(`[<payload>]`, ver Model\\WebApiEnvelope) y llegó "
+            f"{type(body).__name__} {body!r:.200}. Un módulo sin el envoltorio "
+            "pierde las claves de primer nivel en ServiceOutputProcessor."
+        )
+    return body[0]
+
+
 class MagentoClient:
     """Cliente del módulo Standard_Skudo. Solo lectura en S0."""
 
@@ -25,7 +57,7 @@ class MagentoClient:
     def environment(self) -> EnvironmentProfile:
         response = self._client.get("/environment")
         response.raise_for_status()
-        return parse_environment(response.json())
+        return parse_environment(unwrap(response))
 
     def iter_products(self, store_id: int, limit: int = 500) -> Iterator[dict]:
         """Recorre el catálogo página a página. Cada yield es una página completa.
@@ -42,7 +74,7 @@ class MagentoClient:
                 params["cursor"] = cursor
             response = self._client.get("/products", params=params)
             response.raise_for_status()
-            page = response.json()
+            page = unwrap(response)
 
             next_cursor = page.get("next_cursor")
             if next_cursor and next_cursor == cursor:
@@ -72,7 +104,7 @@ class MagentoClient:
                 params["cursor"] = cursor
             response = self._client.get("/attributes", params=params)
             response.raise_for_status()
-            page = response.json()
+            page = unwrap(response)
 
             next_cursor = page.get("next_cursor")
             if next_cursor and next_cursor == cursor:
@@ -102,7 +134,7 @@ class MagentoClient:
                 params["cursor"] = cursor
             response = self._client.get("/categories", params=params)
             response.raise_for_status()
-            page = response.json()
+            page = unwrap(response)
 
             next_cursor = page.get("next_cursor")
             if next_cursor and next_cursor == cursor:
@@ -129,7 +161,7 @@ class MagentoClient:
         while True:
             response = self._client.get("/deltas", params={"sinceId": cursor, "limit": limit})
             response.raise_for_status()
-            page = response.json()
+            page = unwrap(response)
 
             if not page["items"]:
                 return
@@ -181,13 +213,13 @@ class MagentoClient:
                 "/products-by-sku", json={"storeId": store_id, "skus": chunk}
             )
             response.raise_for_status()
-            items.extend(response.json()["items"])
+            items.extend(unwrap(response)["items"])
         return items
 
     def checksums(self, store_id: int) -> dict:
         response = self._client.get("/checksums", params={"storeId": store_id})
         response.raise_for_status()
-        return response.json()
+        return unwrap(response)
 
     def close(self) -> None:
         self._client.close()

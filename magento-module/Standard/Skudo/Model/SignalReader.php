@@ -87,7 +87,7 @@ class SignalReader implements SignalReaderInterface
         $this->attachMargin($rows, $storeId);
         $this->attachSearchDemand($rows, $storeId, $days);
 
-        return ['items' => array_values($rows)];
+        return WebApiEnvelope::wrap(['items' => array_values($rows)]);
     }
 
     /**

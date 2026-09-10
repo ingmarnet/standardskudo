@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 
 from skudo.ingest.reconcile import reconcile, sku_digest
 from skudo.ingest.source import TenantSource
@@ -12,7 +13,7 @@ from skudo.mirror.products import ProductIdentity, upsert_record
 def make_source(tenant_id: int, count: int, digest: str) -> TenantSource:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/checksums"):
-            return httpx.Response(200, json={"product_count": count, "sku_digest": digest})
+            return skudo_response({"product_count": count, "sku_digest": digest})
         return httpx.Response(404)
 
     return TenantSource.from_tenant(

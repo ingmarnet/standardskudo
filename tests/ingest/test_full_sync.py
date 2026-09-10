@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from skudo_testing import skudo_response
 
 from skudo.ingest.full_sync import full_sync
 from skudo.ingest.source import TenantSource
@@ -64,10 +65,10 @@ def make_source(
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/environment"):
-            return httpx.Response(200, json=environment)
+            return skudo_response(environment)
         if request.url.path.endswith("/products"):
             cursor = request.url.params.get("cursor")
-            return httpx.Response(200, json=page_2 if cursor else page_1)
+            return skudo_response(page_2 if cursor else page_1)
         return httpx.Response(404)
 
     return TenantSource.from_tenant(

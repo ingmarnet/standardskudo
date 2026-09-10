@@ -7,6 +7,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\EntityKeyResolver;
 use Standard\Skudo\Model\SignalReader;
@@ -51,6 +52,8 @@ use Standard\Skudo\Model\SignalReader;
  */
 class SignalReaderTest extends TestCase
 {
+    use UnwrapsWebApiEnvelope;
+
     public function testMsiAbsentFallsBackToPhysicalQuantity(): void
     {
         $modules = $this->createMock(ModuleListInterface::class);
@@ -86,7 +89,7 @@ class SignalReaderTest extends TestCase
             ],
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertFalse($item['uses_msi']);
         $this->assertSame(9.0, $item['physical_qty']);
@@ -121,7 +124,7 @@ class SignalReaderTest extends TestCase
             salableTableExists: false,
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertTrue($item['uses_msi']);
         $this->assertSame(9.0, $item['physical_qty']);
@@ -154,7 +157,7 @@ class SignalReaderTest extends TestCase
             salableTableExists: true,
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertSame(4.0, $item['salable_qty']);
         $this->assertSame(9.0, $item['physical_qty']);
@@ -177,7 +180,7 @@ class SignalReaderTest extends TestCase
             ],
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertNull($item['physical_qty']);
     }
@@ -202,7 +205,7 @@ class SignalReaderTest extends TestCase
             ],
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertNull($item['margin']);
     }
@@ -227,7 +230,7 @@ class SignalReaderTest extends TestCase
             ],
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertSame(0.25, $item['margin']);
     }
@@ -253,7 +256,7 @@ class SignalReaderTest extends TestCase
             ],
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertNull($item['margin']);
     }
@@ -286,8 +289,8 @@ class SignalReaderTest extends TestCase
             ],
         );
 
-        $store1 = $this->onlyItem($reader->getSignals(storeId: 1));
-        $store3 = $this->onlyItem($reader->getSignals(storeId: 3));
+        $store1 = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+        $store3 = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 3)));
 
         // (16 - 10) / 16 = 0.375, no (20 - 10) / 20 = 0.5
         $this->assertSame(0.375, $store1['margin'], 'store view 1 debe usar SU override de precio (16), no el global (20)');
@@ -325,7 +328,7 @@ class SignalReaderTest extends TestCase
             ],
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 1));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
 
         $this->assertNull(
             $item['margin'],
@@ -367,7 +370,7 @@ class SignalReaderTest extends TestCase
             salableTableExists: true,
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 3));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 3)));
 
         $this->assertSame(7.0, $item['salable_qty'], 'debía leer inventory_stock_3, no el Stock 1 por defecto');
     }
@@ -404,7 +407,7 @@ class SignalReaderTest extends TestCase
             salableTableExists: true,
         );
 
-        $item = $this->onlyItem($reader->getSignals(storeId: 0));
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 0)));
 
         $this->assertNull($item['salable_qty']);
         $this->assertSame(9.0, $item['physical_qty'], 'physical_qty no depende de la resolución de stock MSI');

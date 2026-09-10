@@ -7,6 +7,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Exception\LocalizedException;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 use Standard\Skudo\Model\AttributeReader;
 use Standard\Skudo\Model\Cursor;
 
@@ -47,6 +48,8 @@ use Standard\Skudo\Model\Cursor;
  */
 class AttributeReaderTest extends TestCase
 {
+    use UnwrapsWebApiEnvelope;
+
     private const CATALOG_PRODUCT_ENTITY_TYPE_ID = 4;
 
     public function testDeclaredScopeMapsIsGlobalOneToGlobal(): void
@@ -169,13 +172,13 @@ class AttributeReaderTest extends TestCase
             selects: $selects,
         );
 
-        $firstPage = $reader->getPage(limit: 2);
+        $firstPage = $this->payloadOf($reader->getPage(limit: 2));
 
         $this->assertSame(['attr_100', 'attr_200'], array_column($firstPage['items'], 'code'));
         $this->assertNotNull($firstPage['next_cursor']);
         $this->assertSame(200, (new Cursor())->decode($firstPage['next_cursor']));
 
-        $secondPage = $reader->getPage(limit: 2, cursor: $firstPage['next_cursor']);
+        $secondPage = $this->payloadOf($reader->getPage(limit: 2, cursor: $firstPage['next_cursor']));
 
         $this->assertSame(['attr_300'], array_column($secondPage['items'], 'code'));
         $this->assertNull($secondPage['next_cursor'], 'una página corta (menos filas que el límite) no debe pedir otra página más');
@@ -212,7 +215,7 @@ class AttributeReaderTest extends TestCase
             selects: $selects,
         );
 
-        $result = $reader->getPage(limit: 10);
+        $result = $this->payloadOf($reader->getPage(limit: 10));
 
         $bySku = array_column($result['items'], 'attribute_set_ids', 'code');
         $this->assertSame([4, 7], $bySku['attr_100']);
@@ -259,7 +262,7 @@ class AttributeReaderTest extends TestCase
             selects: $selects,
         );
 
-        return $reader->getPage(limit: 10);
+        return $this->payloadOf($reader->getPage(limit: 10));
     }
 
     /**
@@ -280,7 +283,7 @@ class AttributeReaderTest extends TestCase
             selects: $selects,
         );
 
-        return $reader->getPage(limit: 10);
+        return $this->payloadOf($reader->getPage(limit: 10));
     }
 
     /** @return mixed[] */
