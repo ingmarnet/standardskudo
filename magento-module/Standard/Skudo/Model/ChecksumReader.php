@@ -18,31 +18,29 @@ use Standard\Skudo\Api\ChecksumReaderInterface;
  * coincide mientras el contenido no (un SKU borrado y otro creado en el
  * mismo intervalo).
  *
- * Ruling 3 (S0 Task 13): esta clase no reimplementa la detección de versión
- * activa de Magento_Staging. ActiveVersionResolver, ya usada por
- * ProductReader (Task 8), DeltaReader (Task 10) y SignalReader (Task 12), es
- * la única que responde esa pregunta de esquema. Sin ese filtro,
- * `catalog_product_entity` tiene una fila por VERSIÓN (no por producto) bajo
- * Magento_Staging, y en la instancia de referencia hay 394 filas que no son
- * la versión vigente de ningún producto; incluirlas haría que el digest y el
- * conteo nunca coincidieran con el espejo, que guarda una sola fila por
- * producto por store view.
+ * Ruling 3 (S0 Task 13, REVISADA sobre HTTP real): esta clase no agrega
+ * NINGÚN filtro de versión propio. La versión anterior de esta ruling decía
+ * lo contrario —delegaba en `ActiveVersionResolver`, que acotaba por reloj—
+ * y era un error: bajo Magento_Staging `catalog_product_entity` sí tiene una
+ * fila por VERSIÓN, pero Magento ya acota todo `Select` del framework a la
+ * versión APLICADA por su cuenta, y anclar un segundo filtro en el reloj
+ * produce un conjunto más estrecho que el que la tienda sirve. Como
+ * `/products` sufría el MISMO doble filtro, los dos lados coincidían sobre
+ * el conjunto estrechado y `reconcile()` reportaba "sin deriva" para
+ * siempre: la red de seguridad quedaba ciega justo al hueco que existe para
+ * detectar. Ver `Model\VersioningSchema`.
  *
  * Ruling 4 (S0 Task 13, cross-edition): esta clase no referencia ninguna
  * clase de `Magento\Staging\*` ni de Adobe Commerce, ni decide nada a partir
- * del edition string — ActiveVersionResolver detecta la presencia de
- * versionado por columnas (tableColumnExists), no por instalación de
- * módulos ni edición, así que este módulo carga igual en Community y en
- * Adobe Commerce.
+ * del edition string. Tras quitar el filtro propio no queda ni siquiera una
+ * pregunta de esquema que hacer: el mismo código carga igual en Community y
+ * en Adobe Commerce, y en cada una devuelve la población que ESA instancia
+ * considera activa.
  */
 class ChecksumReader implements ChecksumReaderInterface
 {
     public function __construct(
         private readonly ResourceConnection $resource,
-        // Inyectada, no instanciada con `new`: la MISMA clase que
-        // ProductReader/DeltaReader/SignalReader usan para la misma
-        // pregunta de esquema (Ruling 3, ver docblock de la clase).
-        private readonly ActiveVersionResolver $activeVersionResolver,
     ) {
     }
 
@@ -65,8 +63,9 @@ class ChecksumReader implements ChecksumReaderInterface
         $connection = $this->resource->getConnection();
         $entity = $this->resource->getTableName('catalog_product_entity');
 
+        // Sin where propio: la población es exactamente la que Magento
+        // considera activa, la MISMA que devuelve `/products` (Ruling 3).
         $select = $connection->select()->from(['e' => $entity], ['sku' => 'e.sku']);
-        $this->activeVersionResolver->applyToSelect($select, 'e.');
 
         $skus = $connection->fetchCol($select);
 

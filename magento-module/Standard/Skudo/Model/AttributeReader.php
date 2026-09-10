@@ -18,7 +18,7 @@ use Standard\Skudo\Api\AttributeReaderInterface;
  *
  * Esta clase NO reimplementa ninguna detección de esquema: a diferencia de
  * ProductReader/DeltaReader/SignalReader/ChecksumReader, no consume
- * EntityKeyResolver ni ActiveVersionResolver. Se verificó contra la
+ * EntityKeyResolver ni VersioningSchema. Se verificó contra la
  * instancia de referencia (solo lectura) que ninguna de las tablas que este
  * lector toca — `eav_attribute`, `catalog_eav_attribute`,
  * `eav_entity_attribute`, `eav_attribute_option`,
@@ -26,7 +26,7 @@ use Standard\Skudo\Api\AttributeReaderInterface;
  * `created_in`/`updated_in`: esas dos preguntas de esquema son propias de
  * `catalog_product_entity` (los DATOS de producto, versionados por
  * Magento_Staging), no de las DEFINICIONES de atributo/opción, que no se
- * versionan. Inyectar cualquiera de los dos resolvers acá sería la
+ * versionan. Inyectar cualquiera de las dos clases acá sería la
  * reimplementación al revés que este proyecto existe para evitar: usar una
  * pieza compartida donde no responde ninguna pregunta real.
  *

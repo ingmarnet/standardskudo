@@ -25,7 +25,7 @@ use Standard\Skudo\Api\DeltaReaderInterface;
 use Standard\Skudo\Api\EnvironmentProbeInterface;
 use Standard\Skudo\Api\ProductReaderInterface;
 use Standard\Skudo\Api\SignalReaderInterface;
-use Standard\Skudo\Model\ActiveVersionResolver;
+use Standard\Skudo\Model\VersioningSchema;
 use Standard\Skudo\Model\AttributeReader;
 use Standard\Skudo\Model\CategoryReader;
 use Standard\Skudo\Model\ChecksumReader;
@@ -336,8 +336,7 @@ class ServiceOutputEnvelopeTest extends TestCase
         return new ProductReader(
             $resource,
             new Cursor(),
-            new EntityKeyResolver($resource),
-            new ActiveVersionResolver($resource)
+            new EntityKeyResolver($resource)
         );
     }
 
@@ -345,14 +344,14 @@ class ServiceOutputEnvelopeTest extends TestCase
     {
         $resource = $this->resourceReturning($this->emptyConnection());
 
-        return new DeltaReader($resource, new ActiveVersionResolver($resource));
+        return new DeltaReader($resource, new VersioningSchema($resource));
     }
 
     private function checksumReader(): ChecksumReader
     {
         $resource = $this->resourceReturning($this->emptyConnection());
 
-        return new ChecksumReader($resource, new ActiveVersionResolver($resource));
+        return new ChecksumReader($resource);
     }
 
     private function attributeReader(): AttributeReader
@@ -370,7 +369,6 @@ class ServiceOutputEnvelopeTest extends TestCase
             $resource,
             new Cursor(),
             new EntityKeyResolver($resource),
-            new ActiveVersionResolver($resource),
             $storeManager
         );
     }
@@ -384,8 +382,7 @@ class ServiceOutputEnvelopeTest extends TestCase
         return new SignalReader(
             $resource,
             $modules,
-            new EntityKeyResolver($resource),
-            new ActiveVersionResolver($resource)
+            new EntityKeyResolver($resource)
         );
     }
 

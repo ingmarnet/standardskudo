@@ -9,7 +9,6 @@ use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
-use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\CategoryReader;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
@@ -25,7 +24,7 @@ use Standard\Skudo\Model\EntityKeyResolver;
  * referencia, solo lectura, y NO mencionada por el brief original de esta
  * tarea): `catalog_category_entity` también es staged — tiene su propio
  * `row_id` y `created_in`/`updated_in` — así que este lector reutiliza
- * EntityKeyResolver y ActiveVersionResolver pidiéndoles la respuesta para
+ * EntityKeyResolver pidiéndole la respuesta para
  * `catalog_category_entity`, en vez de asumir que solo los productos se
  * versionan.
  *
@@ -266,18 +265,6 @@ class CategoryReaderTest extends TestCase
         $this->assertSame('Solo Global', $states[self::STORE_BR]['name']);
     }
 
-    public function testActiveVersionFilterIsAddedWhenVersioningColumnsArePresent(): void
-    {
-        $selects = [];
-        $reader = $this->makeReader(hasRowId: true, hasVersioning: true, categoryRows: [], selects: $selects);
-
-        $this->payloadOf($reader->getPage(limit: 10));
-
-        $entitySelect = $this->entitySelect($selects);
-        $this->assertContains('e.created_in <= UNIX_TIMESTAMP()', array_column($entitySelect->wheres, 'cond'));
-        $this->assertContains('e.updated_in > UNIX_TIMESTAMP()', array_column($entitySelect->wheres, 'cond'));
-    }
-
     public function testNoActiveVersionFilterIsAddedWhenVersioningColumnsAreAbsent(): void
     {
         $selects = [];
@@ -290,41 +277,6 @@ class CategoryReaderTest extends TestCase
             $this->assertStringNotContainsString('created_in', $where['cond']);
             $this->assertStringNotContainsString('updated_in', $where['cond']);
         }
-    }
-
-    /**
-     * Igual que ProductReaderTest (Regla 3, Task 8): sin este filtro, la
-     * paginación ascendente por clave hace que la versión programada a
-     * futuro (siempre con la clave más alta) gane el upsert sobre la
-     * vigente. Dos versiones del mismo category_id (252): la vieja cerrada
-     * en el pasado, la vigente sin fin (2147483647).
-     */
-    public function testOnlyTheActiveVersionOfACategoryIsReturnedWhenItHasMultipleVersions(): void
-    {
-        $categoryRows = [
-            $this->categoryRow(
-                rowId: 900,
-                entityId: 252,
-                path: '1/2/222/OLD',
-                createdIn: 1,
-                updatedIn: 1_000_000_000,
-            ),
-            $this->categoryRow(
-                rowId: 901,
-                entityId: 252,
-                path: '1/2/222/252',
-                createdIn: 1_000_000_000,
-                updatedIn: 2_147_483_647,
-            ),
-        ];
-
-        $selects = [];
-        $reader = $this->makeReader(hasRowId: true, hasVersioning: true, categoryRows: $categoryRows, selects: $selects);
-
-        $result = $this->payloadOf($reader->getPage(limit: 10));
-
-        $this->assertCount(1, $result['items']);
-        $this->assertSame([1, 2, 222, 252], $result['items'][0]['path']);
     }
 
     /**
@@ -520,7 +472,6 @@ class CategoryReaderTest extends TestCase
             $resource,
             new Cursor(),
             new EntityKeyResolver($resource),
-            new ActiveVersionResolver($resource),
             $storeManager,
         );
     }

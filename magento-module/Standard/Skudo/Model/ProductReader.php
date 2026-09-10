@@ -8,6 +8,19 @@ use Magento\Framework\DB\Select;
 use Magento\Framework\Exception\InputException;
 use Standard\Skudo\Api\ProductReaderInterface;
 
+/**
+ * Este lector NO acota la consulta a la versión activa: no agrega ni un
+ * `created_in` ni un `updated_in` propios. Bajo Magento_Staging,
+ * `catalog_product_entity` tiene una fila por VERSIÓN y no por producto,
+ * pero Magento ya inyecta su propia ventana —anclada en el id de la versión
+ * APLICADA— en todo `Select` del framework que haga FROM de una tabla
+ * staged, incluidos los joins. Un segundo filtro anclado en el reloj
+ * (lo que este lector hacía) es una definición DISTINTA de "activa" y su
+ * conjunción con la de Magento pierde filas que la tienda sí muestra.
+ * Ver `Model\VersioningSchema` para la medición y el porqué completo, y
+ * `Test/Unit/Model/NoOwnVersionFilterTest` para la prueba que impide que
+ * el filtro vuelva.
+ */
 class ProductReader implements ProductReaderInterface
 {
     private const MAX_LIMIT = 1000;
@@ -19,12 +32,6 @@ class ProductReader implements ProductReaderInterface
         private readonly ResourceConnection $resource,
         private readonly Cursor $cursor,
         private readonly EntityKeyResolver $entityKeyResolver,
-        // Inyectado, no instanciado con `new`, por la misma razón que
-        // EntityKeyResolver: DeltaReader (Task 10) inyecta la MISMA clase,
-        // así que ambos comparten una única instancia memoizada del
-        // esquema y una única definición de la regla de versión activa.
-        // Ver ActiveVersionResolver.
-        private readonly ActiveVersionResolver $activeVersionResolver,
     ) {
     }
 
@@ -38,7 +45,6 @@ class ProductReader implements ProductReaderInterface
             ->where('e.' . $keyColumn . ' > ?', $after)
             ->order('e.' . $keyColumn . ' ASC')
             ->limit($limit);
-        $this->applyActiveVersionFilter($select);
 
         $rows = $this->resource->getConnection()->fetchAll($select);
         if ($rows === []) {
@@ -75,7 +81,6 @@ class ProductReader implements ProductReaderInterface
         $select = $this->baseEntitySelect($keyColumn)
             // Identidad como texto, sin normalizar: 'sku' viaja tal cual.
             ->where('e.sku IN (?)', $skus);
-        $this->applyActiveVersionFilter($select);
 
         $rows = $this->resource->getConnection()->fetchAll($select);
 
@@ -102,28 +107,6 @@ class ProductReader implements ProductReaderInterface
                 'type_id' => 'e.type_id',
                 'updated_at' => 'e.updated_at',
             ]);
-    }
-
-    /**
-     * Restringe la consulta de entidad a la versión activa cuando el esquema
-     * la soporta (Magento_Staging: created_in/updated_in acotan la ventana de
-     * validez de cada versión de un mismo producto).
-     *
-     * Sin este filtro, `catalog_product_entity` no tiene una fila por
-     * producto sino una por versión, y como la paginación recorre la clave
-     * de forma ascendente, una versión programada a futuro siempre tiene la
-     * clave más alta: ganaría el upsert sobre la versión vigente.
-     *
-     * La detección del esquema y la definición de la ventana viven en
-     * ActiveVersionResolver, no acá: ver esa clase para el porqué.
-     *
-     * Como las tablas EAV se indexan por la misma clave que la fila de
-     * entidad, acotar la entidad a la versión activa ya deja solo esos
-     * valores: las tablas EAV no se filtran aparte.
-     */
-    private function applyActiveVersionFilter(Select $select): void
-    {
-        $this->activeVersionResolver->applyToSelect($select, 'e.');
     }
 
     /**
@@ -155,8 +138,17 @@ class ProductReader implements ProductReaderInterface
                 'variant_key' => $globalValues['variant_key'] ?? null,
                 'attribute_set_id' => (int) $row['attribute_set_id'],
                 'type_id' => (string) $row['type_id'],
-                'global_values' => $globalValues,
-                'store_values' => $stores[$key] ?? [],
+                // (object), no el array PHP: un mapa codigo -> valor VACIO
+                // (`[]`) es indistinguible de una lista para json_encode() y
+                // llega al cliente como `[]` en vez de `{}`. Es el MISMO bug
+                // que AttributeReader ya neutraliza en `labels` (ver el
+                // Ruling 2 de esa clase), aplicado al mapa de valores EAV:
+                // verificado sobre HTTP real, `store_values: []` hacia
+                // estallar resolve_scope() del lado Python con
+                // `AttributeError: 'list' object has no attribute 'items'`
+                // en el primer producto sin override de store view.
+                'global_values' => (object) $globalValues,
+                'store_values' => (object) ($stores[$key] ?? []),
                 'website_ids' => $websites[$key] ?? [],
                 'category_ids' => $categories[(string) $row['sku']] ?? [],
                 'updated_at' => (string) $row['updated_at'],
@@ -239,16 +231,13 @@ class ProductReader implements ProductReaderInterface
             ->from(['l' => $link], ['category_id' => 'l.category_id'])
             ->join(['e' => $entity], 'e.entity_id = l.product_id', ['sku' => 'e.sku'])
             ->where('e.sku IN (?)', $skus);
-        // Igual que en la consulta de entidad: bajo Magento_Staging
-        // `catalog_product_entity` tiene una fila por VERSIÓN, así que unir por
-        // sku multiplica cada enlace de categoría por el número de versiones
-        // (caso real verificado: `NGO-T2092` tiene 3 filas de versión y esta
-        // consulta devolvía la categoría 603 tres veces). El espejo quedaba
-        // correcto solo porque `set_product_categories` deduplica del otro lado
-        // del cable — apoyarse en eso es apoyarse en un detalle del consumidor,
-        // y el inflado es proporcional a las versiones sobre cientos de miles
-        // de upserts.
-        $this->applyActiveVersionFilter($select);
+        // Sin filtro de versión propio: el join a `catalog_product_entity`
+        // es un FROM de tabla staged, así que Magento ya lo acota a la
+        // versión aplicada y deja como máximo una fila por entidad. La
+        // duplicación que este método temía (un sku con tres filas de
+        // versión devolviendo la misma categoría tres veces) no es
+        // reproducible en una petición real: verificado sobre la instancia
+        // de desarrollo, `categoryIds()` devuelve cada categoría una vez.
 
         $out = [];
         foreach ($connection->fetchAll($select) as $row) {

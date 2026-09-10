@@ -22,15 +22,18 @@ use Standard\Skudo\Api\CategoryReaderInterface;
  * solo lectura): `catalog_category_entity` es una entidad STAGED, igual
  * que `catalog_product_entity` — tiene su propio `row_id` y
  * `created_in`/`updated_in`. El brief original de esta tarea no lo
- * menciona. Por eso este lector inyecta las MISMAS `EntityKeyResolver` y
- * `ActiveVersionResolver` que usa `ProductReader`, pidiéndoles la
- * respuesta para `catalog_category_entity` en vez de escribir una tercera
- * copia de esa detección (ambas clases se generalizaron para aceptar el
- * nombre de tabla; ver sus docblocks). Sin este filtro, versiones
- * expiradas o programadas a futuro de una categoría entrarían al espejo
- * exactamente por el mismo motivo que en productos: la paginación
- * ascendente por clave hace que la versión con la clave más alta gane el
- * upsert.
+ * menciona. Por eso este lector inyecta la MISMA `EntityKeyResolver` que
+ * usa `ProductReader`, pidiéndole la respuesta para
+ * `catalog_category_entity` en vez de escribir una segunda copia de esa
+ * detección (la clase se generalizó para aceptar el nombre de tabla; ver
+ * su docblock).
+ *
+ * Lo que este lector NO hace, por la misma razón que `ProductReader`
+ * (verificado sobre HTTP real): no agrega una ventana de versión activa
+ * propia. Magento ya acota este FROM a la versión APLICADA, y de hecho la
+ * versión programada a futuro de la categoría 10 de la instancia de
+ * desarrollo (`row_id` 598, la clave más alta) queda fuera por el filtro
+ * de Magento, no por uno nuestro. Ver `Model\VersioningSchema`.
  *
  * `category_id` es siempre `entity_id` (identidad de negocio ESTABLE a
  * través de versiones), nunca la clave de paginación (`row_id` con
@@ -69,11 +72,10 @@ class CategoryReader implements CategoryReaderInterface
     public function __construct(
         private readonly ResourceConnection $resource,
         private readonly Cursor $cursor,
-        // Inyectadas, no instanciadas con `new`: son las MISMAS clases que
-        // ProductReader/DeltaReader usan para catalog_product_entity. Ver
-        // el docblock de la clase para el porqué de reusarlas también acá.
+        // Inyectada, no instanciada con `new`: es la MISMA clase que
+        // ProductReader usa para catalog_product_entity. Ver el docblock de
+        // la clase para el porqué de reusarla también acá.
         private readonly EntityKeyResolver $entityKeyResolver,
-        private readonly ActiveVersionResolver $activeVersionResolver,
         private readonly StoreManagerInterface $storeManager,
     ) {
     }
@@ -89,7 +91,6 @@ class CategoryReader implements CategoryReaderInterface
             ->where('e.' . $keyColumn . ' > ?', $after)
             ->order('e.' . $keyColumn . ' ASC')
             ->limit($limit);
-        $this->activeVersionResolver->applyToSelect($select, 'e.', self::CATEGORY_TABLE);
 
         $rows = $connection->fetchAll($select);
         if ($rows === []) {

@@ -6,32 +6,28 @@ namespace Standard\Skudo\Test\Unit\Model;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
-use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
 use Standard\Skudo\Model\ProductReader;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
 
 /**
- * L1: `ProductReader::categoryIds()` no aplicaba el filtro de versión vigente.
+ * `ProductReader::categoryIds()` es la única consulta del lector que ejecuta
+ * un join de verdad en pruebas: el `FakeSelect::join()` de
+ * `ProductReaderTest` es un no-op, así que ahí las subconsultas EAV/website/
+ * categoría nunca se evalúan. Este archivo trae un doble que SÍ resuelve el
+ * join contra filas de fixture.
  *
- * Une `catalog_category_product` con `catalog_product_entity` por `sku`, y bajo
- * Magento_Staging esa tabla tiene una fila por VERSIÓN, no por producto: cada
- * versión multiplica el join. Caso real verificado contra la instancia de
- * referencia (solo lectura): el SKU `NGO-T2092` tiene 3 filas de versión y la
- * consulta devuelve la categoría 603 tres veces.
- *
- * El espejo terminaba correcto porque `set_product_categories` hace
- * `sorted(set(...))`, así que esto es inflado de payload y no corrupción — pero
- * es inflado proporcional al número de versiones, sobre 456.974 upserts, y
- * apoyarse en que el consumidor deduplique es apoyarse en un detalle del otro
- * lado del cable.
- *
- * `ProductReaderTest` no puede cubrir esto: su `FakeSelect::join()` es un
- * no-op, así que las subconsultas EAV/website/category nunca se evalúan (es el
- * hallazgo M5, fuera de esta ola). Este archivo trae un doble que SÍ ejecuta
- * el join contra filas de fixture, para que la prueba falle por duplicados
- * reales y no por comparar strings de SQL.
+ * Historia, porque explica por qué el archivo se llama así: se creó para el
+ * hallazgo L1, "categoryIds() no aplica el filtro de versión vigente", con la
+ * premisa de que un sku con tres filas de versión devolvía la misma categoría
+ * tres veces. Esa premisa NO se sostiene en una petición real (C2): el join a
+ * `catalog_product_entity` es un FROM de tabla staged, y Magento ya lo acota a
+ * la versión aplicada, así que a lo sumo hay una fila de versión por entidad.
+ * Verificado sobre la instancia de desarrollo: `categoryIds()` devuelve cada
+ * categoría una sola vez sin ningún filtro del módulo. Las dos pruebas que
+ * afirmaban lo contrario se borraron con el filtro; queda la que fija el
+ * comportamiento que sí es del módulo.
  */
 class ProductReaderCategoryIdsTest extends TestCase
 {
@@ -59,23 +55,6 @@ class ProductReaderCategoryIdsTest extends TestCase
         ['category_id' => 603, 'product_id' => 77096],
     ];
 
-    public function testACategoryIsReportedOnceForASkuWithThreeVersions(): void
-    {
-        $selects = [];
-        $reader = $this->makeReader(hasVersioning: true, selects: $selects);
-
-        $items = $this->payloadOf($reader->getBySku(1, ['NGO-T2092']))['items'];
-
-        $this->assertCount(1, $items);
-        $this->assertSame(
-            [603],
-            $items[0]['category_ids'],
-            'cada versión de un producto multiplica el join con '
-            . 'catalog_category_product: sin el filtro de versión vigente la '
-            . 'categoría 603 viaja tres veces'
-        );
-    }
-
     /**
      * Sin columnas de versionado (Community, o Commerce sin Staging) el
      * comportamiento no cambia: una fila de entidad, una categoría. Si el
@@ -93,30 +72,6 @@ class ProductReaderCategoryIdsTest extends TestCase
         $items = $this->payloadOf($reader->getBySku(1, ['NGO-T2092']))['items'];
 
         $this->assertSame([603], $items[0]['category_ids']);
-    }
-
-    /**
-     * La consulta de categorías lleva el filtro de versión vigente sobre el
-     * lado `e` del join, no un `DISTINCT` ni una deduplicación en PHP: traer
-     * las filas de todas las versiones para descartarlas después sigue siendo
-     * trabajo de base de datos proporcional al número de versiones.
-     */
-    public function testTheCategoryQueryCarriesTheActiveVersionFilter(): void
-    {
-        $selects = [];
-        $reader = $this->makeReader(hasVersioning: true, selects: $selects);
-
-        $reader->getBySku(1, ['NGO-T2092']);
-
-        $conditions = [];
-        foreach ($selects as $select) {
-            if ($select->table === 'catalog_category_product') {
-                $conditions = array_column($select->wheres, 'cond');
-            }
-        }
-        $this->assertNotSame([], $conditions, 'no se armó la consulta de categorías');
-        $this->assertContains('e.created_in <= UNIX_TIMESTAMP()', $conditions);
-        $this->assertContains('e.updated_in > UNIX_TIMESTAMP()', $conditions);
     }
 
     /**
@@ -156,8 +111,7 @@ class ProductReaderCategoryIdsTest extends TestCase
         return new ProductReader(
             $resource,
             new Cursor(),
-            new EntityKeyResolver($resource),
-            new ActiveVersionResolver($resource)
+            new EntityKeyResolver($resource)
         );
     }
 

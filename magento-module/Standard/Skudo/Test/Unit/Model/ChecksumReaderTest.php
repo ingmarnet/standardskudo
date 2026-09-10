@@ -7,7 +7,6 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
-use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\ChecksumReader;
 
 /**
@@ -108,52 +107,6 @@ class ChecksumReaderTest extends TestCase
     }
 
     /**
-     * Reproduce el mismo escenario que ProductReaderTest (SKU con dos
-     * versiones bajo Magento_Staging): sin el filtro de ActiveVersionResolver,
-     * el digest incluiría la fila vieja Y la nueva del mismo SKU, en vez de
-     * una sola por producto, y jamás coincidiría con el espejo.
-     */
-    public function testOnlyTheActiveVersionEntersTheDigestWhenVersioningIsPresent(): void
-    {
-        $entityRows = [
-            // Versión vieja, cerrada en el pasado (updated_in en 2001).
-            [
-                'sku' => 'SKU-A', 'created_in' => 1, 'updated_in' => 1_000_000_000,
-            ],
-            // Versión activa (centinela "sin fin").
-            [
-                'sku' => 'SKU-A', 'created_in' => 1_000_000_000, 'updated_in' => 2_147_483_647,
-            ],
-            [
-                'sku' => 'SKU-B', 'created_in' => 1, 'updated_in' => 2_147_483_647,
-            ],
-        ];
-
-        $reader = $this->makeReader(hasVersioning: true, entityRows: $entityRows);
-
-        $result = $this->payloadOf($reader->getChecksums(storeId: 1));
-
-        // Solo dos SKUs activos (SKU-A una vez, SKU-B una vez), no tres filas.
-        $this->assertSame(2, $result['product_count']);
-        $expected = hash('sha256', implode("\n", ['SKU-A', 'SKU-B']));
-        $this->assertSame($expected, $result['sku_digest']);
-    }
-
-    public function testNoActiveVersionFilterIsAddedWhenVersioningColumnsAreAbsent(): void
-    {
-        $selects = [];
-        $reader = $this->makeReader(hasVersioning: false, entityRows: [$this->entityRow('SKU-A')], selects: $selects);
-
-        $this->payloadOf($reader->getChecksums(storeId: 1));
-
-        // Sin columnas de versionado, ActiveVersionResolver no agrega
-        // ningún where(): la consulta queda vacía de condiciones (no solo
-        // "sin created_in/updated_in", que pasaría trivialmente si el
-        // where() nunca se ejecutara).
-        $this->assertSame([], $selects[0]->wheres);
-    }
-
-    /**
      * @param mixed[] $entityRows
      * @return mixed[]
      */
@@ -188,7 +141,7 @@ class ChecksumReaderTest extends TestCase
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new ChecksumReader($resource, new ActiveVersionResolver($resource));
+        return new ChecksumReader($resource);
     }
 
     /**

@@ -8,5 +8,16 @@
         <testsuite name="Standard_Skudo unit">
             <directory>Standard/Skudo/Test/Unit</directory>
         </testsuite>
+        <!--
+            Pruebas que necesitan una instancia de Magento arrancable, no sólo
+            su autoloader: se saltan solas si SKUDO_MAGENTO_APP_ROOT no apunta
+            a una instalación con app/etc/env.php. Existen porque el defecto
+            C2 (el módulo componiendo su propia ventana de versión activa con
+            la que el framework inyecta) es invisible para cualquier doble de
+            `Select`, que es donde vive el resto de la suite.
+        -->
+        <testsuite name="Standard_Skudo integration">
+            <directory>Standard/Skudo/Test/Integration</directory>
+        </testsuite>
     </testsuites>
 </phpunit>

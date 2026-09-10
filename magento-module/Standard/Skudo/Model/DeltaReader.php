@@ -13,11 +13,11 @@ class DeltaReader implements DeltaReaderInterface
 
     public function __construct(
         private readonly ResourceConnection $resource,
-        // Inyectado, no instanciado con `new`: es la MISMA clase que usa
-        // ProductReader (Task 8) para la misma pregunta de esquema y la
-        // misma ventana de versión activa. Ver ActiveVersionResolver para
-        // el porqué de tener un único lugar que la responda.
-        private readonly ActiveVersionResolver $activeVersionResolver,
+        // La detección de esquema (¿existe `created_in`?), y NADA más: este
+        // lector es el único que necesita nombrar esa columna, porque su
+        // consulta de activaciones la compara explícitamente. Ver
+        // `Model\VersioningSchema`.
+        private readonly VersioningSchema $versioningSchema,
     ) {
     }
 
@@ -52,7 +52,7 @@ class DeltaReader implements DeltaReaderInterface
         $lastChangeId = $rows === [] ? null : (int) end($rows)['change_id'];
 
         $activated = [];
-        if ($sinceTimestamp !== null && $this->activeVersionResolver->hasVersioning()) {
+        if ($sinceTimestamp !== null && $this->versioningSchema->isVersioned()) {
             foreach ($this->activatedVersions($connection, $sinceTimestamp) as $row) {
                 // change_id 0 es un centinela seguro SOLO porque la columna
                 // se declara `identity="true"` en db_schema.xml, y MySQL
@@ -98,15 +98,18 @@ class DeltaReader implements DeltaReaderInterface
     private function activatedVersions(AdapterInterface $connection, int $sinceTimestamp): array
     {
         $entity = $this->resource->getTableName('catalog_product_entity');
-        // La ventana de versión activa (created_in <= ahora, updated_in >
-        // ahora) es la MISMA que usa ProductReader, vía ActiveVersionResolver
-        // — solo el "created_in > sinceTimestamp" de abajo es propio de esta
-        // consulta: acota a lo que se activó DESPUÉS de la última lectura,
-        // no a "toda la versión activa" en general.
+        // El ÚNICO predicado propio de este módulo que nombra `created_in`,
+        // y no es una ventana de versión activa: acota a lo que se activó
+        // DESPUÉS de la última lectura. La ventana de "activa" la pone
+        // Magento —`created_in <= :versionAplicada AND updated_in >
+        // :versionAplicada`— sobre este mismo FROM, así que la conjunción
+        // que sale es exactamente "versiones que pasaron a ser la vigente
+        // desde $sinceTimestamp". Cuando el módulo agregaba ADEMÁS su
+        // propia ventana por reloj, esa conjunción se volvía más estrecha
+        // que cualquiera de las dos y podía quedar sin solución.
         $select = $connection->select()
             ->from($entity, ['sku', 'created_in'])
             ->where('created_in > ?', $sinceTimestamp);
-        $this->activeVersionResolver->applyToSelect($select);
 
         return $connection->fetchAll($select);
     }

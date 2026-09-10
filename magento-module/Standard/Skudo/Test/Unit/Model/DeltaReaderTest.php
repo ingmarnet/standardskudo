@@ -7,7 +7,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
-use Standard\Skudo\Model\ActiveVersionResolver;
+use Standard\Skudo\Model\VersioningSchema;
 use Standard\Skudo\Model\DeltaReader;
 
 /**
@@ -251,7 +251,7 @@ class DeltaReaderTest extends TestCase
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new DeltaReader($resource, new ActiveVersionResolver($resource));
+        return new DeltaReader($resource, new VersioningSchema($resource));
     }
 
     /** @param list<DeltaFakeSelect> $selects */

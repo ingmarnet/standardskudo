@@ -8,7 +8,6 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Exception\InputException;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
-use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\Cursor;
 use Standard\Skudo\Model\EntityKeyResolver;
 use Standard\Skudo\Model\ProductReader;
@@ -30,64 +29,6 @@ use Standard\Skudo\Model\ProductReader;
 class ProductReaderTest extends TestCase
 {
     use UnwrapsWebApiEnvelope;
-
-    public function testActiveVersionFilterIsAddedWhenVersioningColumnsArePresent(): void
-    {
-        $selects = [];
-        $reader = $this->makeReader(hasRowId: true, hasVersioning: true, fixtureRows: [], selects: $selects);
-
-        $this->payloadOf($reader->getPage(storeId: 1, limit: 10));
-
-        $entitySelect = $this->entitySelect($selects);
-        $this->assertWhereConditionExists($entitySelect, 'e.created_in <= UNIX_TIMESTAMP()');
-        $this->assertWhereConditionExists($entitySelect, 'e.updated_in > UNIX_TIMESTAMP()');
-    }
-
-    public function testNoActiveVersionFilterIsAddedWhenVersioningColumnsAreAbsent(): void
-    {
-        $selects = [];
-        $reader = $this->makeReader(hasRowId: false, hasVersioning: false, fixtureRows: [], selects: $selects);
-
-        $this->payloadOf($reader->getPage(storeId: 1, limit: 10));
-
-        $entitySelect = $this->entitySelect($selects);
-        foreach ($entitySelect->wheres as $where) {
-            $this->assertStringNotContainsString('created_in', $where['cond']);
-            $this->assertStringNotContainsString('updated_in', $where['cond']);
-        }
-    }
-
-    public function testOnlyTheActiveVersionIsReturnedForASkuWithMultipleVersions(): void
-    {
-        // Reproduce el caso real verificado en la instancia de referencia:
-        // SKU NGO-T2092, entity_id 77096, con tres versiones (aquí, dos
-        // alcanzan para probar el punto). La versión vieja quedó cerrada
-        // en updated_in=1000000000 (año 2001, seguro en el pasado); la
-        // activa tiene updated_in=2147483647 (el centinela "sin fin").
-        $fixtureRows = [
-            [
-                'row_id' => 288062, 'entity_id' => 77096, 'sku' => 'NGO-T2092',
-                'attribute_set_id' => 4, 'type_id' => 'simple',
-                'updated_at' => '2026-01-01 00:00:00',
-                'created_in' => 1, 'updated_in' => 1_000_000_000,
-            ],
-            [
-                'row_id' => 288063, 'entity_id' => 77096, 'sku' => 'NGO-T2092',
-                'attribute_set_id' => 4, 'type_id' => 'simple',
-                'updated_at' => '2026-06-01 00:00:00',
-                'created_in' => 1_000_000_000, 'updated_in' => 2_147_483_647,
-            ],
-        ];
-
-        $selects = [];
-        $reader = $this->makeReader(hasRowId: true, hasVersioning: true, fixtureRows: $fixtureRows, selects: $selects);
-
-        $result = $this->payloadOf($reader->getBySku(1, ['NGO-T2092']));
-
-        $this->assertCount(1, $result['items']);
-        $this->assertSame('NGO-T2092', $result['items'][0]['sku']);
-        $this->assertSame('2026-06-01 00:00:00', $result['items'][0]['updated_at']);
-    }
 
     public function testGetBySkuRejectsMoreThanOneHundredSkus(): void
     {
@@ -220,8 +161,7 @@ class ProductReaderTest extends TestCase
         return new ProductReader(
             $resource,
             new Cursor(),
-            new EntityKeyResolver($resource),
-            new ActiveVersionResolver($resource)
+            new EntityKeyResolver($resource)
         );
     }
 

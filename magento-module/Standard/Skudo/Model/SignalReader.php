@@ -24,10 +24,10 @@ use Standard\Skudo\Api\SignalReaderInterface;
  * caso que "asumir por edición" pasaría por alto).
  *
  * Ruling 3 (S0): esta clase no reimplementa la detección de
- * row_id/entity_id ni la ventana de versión activa de Magento_Staging.
- * EntityKeyResolver y ActiveVersionResolver, ya usadas por ProductReader
- * (Task 8) y DeltaReader (Task 10), son las únicas que responden esas dos
- * preguntas de esquema.
+ * row_id/entity_id. EntityKeyResolver, ya usada por ProductReader (Task 8),
+ * es la única que responde esa pregunta de esquema. Tampoco acota por
+ * versión activa: no agrega ni un `created_in` ni un `updated_in` propios
+ * (ver `Model\VersioningSchema`).
  *
  * Fix de revisión (ronda 1), dos hallazgos verificados contra la instancia
  * de referencia (no teóricos):
@@ -56,11 +56,10 @@ class SignalReader implements SignalReaderInterface
     public function __construct(
         private readonly ResourceConnection $resource,
         private readonly ModuleListInterface $modules,
-        // Inyectadas, no instanciadas con `new`: son las MISMAS clases que
-        // usan ProductReader (Task 8) y DeltaReader (Task 10) para las
-        // mismas dos preguntas de esquema. Ver Ruling 3 y las clases mismas.
+        // Inyectada, no instanciada con `new`: es la MISMA clase que usa
+        // ProductReader (Task 8) para la misma pregunta de esquema. Ver
+        // Ruling 3 y la clase misma.
         private readonly EntityKeyResolver $entityKeyResolver,
-        private readonly ActiveVersionResolver $activeVersionResolver,
     ) {
     }
 
@@ -188,7 +187,6 @@ class SignalReader implements SignalReaderInterface
             ->from(['si' => $stockItem], ['qty' => 'si.qty'])
             ->join(['e' => $entity], 'e.entity_id = si.product_id', ['sku' => 'e.sku'])
             ->where('e.sku IN (?)', array_keys($rows));
-        $this->activeVersionResolver->applyToSelect($physical, 'e.');
 
         foreach ($connection->fetchAll($physical) as $row) {
             $sku = (string) $row['sku'];
@@ -326,7 +324,6 @@ class SignalReader implements SignalReaderInterface
             // Global Y el scope pedido en la misma pasada: scopedValue()
             // decide después cuál gana, fila por fila (ver docblock).
             ->where('v.store_id IN (?)', array_unique([0, $storeId]));
-        $this->activeVersionResolver->applyToSelect($select, 'e.');
 
         // bySku[sku][code][store_id] = value. Se indexa por store_id (no se
         // sobreescribe "el último visto") justamente para que el orden en

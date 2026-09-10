@@ -8,7 +8,6 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
-use Standard\Skudo\Model\ActiveVersionResolver;
 use Standard\Skudo\Model\EntityKeyResolver;
 use Standard\Skudo\Model\SignalReader;
 
@@ -618,7 +617,7 @@ class SignalReaderTest extends TestCase
             static fn (string $table): bool => str_starts_with($table, 'inventory_stock_') && $salableTableExists
         );
         // Sin versionado en estos fixtures: EntityKeyResolver resuelve a
-        // entity_id y ActiveVersionResolver no agrega ningún where. Esa
+        // entity_id y el módulo no agrega ningún where propio. Esa
         // rama ya está cubierta a fondo por ProductReaderTest/DeltaReaderTest;
         // acá no es el objeto de prueba.
         $connection->method('tableColumnExists')->willReturn(false);
@@ -633,8 +632,7 @@ class SignalReaderTest extends TestCase
         return new SignalReader(
             $resource,
             $modules,
-            new EntityKeyResolver($resource),
-            new ActiveVersionResolver($resource)
+            new EntityKeyResolver($resource)
         );
     }
 }
