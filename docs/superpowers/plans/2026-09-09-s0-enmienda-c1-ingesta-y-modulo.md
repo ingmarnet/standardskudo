@@ -285,8 +285,24 @@ dos correcciones globales que la instancia real impone:
 - **Task 13 (mitad PHP)** — `ChecksumReader`. **Contrato crítico:** debe ordenar en PHP
   con `sort($skus, SORT_STRING)` y **nunca** con `ORDER BY` de SQL, que bajo
   `utf8mb4_general_ci` produce otro orden para catálogos con mayúsculas mezcladas o
-  acentos. Y `product_count` debe contar los productos **visibles en esa store view**,
-  no un `COUNT(*)` global, o produce deriva falsa permanente en un tenant multi-website.
+  acentos.
+
+  **Corrección a una instrucción anterior de este mismo plan.** Había escrito que
+  `product_count` debía contar los productos "visibles en esa store view" y no un
+  `COUNT(*)` global. **Es al revés**, y aplicarlo produciría exactamente la deriva falsa
+  permanente que pretendía evitar. El motivo: `full_sync` recorre `iter_products(store_id)`,
+  que devuelve **todos** los productos —filtrados solo por versión vigente—, así que el
+  espejo guarda una fila por producto para **cada** store view, y `mirror_count` es el
+  mismo número en PY y en BR. Si el módulo devolviera un conteo filtrado por visibilidad,
+  no cuadraría nunca con el espejo y `reconcile` pediría un re-sync completo para siempre.
+
+  Espejar todo el catálogo en cada store view es deliberado, no un descuido: es lo que
+  permite decir "este producto no aparece en la navegación de BR". Si no se espejara para
+  BR, no habría contra qué comparar y el hallazgo sería imposible de emitir.
+
+  Por tanto `product_count` y `sku_digest` se calculan sobre **todos los productos de
+  versión vigente**, y el parámetro `storeId` se acepta por simetría de interfaz y uso
+  futuro pero **no filtra hoy**. Documentarlo en el código para que nadie lo "arregle".
 
 Además, el endpoint `/products-by-sku` que la Task 11 dejó pendiente se implementa aquí
 con el contrato que impuso F6 de la ola de arreglos: **POST con cuerpo JSON y lotes de
