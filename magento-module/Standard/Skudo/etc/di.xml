@@ -11,4 +11,6 @@
                 type="Standard\Skudo\Model\SignalReader"/>
     <preference for="Standard\Skudo\Api\ChecksumReaderInterface"
                 type="Standard\Skudo\Model\ChecksumReader"/>
+    <preference for="Standard\Skudo\Api\AttributeReaderInterface"
+                type="Standard\Skudo\Model\AttributeReader"/>
 </config>

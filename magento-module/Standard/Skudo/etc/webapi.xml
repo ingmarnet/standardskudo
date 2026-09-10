@@ -25,4 +25,8 @@
         <service class="Standard\Skudo\Api\ChecksumReaderInterface" method="getChecksums"/>
         <resources><resource ref="Standard_Skudo::read"/></resources>
     </route>
+    <route url="/V1/skudo/attributes" method="GET">
+        <service class="Standard\Skudo\Api\AttributeReaderInterface" method="getPage"/>
+        <resources><resource ref="Standard_Skudo::read"/></resources>
+    </route>
 </routes>
