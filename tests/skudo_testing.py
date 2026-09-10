@@ -6,6 +6,9 @@ from datetime import UTC, datetime
 
 import httpx
 
+from skudo.mirror.categories import set_products_categories
+from skudo.mirror.products import record_values, upsert_records
+
 
 def skudo_response(payload: dict, status_code: int = 200) -> httpx.Response:
     """Respuesta HTTP con la forma que el módulo emite DE VERDAD.
@@ -95,8 +98,6 @@ def upsert_record(
     `upsert_records`), así que un test que siembra con esto sigue ejerciendo
     el camino de escritura real y no una copia.
     """
-    from skudo.mirror.products import record_values, upsert_records
-
     upsert_records(
         session,
         [
@@ -122,6 +123,4 @@ def set_product_categories(
     """Reemplaza el conjunto de categorías de UN producto. Misma historia que
     `upsert_record`: el producto escribe por lote (`set_products_categories`) y
     esta forma de a uno es conveniencia de los tests."""
-    from skudo.mirror.categories import set_products_categories
-
     set_products_categories(session, tenant_id, {sku: category_magento_ids})

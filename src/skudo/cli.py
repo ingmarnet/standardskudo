@@ -152,9 +152,17 @@ def build_parser() -> argparse.ArgumentParser:
     repair = tenant_command(
         "repair", "relee sólo los SKUs de las particiones divergentes"
     )
-    repair.add_argument("--store", type=int, required=True)
+    repair.add_argument(
+        "--store", type=int, required=True,
+        help="id de la store view a reparar; la reparación es POR store view "
+        "porque el espejo guarda una fila por (producto, store view)",
+    )
     group = repair.add_mutually_exclusive_group(required=True)
-    group.add_argument("--partitions", type=_partitions)
+    group.add_argument(
+        "--partitions", type=_partitions,
+        help="particiones a reparar, separadas por coma (p.ej. 5b,a7), tal "
+        "como las nombra `reconcile`",
+    )
     group.add_argument(
         "--from-reconcile",
         action="store_true",
@@ -369,7 +377,16 @@ def _repair(session: Session, source: TenantSource, args) -> int:
             return EXIT_FAILURE
         partitions = partitions_needing_repair(drift)
         if not partitions:
-            _report({"store_view_magento_id": args.store, "partitions": [], "nada_que_reparar": True})
+            # Clave en inglés como el resto de los reportes, que salen de los
+            # modelos pydantic: un consumidor no debería tener que saber en
+            # qué idioma se escribió cada campo.
+            _report(
+                {
+                    "store_view_magento_id": args.store,
+                    "partitions": [],
+                    "nothing_to_repair": True,
+                }
+            )
             return EXIT_OK
         if len(partitions) > MAX_PARTITIONS_TO_REPAIR:
             print(

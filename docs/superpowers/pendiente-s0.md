@@ -1,8 +1,9 @@
 # S0 — trabajo pendiente y riesgos residuales
 
-Estado al 2026-09-10 (tras el cierre de H1): 210 tests Python, 174 PHP (170 unitarias +
-4 de integración), `ruff` limpio, cadena Alembic en `0012`.
-Módulo Magento con ocho endpoints de lectura, ingestor y espejo canónico en Postgres.
+Estado al 2026-09-10 (tras el cierre de H3 y M7): 267 tests Python, 191 PHP (187 unitarias
++ 4 de integración), `ruff` limpio, cadena Alembic en `0013`.
+Módulo Magento con ocho endpoints de lectura y un comando de consola, ingestor con CLI
+(`python -m skudo.cli`) y espejo canónico en Postgres.
 
 Este documento recoge lo que la revisión final de la fase de enmienda dejó **fuera** de la
 ola de arreglos por requerir tareas nuevas y no parches. Está ordenado por lo que mordería
@@ -35,34 +36,48 @@ eso necesita el observer de forma insustituible— ni en un `UPDATE` de SQL dire
 una tabla satélite (valores EAV, websites, categorías), que es el **piso** del
 sistema: nada puede detectarlo.
 
-Lo que el cierre deja abierto y le corresponde a otras tareas:
+Lo que el cierre dejaba abierto, **cerrado en H3** (2026-09-10, ver
+`docs/superpowers/h3-cli-y-escala.md`):
 
-- La **reparación dirigida** de una partición divergente no existe: `reconcile()`
-  detecta y nombra, y el remedio sigue siendo `full_sync`. Releer los SKUs de una
-  partición es el bucle que `delta_sync` ya tiene sin factorizar, y darle un punto de
-  entrada es H3.
-- M7 (la cola crece sin poda) **empeora en magnitud**: una acción masiva sobre 20.000
-  productos escribe ahora 20.000 filas donde antes escribía cero.
+- La **reparación dirigida** de una partición divergente ya existe:
+  `/checksums?partitions=ab,cd` publica los SKUs de esas particiones y
+  `skudo repair` relee sólo esos.
+- M7 (la cola crecía sin poda) también, con `bin/magento skudo:changelog:prune` y su
+  cron.
 
 ---
 
-## H3 — `full_sync` no tiene punto de entrada, y no sobreviviría a la escala que exige el criterio
+## ~~H3~~ — CERRADO (2026-09-10) — `full_sync` no tenía punto de entrada ni sobrevivía a la escala
 
-- **Sin entrada.** `main()` existe solo en `src/skudo/acceptance/s0.py`. No hay
-  `python -m skudo.ingest.full_sync`, ni camino de alta de tenants. El comando de aceptación
-  presupone un espejo poblado que nada permite poblar.
-- **Una transacción para el catálogo entero.** `full_sync` hace `session.commit()` una vez,
-  al final. Para el piloto son 456.974 upserts más ~228k pares delete+insert de categorías en
-  una sola transacción de Postgres, sin lotes, sin commit por página y sin reanudación. Un
-  fallo a la tercera hora lo pierde todo. `sync_generation` da un sello reanudable y nadie lo
-  usa así.
-- Nada afirma la escala en ningún test: `_espejo_sincronizado` pasa con un espejo de dos SKUs.
+Cerrado en los commits `8f5dea3` (pasada reanudable), `a3062d2` (reparación dirigida),
+`043c292` (CLI), `fdda4be` (poda de la cola, M7) y `eba6c63` (escritura por lote y test
+de escala). El informe completo está en `docs/superpowers/h3-cli-y-escala.md`.
 
-El criterio de aceptación 1 dice "espejo de 200k SKUs × 2 store views sincronizado". Tal como
-está, el código no puede intentarlo.
+En cuatro partes:
 
-**Trabajo:** CLI de ingesta con alta de tenant; commit por página con watermark reanudable;
-un test de escala aunque sea con datos sintéticos.
+1. `python -m skudo.cli` con once comandos (alta de tenant, sonda, pasada completa,
+   delta, atributos, categorías, señales, reconciliación, reparación, estado y
+   aceptación) y la convención de códigos de salida en `src/skudo/exit_codes.py`
+   (0/1/2/3/64). El token nunca viaja por la línea de comandos ni se imprime: se lee
+   de la variable que la FILA del tenant nombra.
+2. Commit **por página** con punto de reanudación en `full_sync_checkpoint`
+   (migración 0013), continuando la MISMA generación. El barrido exige el sello
+   persistido `pass_complete` DENTRO de `_sweep`, así que un barrido sobre una pasada
+   a medias no es expresable. Verificado matando el proceso con SIGKILL a mitad de una
+   pasada real.
+3. Reparación dirigida: `/checksums` acepta `partitions=` y devuelve los SKUs de esas
+   particiones; `repair_partitions` los relee y borra del espejo lo que la partición ya
+   no contiene.
+4. Escala: la página se escribe en UNA sentencia multi-fila (617 → 2.900 productos/s;
+   el coste dominante era compilar el SQL, no Postgres), test de escala de 10.000
+   productos en la suite y una pasada de 228.889 SKUs × 2 store views medida a mano
+   contra la instancia de desarrollo.
+
+**Lo que queda declarado:** las dos store views se recorren en serie (paralelizar
+necesita un candado por tenant que hoy no existe), no hay índice sobre
+`sync_generation` (no fue medible frente al resto), y la medición de escala es sobre
+datos sintéticos: cubre el orden de magnitud, no la forma real de los datos del
+cliente.
 
 ---
 
@@ -90,17 +105,30 @@ Consecuencia para S1: el `option_id` de una opción borrada sigue pareciendo viv
 `attribute_option`, y existen asignaciones para SKUs sin registro de producto. El caso de las
 opciones importa porque la consolidación de S1 decide por `option_id`.
 
+**Con número, desde la pasada de escala de H3:** al barrer 457.762 `ProductRecord` que el
+origen dejó de ofrecer, quedaron **457.762 filas huérfanas** en
+`product_category_assignment`. El coste de este hallazgo crece con el catálogo entero, no
+con la deriva.
+
 ---
 
-## M7 — `standard_skudo_change_log` crece sin límite en la base del cliente
+## ~~M7~~ — CERRADO (2026-09-10) — `standard_skudo_change_log` crecía sin límite
 
-Insert-only por diseño, sin poda ni retención. Una sola importación masiva escribe 228k filas.
-No hay comando de limpieza ni cron.
+Cerrado en el commit `fdda4be`. `bin/magento skudo:changelog:prune [--days=N]
+[--dry-run]` y un cron diario borran una fila **sólo si** el ingestor ya la consumió
+**y** además es más vieja que el margen de seguridad (configurable en
+`standard_skudo/retention/change_log_days`, default 30, piso 1).
 
-Agravado por el cierre de H1: los observers de escritura masiva escriben una fila por
-producto de la selección, así que una acción del grid sobre 20.000 productos deja 20.000
-filas donde antes dejaba cero. El arreglo de H1 es correcto —esas filas son la única
-señal de esas escrituras— y hace que la poda pase de deseable a necesaria.
+La condición de "ya consumida" no requiere que nadie informe nada: `/deltas?sinceId=X`
+significa "dame los cambios posteriores a X", así que la petición ES la prueba de que
+el consumidor aplicó todo hasta X, y `DeltaReader` guarda el máximo histórico en
+`standard_skudo_delta_read` (`GREATEST`, para que un reintento no lo haga retroceder).
+Sin ingestor que lea, el número no se mueve y la poda no borra nada.
+
+**Lo que queda declarado:** el watermark de lectura es uno por instancia de Magento.
+Dos consumidores con watermarks distintos sobre la misma instancia harían que gane el
+mayor y el más atrasado podría perder filas; el margen de días es la segunda red. Ver
+el docblock de `Model\DeltaReadWatermark`.
 
 ---
 
@@ -121,13 +149,23 @@ modelado, y `derive_category_effect` ignora anchor.
 
 ## Observaciones menores de la última re-revisión
 
-- `sync_signals` existe pero no tiene punto de entrada de producción — parte de H3.
+- ~~`sync_signals` existe pero no tiene punto de entrada de producción~~ — cerrado en
+  H3: `python -m skudo.cli signals`, igual que el resto de las sincronizaciones.
 - El chequeo AST de `tests/mirror/test_write_paths_are_reachable.py` empareja por nombre de
   método (`ast.Attribute.attr`), así que un método no relacionado que comparta un nombre
   `upsert_`/`set_` en otra parte de `src/` podría enmascarar un huérfano real. Es una
   sobreaproximación, no un defecto introducido.
 
 ---
+
+## Nuevo tras H3 — el digest de `/checksums` sigue sin cota de memoria del lado PHP
+
+`ChecksumReader` hace un `fetchAll` de `(sku, updated_at)` sobre el catálogo entero: en
+la pasada grande de H3 funcionó con 228.889 filas y ~2 s por llamada, pero no hay una
+prueba automatizada que afirme el coste y el array vive entero en memoria de PHP. Con
+un catálogo tres veces mayor es el primer lugar donde este módulo se rompería. La
+alternativa —recorrerlo por cursor y acumular sólo los 256 digests— es un cambio
+contenido en esa clase.
 
 ## Lo que no se puede verificar sin desplegar el módulo
 
