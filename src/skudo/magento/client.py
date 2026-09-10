@@ -256,6 +256,29 @@ class MagentoClient:
             items.extend(unwrap(response)["items"])
         return items
 
+    def signals(self, store_id: int, days: int = 90) -> list[dict]:
+        """Señales comerciales de una store view: ventas, stock físico vs.
+        vendible, margen y demanda de búsqueda aproximada, en la ventana de
+        `days`.
+
+        Sin paginar, a diferencia de productos/atributos/categorías: el módulo
+        solo devuelve los SKUs que tuvieron al menos una venta en la ventana
+        (ver `SignalReader::salesRows()`), un subconjunto varios órdenes menor
+        que el catálogo.
+
+        Es por store view, nunca global: la señal comercial de un SKU en PY y
+        en BR son hechos distintos, y es justo lo que permite priorizar los
+        hallazgos por dinero de ESA tienda.
+
+        Todo lo que el módulo no pudo medir llega como `null` y así debe
+        quedarse: `revenue` nulo es "hay ítems de pedido sin importe" y
+        `search_demand` nulo es "esta tienda no tiene datos de búsqueda", que
+        no son lo mismo que cero.
+        """
+        response = self._client.get("/signals", params={"storeId": store_id, "days": days})
+        response.raise_for_status()
+        return unwrap(response)["items"]
+
     def checksums(self, store_id: int) -> dict:
         response = self._client.get("/checksums", params={"storeId": store_id})
         response.raise_for_status()
