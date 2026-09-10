@@ -9,6 +9,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\DeltaReadWatermark;
 use Standard\Skudo\Model\ContentDigest;
 use Standard\Skudo\Model\AttributeReader;
 use Standard\Skudo\Model\CategoryReader;
@@ -132,6 +133,10 @@ class MapValuedFieldsAreJsonObjectsTest extends TestCase
             // este archivo, en su cuarta forma posible. Ver
             // Model\ContentDigest::partitions().
             'checksums:content_partitions[*]',
+            // H3: cada elemento de `partition_skus` es también un registro de
+            // forma fija (partition, skus), y por el mismo motivo es una
+            // LISTA de objetos y no un mapa partición => SKUs.
+            'checksums:partition_skus[*]',
             'attributes:',
             'attributes:items[*]',
             'attributes:items[*].options[*]',
@@ -375,9 +380,13 @@ class MapValuedFieldsAreJsonObjectsTest extends TestCase
             'environment' => $this->environmentProbe($resource)->getProfile(),
             'products' => $this->productReader($resource)->getPage(storeId: 1, limit: 10),
             'products_by_sku' => $this->productReader($resource)->getBySku(1, ['SKU-A']),
-            'deltas' => (new DeltaReader($resource, new VersioningSchema($resource)))->getChanges(0, 10),
+            'deltas' => (new DeltaReader($resource, new VersioningSchema($resource), new DeltaReadWatermark($resource)))->getChanges(0, 10),
             'signals' => $this->signalReader($resource)->getSignals(1, 90),
-            'checksums' => (new ChecksumReader($resource, new ContentDigest(), $this->storeViewGuard()))->getChecksums(1),
+            // Se piden particiones a propósito: sin el parámetro,
+            // `partition_skus` viaja vacío y el barrido de este archivo no
+            // vería la forma de sus elementos (H3).
+            'checksums' => (new ChecksumReader($resource, new ContentDigest(), $this->storeViewGuard()))
+                ->getChecksums(1, (new ContentDigest())->partitionOf('SKU-A')),
             'attributes' => (new AttributeReader($resource, new Cursor(), new EntityTypeResolver($resource)))
                 ->getPage(10),
             'categories' => $this->categoryReader($resource)->getPage(10),

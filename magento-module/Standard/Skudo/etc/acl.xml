@@ -5,6 +5,20 @@
         <resources>
             <resource id="Magento_Backend::admin">
                 <resource id="Standard_Skudo::read" title="StandardSkudo: lectura de catálogo"/>
+                <!--
+                    M7: el recurso que protege la sección de configuración de
+                    `etc/system.xml` (el margen de retención de la cola). Cuelga
+                    de Magento_Backend::stores/settings/config, que es de donde
+                    Magento espera los recursos de secciones de configuración.
+                -->
+                <resource id="Magento_Backend::stores">
+                    <resource id="Magento_Backend::stores_settings">
+                        <resource id="Magento_Config::config">
+                            <resource id="Standard_Skudo::config"
+                                      title="StandardSkudo: configuración"/>
+                        </resource>
+                    </resource>
+                </resource>
             </resource>
         </resources>
     </acl>

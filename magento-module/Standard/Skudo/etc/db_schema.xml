@@ -17,4 +17,28 @@
             <column name="sku"/>
         </index>
     </table>
+    <!--
+        M7: hasta dónde leyó el ingestor. Es lo que hace SEGURA la poda de la
+        cola: `/deltas?sinceId=X` significa "dame los cambios con change_id >
+        X", así que una petición con sinceId=X es la prueba de que el
+        ingestor ya consumió todo lo que hay hasta X inclusive. La poda no
+        borra nunca por encima de este número, y por eso no puede borrar una
+        fila que el ingestor no leyó.
+
+        Una sola fila (`row_id` fijo en 1). No es un log: es un puntero.
+    -->
+    <table name="standard_skudo_delta_read" resource="default" engine="innodb"
+           comment="Hasta qué change_id leyó el ingestor de StandardSkudo">
+        <column xsi:type="smallint" name="row_id" unsigned="true" nullable="false"
+                identity="false" default="1"
+                comment="Siempre 1: esta tabla tiene una sola fila"/>
+        <column xsi:type="int" name="consumed_change_id" unsigned="true" nullable="false"
+                default="0"
+                comment="Mayor sinceId que el ingestor pidió alguna vez"/>
+        <column xsi:type="timestamp" name="updated_at" on_update="true"
+                default="CURRENT_TIMESTAMP" nullable="false"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="row_id"/>
+        </constraint>
+    </table>
 </schema>

@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <standard_skudo>
+            <retention>
+                <!--
+                    Margen de seguridad de la poda de la cola de cambios, en
+                    días. Es la SEGUNDA condición del borrado: la primera es
+                    que el ingestor ya haya consumido la fila. Ver
+                    Model\ChangeLogRetention para por qué las dos hacen falta
+                    y por qué el default es generoso y no mínimo.
+                -->
+                <change_log_days>30</change_log_days>
+            </retention>
+        </standard_skudo>
+    </default>
+</config>

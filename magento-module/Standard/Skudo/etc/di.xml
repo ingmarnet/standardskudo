@@ -15,4 +15,15 @@
                 type="Standard\Skudo\Model\AttributeReader"/>
     <preference for="Standard\Skudo\Api\CategoryReaderInterface"
                 type="Standard\Skudo\Model\CategoryReader"/>
+    <!--
+        M7: el comando de consola de la poda de la cola de cambios.
+        `bin/magento skudo:changelog:prune`
+    -->
+    <type name="Magento\Framework\Console\CommandListInterface">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="standard_skudo_changelog_prune" xsi:type="object">Standard\Skudo\Console\Command\PruneChangeLog</item>
+            </argument>
+        </arguments>
+    </type>
 </config>

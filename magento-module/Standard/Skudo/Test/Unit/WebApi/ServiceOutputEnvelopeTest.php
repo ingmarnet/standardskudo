@@ -25,6 +25,7 @@ use Standard\Skudo\Api\DeltaReaderInterface;
 use Standard\Skudo\Api\EnvironmentProbeInterface;
 use Standard\Skudo\Api\ProductReaderInterface;
 use Standard\Skudo\Api\SignalReaderInterface;
+use Standard\Skudo\Model\DeltaReadWatermark;
 use Standard\Skudo\Model\ContentDigest;
 use Standard\Skudo\Model\VersioningSchema;
 use Standard\Skudo\Model\AttributeReader;
@@ -348,7 +349,7 @@ class ServiceOutputEnvelopeTest extends TestCase
     {
         $resource = $this->resourceReturning($this->emptyConnection());
 
-        return new DeltaReader($resource, new VersioningSchema($resource));
+        return new DeltaReader($resource, new VersioningSchema($resource), new DeltaReadWatermark($resource));
     }
 
     private function checksumReader(): ChecksumReader

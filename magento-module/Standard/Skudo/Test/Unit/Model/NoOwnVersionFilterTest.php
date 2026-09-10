@@ -8,6 +8,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\Module\ModuleListInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
+use Standard\Skudo\Model\DeltaReadWatermark;
 use Standard\Skudo\Model\ContentDigest;
 use Standard\Skudo\Model\CategoryReader;
 use Standard\Skudo\Model\ChecksumReader;
@@ -188,7 +189,7 @@ class NoOwnVersionFilterTest extends TestCase
             'categories' => $this->categoryReader($resource)->getPage(10),
             'signals' => $this->signalReader($resource)->getSignals(1, 90),
             'environment' => $this->environmentProbe($resource)->getProfile(),
-            'deltas' => (new DeltaReader($resource, new VersioningSchema($resource)))
+            'deltas' => (new DeltaReader($resource, new VersioningSchema($resource), new DeltaReadWatermark($resource)))
                 ->getChanges(0, 10, 1_700_000_000),
         };
     }

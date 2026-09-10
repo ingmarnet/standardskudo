@@ -7,6 +7,7 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
+use Standard\Skudo\Model\DeltaReadWatermark;
 use Standard\Skudo\Model\VersioningSchema;
 use Standard\Skudo\Model\DeltaReader;
 
@@ -198,6 +199,28 @@ class DeltaReaderTest extends TestCase
     }
 
     /**
+     * M7: cada lectura anota hasta dónde pidió el consumidor, y ese número es
+     * la ÚNICA condición que impide que la poda de la cola borre filas que
+     * nadie leyó. Si esta llamada desapareciera, el watermark del cliente se
+     * quedaría en 0 para siempre: la poda no borraría nada (fallo benigno) y
+     * nadie se enteraría de que la mitad del mecanismo no existe.
+     *
+     * Se exige el `sinceId` EXACTO que recibió el método, no "alguna
+     * llamada": anotar otro número es exactamente el modo de fallo grave.
+     */
+    public function testEveryReadRecordsHowFarTheConsumerAsked(): void
+    {
+        $watermark = $this->createMock(DeltaReadWatermark::class);
+        $watermark->expects($this->once())->method('record')->with(4242);
+
+        $selects = [];
+        $connection = $this->makeConnection(queueRows: [], entityRows: [], selects: $selects);
+        $connection->method('tableColumnExists')->willReturn(false);
+
+        $this->readerFor($connection, $watermark)->getChanges(sinceId: 4242, limit: 10);
+    }
+
+    /**
      * @param mixed[] $queueRows
      * @param mixed[] $entityRows
      * @param list<DeltaFakeSelect> $selects
@@ -245,13 +268,19 @@ class DeltaReaderTest extends TestCase
         return $connection;
     }
 
-    private function readerFor(AdapterInterface $connection): DeltaReader
-    {
+    private function readerFor(
+        AdapterInterface $connection,
+        ?DeltaReadWatermark $watermark = null
+    ): DeltaReader {
         $resource = $this->createMock(ResourceConnection::class);
         $resource->method('getConnection')->willReturn($connection);
         $resource->method('getTableName')->willReturnArgument(0);
 
-        return new DeltaReader($resource, new VersioningSchema($resource));
+        return new DeltaReader(
+            $resource,
+            new VersioningSchema($resource),
+            $watermark ?? new DeltaReadWatermark($resource)
+        );
     }
 
     /** @param list<DeltaFakeSelect> $selects */

@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <!--
+            Existe para que el margen sea configurable por las vías que
+            Magento soporta: la pantalla de configuración y
+            `bin/magento config:set standard_skudo/retention/change_log_days N`,
+            que valida la ruta contra este archivo y la rechazaría sin él.
+        -->
+        <section id="standard_skudo" translate="label" sortOrder="900" showInDefault="1"
+                 showInWebsite="0" showInStore="0">
+            <class>separator-top</class>
+            <label>StandardSkudo</label>
+            <tab>service</tab>
+            <resource>Standard_Skudo::config</resource>
+            <group id="retention" translate="label" sortOrder="10" showInDefault="1"
+                   showInWebsite="0" showInStore="0">
+                <label>Retención de la cola de cambios</label>
+                <field id="change_log_days" translate="label comment" type="text"
+                       sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0"
+                       canRestore="1">
+                    <label>Margen de seguridad (días)</label>
+                    <comment><![CDATA[La poda borra una fila de la cola sólo si el
+                    ingestor ya la consumió <strong>y</strong> además es más vieja que
+                    este margen. Bajarlo no acelera nada útil: reduce la única red que
+                    queda si el watermark del ingestor fuera incorrecto.]]></comment>
+                    <validate>validate-digits validate-greater-than-zero</validate>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>

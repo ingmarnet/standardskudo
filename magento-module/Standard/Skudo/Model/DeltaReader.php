@@ -18,6 +18,10 @@ class DeltaReader implements DeltaReaderInterface
         // consulta de activaciones la compara explícitamente. Ver
         // `Model\VersioningSchema`.
         private readonly VersioningSchema $versioningSchema,
+        // M7: la poda de la cola necesita saber hasta dónde leyó el ingestor,
+        // y el ingestor lo dice acá sin llamada nueva. Ver
+        // `Model\DeltaReadWatermark`.
+        private readonly DeltaReadWatermark $readWatermark,
     ) {
     }
 
@@ -25,6 +29,15 @@ class DeltaReader implements DeltaReaderInterface
     {
         $limit = max(1, min($limit, self::MAX_LIMIT));
         $connection = $this->resource->getConnection();
+
+        // M7. `sinceId = X` significa "dame los cambios con change_id > X":
+        // pedirlo es la prueba de que el consumidor ya aplicó todo hasta X, y
+        // es lo único que esta base puede saber de un watermark que vive del
+        // otro lado del cable. Se anota ANTES de leer y no después porque el
+        // hecho que se registra es la PETICIÓN, no su resultado: una lectura
+        // que devuelve cero filas también confirma que hasta X está consumido.
+        // Un fallo de esta anotación no rompe la lectura (ver esa clase).
+        $this->readWatermark->record($sinceId);
 
         // Se pagina por change_id, que es monótono. Paginar por changed_at
         // perdería cambios cuando dos ocurren en el mismo segundo.

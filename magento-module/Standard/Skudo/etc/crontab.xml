@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Cron:etc/crontab.xsd">
+    <group id="default">
+        <!--
+            M7: la cola de cambios crece sin límite en la base del cliente y no
+            tenía ni comando ni cron. Una vez al día basta: lo que se borra es
+            lo que el ingestor ya consumió y que además tiene más de 30 días
+            (`Model\ChangeLogRetention`), así que correrlo más seguido no
+            borraría nada distinto.
+
+            A las 03:27 y no en punto: las horas en punto son donde se
+            amontonan los crons de todos los módulos.
+        -->
+        <job name="standard_skudo_change_log_prune"
+             instance="Standard\Skudo\Cron\PruneChangeLog" method="execute">
+            <schedule>27 3 * * *</schedule>
+        </job>
+    </group>
+</config>
