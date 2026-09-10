@@ -1,16 +1,17 @@
 import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 import pytest
-from skudo_testing import skudo_response
+from skudo_testing import checksums_payload, skudo_response
 
 from skudo.acceptance.s0 import run_s0_acceptance
 from skudo.ingest.attribute_sync import sync_attributes
 from skudo.ingest.category_sync import sync_categories
-from skudo.ingest.full_sync import full_sync
-from skudo.ingest.reconcile import sku_digest
+from skudo.ingest.full_sync import full_sync, parse_magento_datetime
+from skudo.ingest.reconcile import partition_of
 from skudo.ingest.source import TenantSource
 from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.models import Tenant
@@ -29,6 +30,28 @@ PY_STORE = 1
 BR_STORE = 3
 
 
+def make_source_with_checksums(
+    tenant_id: int, skus: list[str], updated_at: datetime
+) -> TenantSource:
+    """Como `make_source`, con un `updated_at` propio para el digest de
+    contenido: es lo que permite describir un espejo con el conjunto correcto y
+    un VALOR rancio, el escenario de H1."""
+    environment = json.loads((FIXTURES / "environment_opensource.json").read_text())
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/environment"):
+            return skudo_response(environment)
+        if request.url.path.endswith("/checksums"):
+            return skudo_response(checksums_payload(skus, updated_at))
+        return httpx.Response(404)
+
+    return TenantSource.from_tenant(
+        SimpleNamespace(id=tenant_id, base_url="https://x.test"),
+        token="t",
+        transport=httpx.MockTransport(handler),
+    )
+
+
 def make_source(tenant_id: int, skus: list[str] | dict[int, list[str]]) -> TenantSource:
     """`skus` puede ser una lista (el mismo catálogo en toda tienda) o un mapa
     store view -> SKUs, para poder describir una tienda con población propia."""
@@ -42,10 +65,7 @@ def make_source(tenant_id: int, skus: list[str] | dict[int, list[str]]) -> Tenan
             return skudo_response(environment)
         if request.url.path.endswith("/checksums"):
             store_skus = skus_of(int(request.url.params["storeId"]))
-            return skudo_response({
-                    "product_count": len(store_skus),
-                    "sku_digest": sku_digest(store_skus),
-            })
+            return skudo_response(checksums_payload(store_skus))
         return httpx.Response(404)
 
     return TenantSource.from_tenant(
@@ -160,10 +180,7 @@ def make_ingestion_source(
         if path.endswith("/environment"):
             return skudo_response(ENVIRONMENT)
         if path.endswith("/checksums"):
-            return skudo_response({
-                    "product_count": len(checksum_skus),
-                    "sku_digest": sku_digest(checksum_skus),
-            })
+            return skudo_response(checksums_payload(checksum_skus, PRODUCT_UPDATED_AT))
         if path.endswith("/products"):
             return skudo_response(products_page)
         if path.endswith("/categories"):
@@ -199,6 +216,17 @@ CATEGORY_PAGE = {
     "next_cursor": None,
 }
 
+# El `updated_at` de los productos de la página mockeada. Está acá arriba, y no
+# incrustado en `_product_item`, porque el doble de `/checksums` tiene que
+# construir su digest de contenido con EL MISMO instante: desde H1 el criterio 1
+# compara contenido, y un doble que responda "los mismos SKUs" con otro
+# timestamp describe un espejo derivado. (Así se descubrió, de hecho, que este
+# arnés se contradecía a sí mismo: la página de productos decía 10:00 y el doble
+# de checksums 00:00.)
+PRODUCT_UPDATED_AT_TEXT = "2026-09-01 10:00:00"
+PRODUCT_UPDATED_AT = parse_magento_datetime(PRODUCT_UPDATED_AT_TEXT)
+
+
 def _product_item(
     sku: str, *, website_ids, category_ids: list[int], store_values: dict | None = None
 ) -> dict:
@@ -208,7 +236,7 @@ def _product_item(
         "global_values": {"name": sku, "price": "1000"},
         "store_values": {} if store_values is None else store_values,
         "website_ids": website_ids, "category_ids": category_ids,
-        "updated_at": "2026-09-01 10:00:00",
+        "updated_at": PRODUCT_UPDATED_AT_TEXT,
     }
 
 
@@ -667,3 +695,32 @@ def test_an_unknown_store_website_is_not_evaluated_instead_of_fabricating_a_defe
     assert not effect.passed, effect.detail
     assert "0 producto(s) con efecto de categoría distinto" in effect.detail
     assert "1 par(es) sin website de la tienda" in effect.detail
+
+
+def test_a_stale_value_fails_the_first_criterion_though_the_sku_set_agrees(
+    db_session, prepared
+):
+    """H1 en el arnés: Magento reporta los MISMOS SKUs con otro `updated_at`.
+
+    Antes de H1 el criterio 1 decía "sin deriva" en este escenario —cierto
+    sobre el conjunto y engañoso sobre lo que el criterio afirma— y un valor
+    rancio podía vivir en el espejo indefinidamente sin reprobar nada.
+    """
+    from datetime import timedelta
+
+    from skudo_testing import MIRRORED_AT
+
+    otro_instante = MIRRORED_AT + timedelta(days=5)
+    source = make_source_with_checksums(
+        prepared.id, ["SKU1"], updated_at=otro_instante
+    )
+
+    results = run_s0_acceptance(db_session, source, [1, 3])
+
+    failed = {r.name: r for r in results if not r.passed}
+    assert "espejo_sincronizado" in failed
+    assert "contenido divergente" in failed["espejo_sincronizado"].detail
+    # El conjunto coincide: no se prescribe un re-sync completo, se nombra la
+    # partición. Es la diferencia entre "horas" y "~900 productos".
+    assert "digest_ok" not in failed["espejo_sincronizado"].detail
+    assert partition_of("SKU1") in failed["espejo_sincronizado"].detail

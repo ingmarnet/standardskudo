@@ -39,16 +39,30 @@ def parse_magento_datetime(raw: str | None) -> datetime | None:
     página entera y en `delta_sync` bloquearía el avance del watermark y con él
     toda sincronización posterior; ni una fecha de relleno, que sería un dato
     falso con aspecto confiable. Quien llama reporta el caso.
+
+    Se acepta —y se DESCARTA— una fracción de segundo. `catalog_product_entity
+    .updated_at` es un `timestamp` sin precisión fraccionaria, así que en
+    Magento tal como se instala esto no pasa nunca; pasa si un tenant alteró la
+    columna. El caso importa por H1: el digest de contenido de `/checksums`
+    canonicaliza el timestamp al segundo (`ContentDigest::timestampToken()`) y
+    este lado tiene que llegar al MISMO texto desde el valor que guardó. Si acá
+    la fracción hiciera fallar el parseo, el espejo guardaría NULL, su token
+    sería 'desconocido' contra un timestamp real del otro lado, y la
+    reconciliación reportaría deriva PERMANENTE que ningún re-sync limpiaría.
     """
     if raw is None:
         return None
     candidate = raw.strip()
     if not candidate or candidate.startswith("0000-00-00"):
         return None
-    try:
-        return datetime.strptime(candidate, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
-    except ValueError:
-        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+        try:
+            # Sin microsegundos: es la misma canonicalización al segundo que
+            # hace el módulo, en el mismo lugar del ciclo.
+            return datetime.strptime(candidate, fmt).replace(microsecond=0, tzinfo=UTC)
+        except ValueError:
+            continue
+    return None
 
 
 def note_unreadable_timestamp(report, sku: str) -> None:

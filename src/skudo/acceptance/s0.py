@@ -34,6 +34,12 @@ from skudo.mirror.products import (
 )
 from skudo.mirror.topology import root_category_id as store_root_category_id
 
+# Cuántas particiones divergentes se nombran en el detalle del criterio 1. Un
+# conteo solo dice que hay deriva de contenido; una muestra acotada dice por
+# dónde empezar a mirar, y 256 nombres en una línea no los lee nadie.
+DIVERGING_PARTITION_SAMPLE = 10
+
+
 # Cuántas asignaciones producto-categoría se recorren para el criterio 5. Un
 # conteo entero sobre 200k SKUs es caro y no aporta nada que una muestra
 # acotada no confirme ya: mismo criterio de `_procedencia_de_scope`.
@@ -47,11 +53,32 @@ class CriterionResult(BaseModel):
 
 
 def _espejo_sincronizado(drift: dict[int, DriftReport]) -> CriterionResult:
+    """Criterio 1: el espejo coincide con Magento.
+
+    Dos clases de desacuerdo, y las dos reprueban (H1):
+
+    - de CONJUNTO (`needs_full_sync`): falta o sobra un producto.
+    - de CONTENIDO (`content_matches`): están los mismos productos y alguno
+      tiene otro `updated_at`. Antes de H1 este criterio no lo miraba, así que
+      un espejo con un valor rancio pasaba como "sin deriva" — cierto sobre el
+      conjunto y engañoso sobre lo que el criterio afirma. Se nombran las
+      particiones divergentes, acotadas, porque el remedio es dirigido: son
+      ~900 productos de 228.881 por partición en el catálogo piloto.
+    """
     drifted = [
         f"store {store_id}: magento={report.magento_count} "
         f"espejo={report.mirror_count} digest_ok={report.digest_matches}"
         for store_id, report in drift.items()
         if report.needs_full_sync
+    ]
+    drifted += [
+        f"store {store_id}: contenido divergente en "
+        f"{len(report.diverging_partitions)} de {report.partition_count} "
+        "particiones ("
+        + ",".join(d.partition for d in report.diverging_partitions[:DIVERGING_PARTITION_SAMPLE])
+        + ")"
+        for store_id, report in drift.items()
+        if not report.content_matches and not report.needs_full_sync
     ]
     return CriterionResult(
         name="espejo_sincronizado",
