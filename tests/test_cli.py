@@ -531,3 +531,24 @@ def test_accept_runs_the_s0_criteria_and_fails_when_one_does(cli_db, capsys):
     assert "espejo_sincronizado" in out
     # El criterio 1 sí pasa: el espejo que este CLI acaba de poblar coincide.
     assert "[OK ] espejo_sincronizado" in out
+
+
+def test_status_reports_the_catalog_passes_and_whether_they_swept(cli_db, capsys):
+    """M3: el estado de las pasadas que barren atributos y categorías. Una con
+    `pass_complete: false` es una pasada cortada, que no barrió nada porque no
+    puede, y un operador tiene que poder verlo sin abrir la base."""
+    _register()
+    _run(["probe", "--tenant", "demo"], FakeMagento())
+    _run(["attributes", "--tenant", "demo"], FakeMagento())
+    capsys.readouterr()
+
+    _run(["status", "--tenant", "demo"])
+    payload = json.loads(capsys.readouterr().out)
+
+    passes = {row["pass_kind"]: row for row in payload["catalog_passes"]}
+    assert passes["attributes"]["pass_complete"] is True
+    assert passes["attributes"]["swept"] is True
+    assert passes["attributes"]["generation"] > 0
+    # `categories` todavía no corrió: no hay fila, y por tanto ningún barrido
+    # de categorías está autorizado.
+    assert "categories" not in passes

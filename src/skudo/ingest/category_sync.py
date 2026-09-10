@@ -1,13 +1,27 @@
 from pydantic import BaseModel
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from skudo.ingest.source import TenantSource
+from skudo.ingest.sweep import (
+    PASS_CATEGORIES,
+    next_generation,
+    note_page,
+    require_complete_pass,
+    start_pass,
+)
 from skudo.mirror.categories import set_category_store_state, upsert_category
+from skudo.mirror.models import Category, CategoryStoreState
 
 
 class CategorySyncReport(BaseModel):
+    # Sello de esta pasada, igual que en `AttributeSyncReport`.
+    generation: int = 0
     pages_fetched: int = 0
     categories_written: int = 0
+    # M3: lo que el origen dejó de ofrecer y esta pasada barrió.
+    categories_deleted: int = 0
+    category_store_states_deleted: int = 0
 
 
 def sync_categories(
@@ -32,13 +46,29 @@ def sync_categories(
     razón que `full_sync`/`delta_sync`/`sync_attributes`: para que el catálogo
     que se lee y el tenant en el que se escribe no puedan desemparejarse.
 
-    No hay barrido de categorías revocadas globalmente en esta tarea: la
-    revocación de asignaciones producto-categoría vía `delta_sync` es Task A5,
-    fuera de alcance aquí.
+    BARRIDO (M3). Hasta este cierre esta función documentaba "no hay barrido"
+    como fuera de alcance: una categoría que el origen borraba —o el estado
+    por tienda de una store view retirada— seguía pareciendo viva en el espejo
+    para siempre, y los detectores del eje 2 de S1 (salud del árbol,
+    accesibilidad efectiva) leen esas dos tablas. Mismo mecanismo, misma
+    puerta y misma razón para no reanudar que en `sync_attributes`.
+
+    Lo que este barrido NO hace, y por qué: no toca
+    `product_category_assignment`. Esa tabla se limpia por REFERENCIA
+    (`delete_orphan_category_assignments`, llamada por `full_sync` y por el
+    camino de borrado de `delta_sync`), porque una asignación es huérfana por
+    no tener producto, no por no llevar el sello de la última pasada de
+    categorías. Barrerla desde acá borraría las asignaciones de productos
+    vivos cuya categoría sigue existiendo.
     """
     tenant_id = source.tenant_id
     client = source.client
     report = CategorySyncReport()
+
+    generation = next_generation(session)
+    report.generation = generation
+    pass_row = start_pass(session, tenant_id, PASS_CATEGORIES, generation)
+    session.commit()
 
     for page in client.iter_categories():
         report.pages_fetched += 1
@@ -49,6 +79,7 @@ def sync_categories(
                 item["category_id"],
                 item["path"],
                 item["default_name"],
+                sync_generation=generation,
             )
             for state in item["store_states"]:
                 set_category_store_state(
@@ -58,8 +89,54 @@ def sync_categories(
                     state["store_id"],
                     state["is_active"],
                     state["name"],
+                    sync_generation=generation,
                 )
             report.categories_written += 1
 
+        # En la MISMA transacción que la página, igual que en `full_sync` y en
+        # `sync_attributes`: si el commit no llega, la pasada sigue a medias y
+        # el barrido sigue prohibido.
+        note_page(
+            session, pass_row, len(page["items"]), is_last=page.get("next_cursor") is None
+        )
+        session.commit()
+
+    (
+        report.categories_deleted,
+        report.category_store_states_deleted,
+    ) = _sweep_categories(session, tenant_id, generation)
     session.commit()
     return report
+
+
+def _sweep_categories(session: Session, tenant_id: int, generation: int) -> tuple[int, int]:
+    """Borra categorías y estados por tienda que esta pasada no selló.
+
+    La precondición se lee de la BASE (`require_complete_pass`): un barrido
+    sobre una pasada a medias borraría el árbol que falta por recorrer, y no
+    es expresable.
+
+    El estado por tienda se filtra por su PROPIO sello y no por el de su
+    categoría: una store view retirada de la instancia deja la categoría viva
+    y su estado huérfano, y `derive_category_effect` leería un `is_active` de
+    una tienda que ya no existe. Con el sello de la categoría como criterio,
+    ese caso no se vería.
+    """
+    pass_row = require_complete_pass(session, tenant_id, PASS_CATEGORIES, generation)
+
+    states_deleted = session.execute(
+        delete(CategoryStoreState).where(
+            CategoryStoreState.tenant_id == tenant_id,
+            CategoryStoreState.sync_generation != generation,
+        )
+    )
+    categories_deleted = session.execute(
+        delete(Category).where(
+            Category.tenant_id == tenant_id,
+            Category.sync_generation != generation,
+        )
+    )
+
+    pass_row.swept = True
+    session.flush()
+    return categories_deleted.rowcount or 0, states_deleted.rowcount or 0

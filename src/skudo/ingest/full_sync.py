@@ -1,39 +1,27 @@
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
-from sqlalchemy import Sequence, delete, func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from skudo.ingest.apply import apply_items
 from skudo.ingest.source import TenantSource
+
+# `IncompletePassSweep` y el sello de pasada viven en `ingest.sweep` desde M3,
+# que generalizó la maquinaria de H3 a las pasadas de atributos y categorías.
+# Una sola excepción para los tres barridos a propósito: dos tipos distintos
+# para el mismo modo de fallo invitarían a tratarlos como problemas distintos.
+from skudo.ingest.sweep import IncompletePassSweep, next_generation
 from skudo.mirror.attributes import declared_scopes
 from skudo.mirror.categories import delete_orphan_category_assignments
 from skudo.mirror.models import FullSyncCheckpoint, ProductRecord
 from skudo.mirror.topology import sync_topology
-
-# Secuencia de la base: cada pasada completa toma un valor propio con el que
-# sella las filas que toca. Se usa una secuencia y no un reloj para que el
-# sello sea único sin depender de la resolución ni de la monotonía del reloj.
-SYNC_GENERATION_SEQUENCE = Sequence("product_sync_generation_seq")
 
 # Tamaño de página del recorrido por cursor, y por tanto de la transacción:
 # se confirma UNA vez por página. 500 es el default del módulo
 # (`ProductReader::getPage`) y deja una transacción de ~500 upserts más sus
 # categorías, que Postgres cierra en decenas de milisegundos.
 FULL_SYNC_PAGE_SIZE = 500
-
-
-class IncompletePassSweep(RuntimeError):
-    """El barrido se pidió para una store view cuya pasada no terminó.
-
-    No es un caso a evitar con cuidado: es el que convierte una interrupción
-    inofensiva en la pérdida del espejo entero. Con commit por página, una
-    pasada interrumpida deja el espejo PARCIALMENTE actualizado —correcto y
-    esperado—, pero si el barrido corriera igual borraría todo lo que esa
-    pasada no llegó a ver, que es casi todo el catálogo. Por eso `_sweep`
-    exige el sello persistido de "pasada completa" y lanza esto si no está,
-    en vez de confiar en que ningún camino lo llame antes de tiempo.
-    """
 
 
 class FullSyncReport(BaseModel):
@@ -183,7 +171,7 @@ def full_sync(
     report = FullSyncReport()
     open_generation = None if restart else _open_generation(session, tenant_id)
     if open_generation is None:
-        generation = session.scalar(select(SYNC_GENERATION_SEQUENCE.next_value()))
+        generation = next_generation(session)
     else:
         generation = open_generation
         report.resumed = True

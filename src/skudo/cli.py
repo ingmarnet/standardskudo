@@ -50,6 +50,7 @@ from skudo.mirror.models import (
     FullSyncCheckpoint,
     ProductRecord,
     StoreView,
+    SyncPass,
     SyncWatermark,
     Tenant,
 )
@@ -269,6 +270,11 @@ def _status(session: Session, tenant: Tenant) -> int:
         .where(FullSyncCheckpoint.tenant_id == tenant.id)
         .order_by(FullSyncCheckpoint.store_view_magento_id)
     ).all()
+    catalog_passes = session.scalars(
+        select(SyncPass)
+        .where(SyncPass.tenant_id == tenant.id)
+        .order_by(SyncPass.pass_kind)
+    ).all()
     snapshot = session.scalar(
         select(EnvironmentSnapshot)
         .where(EnvironmentSnapshot.tenant_id == tenant.id)
@@ -316,6 +322,22 @@ def _status(session: Session, tenant: Tenant) -> int:
                     "updated_at": checkpoint.updated_at,
                 }
                 for checkpoint in checkpoints
+            ],
+            # M3: el estado de las pasadas que barren atributos y categorías.
+            # Una con `pass_complete: false` es una pasada que se cortó: no
+            # barrió nada (no puede) y la próxima recorre desde la primera
+            # página.
+            "catalog_passes": [
+                {
+                    "pass_kind": row.pass_kind,
+                    "generation": row.generation,
+                    "pages_done": row.pages_done,
+                    "items_written": row.items_written,
+                    "pass_complete": row.pass_complete,
+                    "swept": row.swept,
+                    "updated_at": row.updated_at,
+                }
+                for row in catalog_passes
             ],
             "environment": None
             if snapshot is None

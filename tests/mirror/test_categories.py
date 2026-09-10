@@ -113,7 +113,10 @@ def test_the_tree_condition_still_wins_over_an_unknown_website():
 
 def test_assignment_is_stored_without_store_scope(db_session, tenant):
     """La tabla de asignación NO lleva store view: en Magento es global."""
-    upsert_category(db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización")
+    upsert_category(
+        db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización",
+        sync_generation=1,
+    )
     set_product_categories(db_session, tenant.id, "SKU1", [15])
 
     rows = db_session.scalars(
@@ -126,9 +129,16 @@ def test_assignment_is_stored_without_store_scope(db_session, tenant):
 
 
 def test_category_name_and_activity_are_per_store_view(db_session, tenant):
-    upsert_category(db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización")
-    set_category_store_state(db_session, tenant.id, 15, 1, True, "Climatización")
-    set_category_store_state(db_session, tenant.id, 15, 3, False, "Climatização")
+    upsert_category(
+        db_session, tenant.id, 15, PATH_UNDER_THE_SHARED_ROOT, "Climatización",
+        sync_generation=1,
+    )
+    set_category_store_state(
+        db_session, tenant.id, 15, 1, True, "Climatización", sync_generation=1
+    )
+    set_category_store_state(
+        db_session, tenant.id, 15, 3, False, "Climatização", sync_generation=1
+    )
 
     from skudo.mirror.models import CategoryStoreState
 

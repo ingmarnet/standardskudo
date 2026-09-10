@@ -5,9 +5,19 @@ from sqlalchemy.orm import Session
 from skudo.mirror.models import Attribute, AttributeOption, AttributeOptionLabel
 
 
-def upsert_attribute(session: Session, tenant_id: int, payload: dict) -> None:
+def upsert_attribute(
+    session: Session, tenant_id: int, payload: dict, *, sync_generation: int
+) -> None:
+    """`sync_generation` es OBLIGATORIO y sin default (M3).
+
+    Es el sello con el que la pasada marca lo que tocó, y lo que no lo lleva se
+    barre al final. Un default silencioso —0, o la generación anterior— haría
+    que un llamador que se olvide de pasarlo escriba filas que el barrido de su
+    propia pasada borra a continuación. Se prefiere que no compile.
+    """
     stmt = insert(Attribute).values(
         tenant_id=tenant_id,
+        sync_generation=sync_generation,
         code=payload["code"],
         label=payload["label"],
         frontend_input=payload["frontend_input"],
@@ -26,6 +36,7 @@ def upsert_attribute(session: Session, tenant_id: int, payload: dict) -> None:
                 "is_filterable": stmt.excluded.is_filterable,
                 "is_required": stmt.excluded.is_required,
                 "attribute_set_ids": stmt.excluded.attribute_set_ids,
+                "sync_generation": stmt.excluded.sync_generation,
             },
         )
     )
@@ -38,18 +49,34 @@ def upsert_option(
     attribute_code: str,
     option_id: int,
     labels: dict[int, str],
+    *,
+    sync_generation: int,
 ) -> None:
     """Guarda una opción y todas sus etiquetas por store view.
 
     `labels` va indexado por store view de Magento; 0 es la etiqueta admin.
     Las etiquetas se reemplazan por completo: son un reflejo, no un histórico.
+
+    `sync_generation` es OBLIGATORIO y sin default, por la misma razón que en
+    `upsert_attribute`: es el sello que salva a esta opción del barrido de su
+    propia pasada. Y una opción barrida se lleva sus etiquetas, que son el
+    único registro de que "Negro" y "Preto" son la misma `option_id`.
+
+    El sello se refresca en el conflicto (`on_conflict_do_update` y no
+    `do_nothing`): una opción que ya existía y que esta pasada volvió a ver
+    está VIVA, y con `do_nothing` conservaría el sello anterior y el barrido
+    del final se la llevaría.
     """
     stmt = insert(AttributeOption).values(
-        tenant_id=tenant_id, attribute_code=attribute_code, magento_option_id=option_id
+        tenant_id=tenant_id,
+        attribute_code=attribute_code,
+        magento_option_id=option_id,
+        sync_generation=sync_generation,
     )
     session.execute(
-        stmt.on_conflict_do_nothing(
-            index_elements=["tenant_id", "attribute_code", "magento_option_id"]
+        stmt.on_conflict_do_update(
+            index_elements=["tenant_id", "attribute_code", "magento_option_id"],
+            set_={"sync_generation": stmt.excluded.sync_generation},
         )
     )
     session.flush()

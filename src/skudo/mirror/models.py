@@ -117,6 +117,14 @@ class Attribute(Base):
     is_required: Mapped[bool] = mapped_column(Boolean)
     attribute_set_ids: Mapped[list] = mapped_column(JSON)
 
+    # Sello de la última pasada de atributos que tocó esta fila (M3). Lo que
+    # al terminar una pasada COMPLETA no lleve el sello de esa pasada es una
+    # fila que el origen ya no ofrece. 0 = ninguna pasada la ha sellado
+    # todavía (fila preexistente).
+    sync_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
+
 
 class AttributeOption(Base):
     """La identidad de una opción es su option_id de Magento, jamás su etiqueta."""
@@ -129,8 +137,22 @@ class AttributeOption(Base):
     attribute_code: Mapped[str] = mapped_column(String(255), index=True)
     magento_option_id: Mapped[int] = mapped_column(Integer)
 
+    # Sello de la última pasada de atributos que tocó esta fila (M3). Lo que
+    # al terminar una pasada COMPLETA no lleve el sello de esa pasada es una
+    # fila que el origen ya no ofrece. 0 = ninguna pasada la ha sellado
+    # todavía (fila preexistente).
+    sync_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
+
 
 class AttributeOptionLabel(Base):
+    """Etiqueta de una opción EN una store view. Sin sello de generación a
+    propósito (M3): `upsert_option` reemplaza el juego completo de etiquetas de
+    la opción en cada pasada, así que una etiqueta solo puede quedar huérfana
+    si su OPCIÓN desaparece, y el barrido de opciones se las lleva con ella. Un
+    sello propio sería un segundo criterio para la misma decisión."""
+
     __tablename__ = "attribute_option_label"
     __table_args__ = (UniqueConstraint("option_row_id", "store_view_magento_id"),)
 
@@ -212,6 +234,14 @@ class Category(Base):
     path: Mapped[list] = mapped_column(JSON)
     default_name: Mapped[str] = mapped_column(String(512))
 
+    # Sello de la última pasada de atributos que tocó esta fila (M3). Lo que
+    # al terminar una pasada COMPLETA no lleve el sello de esa pasada es una
+    # fila que el origen ya no ofrece. 0 = ninguna pasada la ha sellado
+    # todavía (fila preexistente).
+    sync_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
+
 
 class CategoryStoreState(Base):
     """Nombre y actividad de la categoría EN una store view. Esto sí tiene scope."""
@@ -226,6 +256,14 @@ class CategoryStoreState(Base):
     store_view_magento_id: Mapped[int] = mapped_column(Integer)
     is_active: Mapped[bool] = mapped_column(Boolean)
     name: Mapped[str] = mapped_column(String(512))
+
+    # Sello de la última pasada de atributos que tocó esta fila (M3). Lo que
+    # al terminar una pasada COMPLETA no lleve el sello de esa pasada es una
+    # fila que el origen ya no ofrece. 0 = ninguna pasada la ha sellado
+    # todavía (fila preexistente).
+    sync_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
 
 
 class ProductCategoryAssignment(Base):
@@ -348,6 +386,53 @@ class FullSyncCheckpoint(Base):
     next_cursor: Mapped[str | None] = mapped_column(String(512), nullable=True)
     pages_done: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     records_written: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    pass_complete: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    swept: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class SyncPass(Base):
+    """Progreso de una pasada que NO es por store view, por (tenant, tipo).
+
+    M3. `full_sync_checkpoint` hace esto para la pasada de productos; esta
+    tabla es su equivalente para las dos pasadas que recorren el catálogo
+    entero de una vez: atributos (con sus opciones y etiquetas) y categorías
+    (con su estado por tienda). Antes de M3 esas dos pasadas no tenían barrido
+    —lo documentaban como fuera de alcance— y una opción o una categoría que
+    el origen borraba seguía pareciendo viva en el espejo para siempre. Eso
+    importa por encima de la higiene: la consolidación de S1 decide por
+    `option_id`, así que una opción borrada que parece viva es candidata a una
+    corrección que no apuntaría a nada.
+
+    Lo que carga el peso es `pass_complete`, exactamente como en
+    `FullSyncCheckpoint`: el barrido lo lee de la BASE, así que barrer sobre
+    una pasada a medias no es expresable (ver `ingest.sweep.require_complete_pass`).
+    Y ahí la asimetría con los productos importa: un producto barrido de más
+    vuelve en la próxima sincronización, pero una OPCIÓN barrida de más se
+    lleva sus etiquetas, que son el único registro de que "Negro" y "Preto"
+    son la misma opción — la identidad que este sub-proyecto existe para
+    proteger.
+
+    No lleva `next_cursor` a propósito: estas pasadas arrancan siempre desde
+    la primera página. Una interrumpida no se reanuda —se repite completa con
+    una generación nueva, y todo lo vivo se vuelve a sellar—, así que el
+    cursor persistido que `full_sync` necesita acá no tendría lector.
+    """
+
+    __tablename__ = "sync_pass"
+    __table_args__ = (UniqueConstraint("tenant_id", "pass_kind"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    pass_kind: Mapped[str] = mapped_column(String(32))
+    generation: Mapped[int] = mapped_column(BigInteger)
+    pages_done: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    items_written: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     pass_complete: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     swept: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     started_at: Mapped[datetime] = mapped_column(

@@ -67,15 +67,33 @@ def derive_category_effect(
 
 
 def upsert_category(
-    session: Session, tenant_id: int, magento_id: int, path: list[int], name: str
+    session: Session,
+    tenant_id: int,
+    magento_id: int,
+    path: list[int],
+    name: str,
+    *,
+    sync_generation: int,
 ) -> None:
+    """`sync_generation` es OBLIGATORIO y sin default (M3): es el sello con el
+    que la pasada marca lo que tocó, y lo que no lo lleva se barre al final.
+    Un default silencioso haría que un llamador que se olvide de pasarlo
+    escriba filas que el barrido de su propia pasada borra a continuación."""
     stmt = insert(Category).values(
-        tenant_id=tenant_id, magento_id=magento_id, path=path, default_name=name
+        tenant_id=tenant_id,
+        magento_id=magento_id,
+        path=path,
+        default_name=name,
+        sync_generation=sync_generation,
     )
     session.execute(
         stmt.on_conflict_do_update(
             index_elements=["tenant_id", "magento_id"],
-            set_={"path": stmt.excluded.path, "default_name": stmt.excluded.default_name},
+            set_={
+                "path": stmt.excluded.path,
+                "default_name": stmt.excluded.default_name,
+                "sync_generation": stmt.excluded.sync_generation,
+            },
         )
     )
     session.flush()
@@ -88,15 +106,26 @@ def set_category_store_state(
     store_view_magento_id: int,
     is_active: bool,
     name: str,
+    *,
+    sync_generation: int,
 ) -> None:
+    """El estado por tienda se sella APARTE de su categoría (M3), y no basta
+    con el sello de la categoría: una store view retirada de la instancia deja
+    la categoría viva y su estado huérfano, y `derive_category_effect` leería
+    un `is_active` de una tienda que ya no existe."""
     stmt = insert(CategoryStoreState).values(
         tenant_id=tenant_id, category_magento_id=magento_id,
         store_view_magento_id=store_view_magento_id, is_active=is_active, name=name,
+        sync_generation=sync_generation,
     )
     session.execute(
         stmt.on_conflict_do_update(
             index_elements=["tenant_id", "category_magento_id", "store_view_magento_id"],
-            set_={"is_active": stmt.excluded.is_active, "name": stmt.excluded.name},
+            set_={
+                "is_active": stmt.excluded.is_active,
+                "name": stmt.excluded.name,
+                "sync_generation": stmt.excluded.sync_generation,
+            },
         )
     )
     session.flush()
