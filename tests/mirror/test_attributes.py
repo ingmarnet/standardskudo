@@ -1,10 +1,10 @@
 import pytest
+from skudo_testing import upsert_option
 
 from skudo.mirror.attributes import (
     distinct_option_ids,
     option_labels,
     upsert_attribute,
-    upsert_option,
 )
 from skudo.mirror.models import Tenant
 
@@ -103,3 +103,57 @@ def test_filterable_flag_is_stored_on_the_attribute(db_session, tenant, color_at
     )
     # is_filterable es propiedad del ATRIBUTO en Magento, no de la categoría.
     assert row.is_filterable is True
+
+
+# --- el lote de opciones y el límite de parámetros de Postgres --------------
+
+
+def test_a_batch_larger_than_the_parameter_limit_is_written(db_session, tenant):
+    """La primera versión del lote escribía la página entera en UNA sentencia y
+    reventaba contra el catálogo real: el protocolo de Postgres admite 65.535
+    parámetros por sentencia y el insert de opciones manda 4 por fila, así que
+    más de 16.383 opciones fallan con `number of parameters must be between 0
+    and 65535`. No lo vio ninguna prueba —los lotes de la suite eran de dos
+    opciones— sino la medición contra la instancia de desarrollo, a mitad de
+    una pasada.
+
+    Esta prueba es esa medición, en la suite: un lote del doble del límite.
+    """
+    from skudo.mirror.attributes import POSTGRES_MAX_BIND_PARAMS, upsert_options
+
+    demasiadas = (POSTGRES_MAX_BIND_PARAMS // 4) * 2
+    upsert_attribute(
+        db_session, tenant.id,
+        {"code": "talle", "label": "Talle", "frontend_input": "select",
+         "declared_scope": "global", "is_filterable": True, "is_required": False,
+         "attribute_set_ids": [4]},
+        sync_generation=PASS_GENERATION,
+    )
+
+    written = upsert_options(
+        db_session,
+        tenant.id,
+        [
+            {"attribute_code": "talle", "option_id": option_id, "labels": {0: f"t{option_id}"}}
+            for option_id in range(demasiadas)
+        ],
+        sync_generation=PASS_GENERATION,
+    )
+
+    assert written == demasiadas
+    assert len(distinct_option_ids(db_session, tenant.id, "talle")) == demasiadas
+    assert option_labels(db_session, tenant.id, "talle", demasiadas - 1) == {
+        0: f"t{demasiadas - 1}"
+    }
+
+
+def test_the_batch_size_leaves_margin_under_the_parameter_limit():
+    """El porqué del número, afirmado en vez de comentado: si alguien sube el
+    lote buscando velocidad, esto falla antes de que lo haga una pasada."""
+    from skudo.mirror.attributes import (
+        OPTION_BATCH_SIZE,
+        POSTGRES_MAX_BIND_PARAMS,
+    )
+
+    # 4 columnas por opción en el insert que más parámetros manda.
+    assert OPTION_BATCH_SIZE * 4 < POSTGRES_MAX_BIND_PARAMS

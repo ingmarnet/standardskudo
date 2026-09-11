@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import httpx
 
+from skudo.mirror.attributes import upsert_options
 from skudo.mirror.categories import set_products_categories
 from skudo.mirror.products import record_values, upsert_records
 
@@ -124,3 +125,32 @@ def set_product_categories(
     `upsert_record`: el producto escribe por lote (`set_products_categories`) y
     esta forma de a uno es conveniencia de los tests."""
     set_products_categories(session, tenant_id, {sku: category_magento_ids})
+
+
+def upsert_option(
+    session,
+    tenant_id: int,
+    attribute_code: str,
+    option_id: int,
+    labels: dict[int, str],
+    *,
+    sync_generation: int,
+) -> None:
+    """Escribe UNA opción con sus etiquetas. Conveniencia de los tests.
+
+    Misma historia que `upsert_record`: la escritura de opciones pasó a ser por
+    LOTE (`upsert_options`, tres sentencias por página en vez de cuatro por
+    opción) y el envoltorio de a una se quedó sin llamadores en `src/`.
+    `tests/mirror/test_write_paths_are_reachable.py` lo habría señalado, que es
+    exactamente su trabajo: una función de escritura que sólo usan los tests
+    afirma un camino de ingesta que no existe.
+
+    Delega en la MISMA función que el producto, así que un test que siembra con
+    esto sigue ejerciendo el camino de escritura real y no una copia suya.
+    """
+    upsert_options(
+        session,
+        tenant_id,
+        [{"attribute_code": attribute_code, "option_id": option_id, "labels": labels}],
+        sync_generation=sync_generation,
+    )

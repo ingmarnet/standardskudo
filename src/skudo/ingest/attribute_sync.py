@@ -11,7 +11,7 @@ from skudo.ingest.sweep import (
     require_complete_pass,
     start_pass,
 )
-from skudo.mirror.attributes import upsert_attribute, upsert_option
+from skudo.mirror.attributes import upsert_attribute, upsert_options
 from skudo.mirror.models import Attribute, AttributeOption, AttributeOptionLabel
 
 
@@ -96,6 +96,12 @@ def sync_attributes(
 
     for page in client.iter_attributes():
         report.pages_fetched += 1
+        # Las opciones de la PÁGINA entera se juntan y se escriben en tres
+        # sentencias (`upsert_options`), no en cuatro por opción. Medido: la
+        # pasada de la instancia de referencia, con 50.535 opciones, tardaba
+        # 68 s de a una. Mismo defecto y mismo arreglo que H3 para los
+        # productos: el coste dominante era compilar el SQL, no Postgres.
+        options: list[dict] = []
         for item in page["items"]:
             upsert_attribute(
                 session,
@@ -114,19 +120,23 @@ def sync_attributes(
             report.attributes_written += 1
 
             for option in item.get("options", []):
-                # Una llamada por opción con el mapa COMPLETO de etiquetas:
-                # upsert_option reemplaza las etiquetas de la opción por
-                # completo, así que una llamada por etiqueta borraría en cada
-                # vuelta lo que la vuelta anterior acababa de escribir.
-                upsert_option(
-                    session,
-                    tenant_id,
-                    item["code"],
-                    option["option_id"],
-                    _labels_by_store_id(option["labels"]),
-                    sync_generation=generation,
+                # El mapa COMPLETO de etiquetas por opción: `upsert_options`
+                # reemplaza las etiquetas de cada opción por completo, así que
+                # una entrada por etiqueta borraría en cada vuelta lo que la
+                # anterior acababa de escribir.
+                options.append(
+                    {
+                        "attribute_code": item["code"],
+                        "option_id": option["option_id"],
+                        "labels": _labels_by_store_id(option["labels"]),
+                    }
                 )
-                report.options_written += 1
+
+        # Antes del `note_page`, y por tanto en la MISMA transacción que el
+        # sello de la página: los datos y el punto de control avanzan juntos.
+        report.options_written += upsert_options(
+            session, tenant_id, options, sync_generation=generation
+        )
 
         # El sello de "vio la última página" se escribe en la MISMA
         # transacción que la última página, no antes: si el commit no llega,
