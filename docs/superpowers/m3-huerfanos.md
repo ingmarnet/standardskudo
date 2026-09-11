@@ -380,16 +380,8 @@ de la misma cosa.
 ni ahora). Está declarada como raíz en la invariante, no como hija, porque lo que
 le falta es un ingestor y no un barrido. Es un hallazgo distinto, anterior a M3.
 
-**5. Una pasada COMPLETA que no devuelve nada barre todo.** Si el módulo
-respondiera una primera página vacía con `next_cursor: null` —una
-configuración rota, un entity type mal resuelto—, la pasada la leería como "el
-origen no ofrece ningún atributo" y barrería la tabla del tenant. Es la MISMA
-propiedad que `full_sync` tiene desde H3 para los productos y no se cambió
-acá: introducir un piso ("no barrer si el origen devolvió menos del X %")
-sería un criterio nuevo, sin medición que lo respalde, en el camino que borra.
-Queda declarado. Lo que hoy lo cubre es que `reconcile` compara conjunto y
-contenido, y que el barrido de atributos deja rastro en el reporte y en
-`skudo status`.
+**5. ~~Una pasada COMPLETA que no devuelve nada barre todo.~~ CERRADO** en la
+segunda ronda — ver §9.
 
 **6. La reparación dirigida SÍ se tocó** (commit `45db21b`): borraba
 `ProductRecord` de los SKUs que la partición ya no contiene y dejaba sus
@@ -534,3 +526,145 @@ activos, volvió a correr en verde: `4 tests, 27 assertions`.
   `option_labels_deleted`; `sync_categories`, `generation`,
   `categories_deleted` y `category_store_states_deleted`.
 - Sin cambios en el módulo PHP.
+
+
+---
+
+## 9. Segunda ronda: la válvula del barrido masivo y el lote de opciones
+
+Dos cosas que el cierre de M3 dejó anotadas y la revisión pidió cerrar.
+Commits `13a4b26` (válvula) y `0d2fa2f` (lote). Suites: **333 pytest**, 191
+PHPUnit + 4 de integración, `ruff` limpio.
+
+### 9.1 La válvula: un barrido que se llevaría la mayoría se NIEGA
+
+**El hueco.** Para el sello, una pasada completa que no devolvió NADA es
+indistinguible de "el origen dejó de ofrecer todo el catálogo": la pasada
+termina, marca `pass_complete`, y el barrido borra el espejo entero del
+tenant. Basta un endpoint que responda `[]` por un bug, un token vencido que
+igual devuelva 200, o una paginación rota. El espejo es derivado y una
+resincronización lo reconstruye, así que el daño está acotado — pero es
+**silencioso**, y un sistema cuya premisa es no destruir valor no puede tener
+un camino destructivo que dispara con más fuerza justo cuando algo aguas
+arriba se rompió.
+
+`guard_mass_sweep` (en `ingest/sweep.py`) se llama DENTRO de los tres barridos
+y **antes de la primera sentencia de borrado**, así que una negativa deja el
+espejo exactamente como estaba. Aborta con `MassSweepRefused`, los conteos y
+la bandera en el mensaje.
+
+**El umbral: la mayoría estricta, 0,5.** Por debajo de la mitad, un borrado
+grande es indistinguible de la rotación normal de un catálogo, y una válvula
+que dispara en las pasadas normales es una válvula que alguien apaga. Por
+encima de la mitad, el barrido está afirmando algo sobre el catálogo ENTERO
+del tenant, y eso merece un humano. El fallo que motiva todo esto produce
+siempre el 100 %, cómodamente del lado que se niega. La comparación es
+**estricta**: exactamente la mitad pasa, porque "la mayoría se va" y "la mitad
+cambió" son cosas distintas.
+
+**El piso: 10 filas.** Por debajo, la válvula no se aplica. No es una
+concesión: ahí no puede proteger nada que importe —resincronizar un puñado de
+filas cuesta segundos— y a cambio obligaría a cualquier espejo recién nacido a
+llevar bandera.
+
+**Dónde se mide.** Sobre lo que ESE barrido alcanza: esa store view, esa tabla.
+Medirlo sobre el espejo entero haría que vaciar PY con BR intacto diera 50 % y
+pasara inadvertido — hay una prueba para eso. Atributos y categorías miden sus
+DOS tablas selladas por separado, para que 50.000 opciones muertas no se
+escondan detrás de 1.000 atributos vivos.
+
+**La salida es una bandera, no un dial.** `--sweep-anyway` en `full-sync`,
+`attributes` y `categories`. Un umbral configurable en un cron termina
+configurado en 1,0 y la válvula deja de existir sin que nadie lo decida; una
+bandera hay que escribirla cada vez.
+
+**El estado que deja la negativa** es `pass_complete=true, swept=false`: ni a
+medio barrer ni marcada como completa-y-barrida. La invocación siguiente
+**continúa la misma generación** —no relee el catálogo— y vuelve a negarse
+hasta que alguien autorice. Hay una prueba que lo afirma sobre el checkpoint y
+sobre la generación.
+
+**Las pruebas, y la comparación invertida.** 16 casos en
+`tests/ingest/test_mass_sweep_valve.py`, y cada barrido tiene las DOS que
+discriminan:
+
+- una pasada normal que borra **11 de 41** —por encima del piso, así que la
+  válvula sí se consulta, y por debajo de la mayoría— tiene que barrer **sin**
+  bandera;
+- una que borraría todo tiene que **negarse** sin bandera y barrer con ella.
+
+El 11 no es decorativo: con el 1 de 31 que tenía la primera versión de estas
+pruebas, el piso corta antes que la comparación y una inversión pasaría
+inadvertida. Comprobado por sabotaje:
+
+| Sabotaje | Resultado |
+|---|---|
+| `<=` invertido a `>=` en la comparación de share | **12 de 16 fallan**, incluidas las tres de pasada normal |
+| válvula desactivada (`if True: return`) | **9 de 16 fallan**, las de negativa |
+
+**Sobre HTTP real.** Se sembraron en el espejo 60.000 opciones que el origen no
+ofrece; la pasada siguiente sella las 50.535 de verdad y el barrido se llevaría
+60.000 de 110.535:
+
+```
+$ skudo attributes --tenant skudodev
+MassSweepRefused: el barrido borraría 60000 de 110535 fila(s) de
+attribute_option (54.3%), más de la mayoría. Se aborta SIN tocar el espejo […]
+Verificá el origen; si el vaciado es real, repetí con --sweep-anyway.
+EXIT=1
+
+ opciones_intactas | pass_kind  | generation | pass_complete | swept
+        110535     | attributes |         37 | t             | f
+
+$ skudo attributes --tenant skudodev --sweep-anyway
+{ "options_written": 50535, "options_deleted": 60000 }   EXIT=0
+ opciones: 50535     etiquetas: 58576
+```
+
+(`/home/ingmar/skudo-dev-logs/m3/valve-real.log`)
+
+### 9.2 El lote de opciones, y el techo duro que la medición encontró
+
+La pasada de atributos escribía **cuatro sentencias por opción** —insert,
+select del id, delete de las etiquetas, insert de las etiquetas— y 50.535
+opciones costaban 68 s. Mismo defecto y mismo arreglo que H3 para los
+productos: el coste dominante era compilar el SQL, no Postgres.
+
+`upsert_options` escribe un lote en **tres** sentencias. El insert va con
+`ON CONFLICT DO UPDATE … RETURNING`, y no puede ser `DO NOTHING` por dos
+razones que se juntan: una opción que ya existía y que la pasada volvió a ver
+necesita el sello nuevo —si no, el barrido de su propia pasada se la lleva— y
+`DO NOTHING` no devuelve fila en el conflicto, así que el `RETURNING` que
+reemplaza al select por opción se quedaría sin los ids de todo lo que ya
+existía. El envoltorio de a una opción se mudó a `tests/skudo_testing.py`
+delegando en el lote, igual que `upsert_record` tras H3.
+
+**El defecto que ninguna prueba veía.** La primera versión escribía la PÁGINA
+entera en una sentencia, y la página grande de este catálogo —~17.000
+opciones— revienta: el protocolo de Postgres admite **65.535 parámetros** por
+sentencia y el insert manda 4 por fila, así que por encima de **16.383**
+opciones falla con `number of parameters must be between 0 and 65535`. En la
+suite no fallaba —los lotes son de dos opciones—: fallaba contra el catálogo
+real, a mitad de una pasada. Lo encontró la medición, no una prueba, que es
+justo el patrón que este proyecto ya pagó tres veces.
+
+Ahora se trocea en lotes de **2.000** (factor de ocho de margen) y hay dos
+pruebas: una que escribe el doble del límite en una llamada —falla sin el
+troceo— y otra que afirma el margen en aritmética, para que subir la constante
+falle antes de que lo haga una pasada.
+
+**Antes y después**, tres corridas contra la instancia de desarrollo sobre
+HTTP real, verificando en cada una que la pasada devolvió sus 50.535 opciones:
+
+| | antes | después |
+|---|---|---|
+| 1.066 atributos, 50.535 opciones, 58.576 etiquetas, 3 páginas | **68,4 s** | **19,9 s** (20,2 / 19,6 / 19,8) |
+| RSS pico | 105 MB | 136 MB |
+
+3,4× más rápido. El troceo de 2.000 y el de 10.000 dan el **mismo** tiempo y
+el segundo cuesta 190 MB de RSS, así que el lote chico no compra velocidad a
+cambio de memoria: la cota de memoria por construcción es la misma propiedad
+que `upsert_records` sostiene para los productos.
+
+Tras las dos rondas, el espejo de desarrollo sigue en **cero huérfanas** en las
+cinco clases y `skudo accept` sigue dando los cinco criterios en OK.

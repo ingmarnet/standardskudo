@@ -1,6 +1,6 @@
 # S0 — trabajo pendiente y riesgos residuales
 
-Estado al 2026-09-10 (tras el cierre de M3): 313 tests Python, 191 PHP (187 unitarias
+Estado al 2026-09-10 (tras el cierre de M3): 333 tests Python, 191 PHP (187 unitarias
 + 4 de integración), `ruff` limpio, cadena Alembic en `0014`.
 Módulo Magento con ocho endpoints de lectura y un comando de consola, ingestor con CLI
 (`python -m skudo.cli`) y espejo canónico en Postgres.
@@ -124,19 +124,18 @@ tiene su prueba de sabotaje. Encontró a la primera una cuarta clase que M3 no
 nombraba —las **señales** del producto borrado, que S1 usa para PRIORIZAR— y se
 cerró igual.
 
-**Nuevo, medido al verificar M3 a escala:** la pasada de atributos escribe **una
-sentencia por opción** (`upsert_option` reemplaza el juego de etiquetas de cada opción
-por separado), y por eso 50.535 opciones cuestan 68 s y la primera página tarda ~50 s.
-Es el mismo defecto que H3 midió y arregló para los productos —compilar el SQL, no
-Postgres—. No se tocó en M3 a propósito: cambiar la forma de escritura de las etiquetas
-en el mismo cierre que introduce su barrido habría mezclado dos cambios de riesgo
-distinto sobre la tabla que guarda la identidad de las opciones.
+**Segunda ronda** (commits `13a4b26` y `0d2fa2f`, informe §9): la **válvula** del
+barrido masivo —un barrido que se llevaría más de la mayoría estricta de las filas a
+su alcance se ABORTA sin tocar el espejo y pide `--sweep-anyway`, con piso de 10
+filas y la proporción medida por store view y por tabla— y el **lote** de opciones,
+que además destapó un techo duro: el protocolo de Postgres admite 65.535 parámetros
+por sentencia, así que la página entera en un solo insert reventaba con las ~17.000
+opciones de la página grande. 68,4 s → 19,9 s.
 
 **Lo que queda declarado:** una asignación a una categoría que el espejo no tiene
 se VIGILA pero no se limpia (la tabla `category` la puebla una pasada
 independiente, y tratar "desconocida" como huérfana borraría las asignaciones de un
-tenant que no corrió `skudo categories`); y una pasada completa que no devuelve
-nada barre todo, que es la misma propiedad que `full_sync` tiene desde H3.
+tenant que no corrió `skudo categories`).
 
 ---
 
