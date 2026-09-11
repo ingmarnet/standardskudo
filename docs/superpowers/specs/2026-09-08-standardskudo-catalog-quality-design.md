@@ -3,8 +3,10 @@
 **Producto:** StandardSkudo (`Standard` + `SKU` + *escudo*; el juego funciona igual en
 español y portugués). Miembro de la familia `Standard_*`, junto a
 `Standard_SemanticSearch`.
-**Creado:** 2026-09-08 · **Revisión 2:** 2026-09-09 (revisión técnica externa incorporada)
-**Estado:** en diseño. Sin código.
+**Creado:** 2026-09-08 · **Revisión 2:** 2026-09-09 (revisión técnica externa
+incorporada) · **Revisión 3:** 2026-09-11 (S0 construido; medición del catálogo real
+incorporada)
+**Estado:** S0 construido y verificado contra el Magento del tenant piloto. S1 en diseño.
 
 ---
 
@@ -19,8 +21,10 @@ búsquedas reales), infiere las reglas de calidad a partir del propio catálogo,
 cada registro, prioriza los hallazgos por impacto comercial y propone lotes de
 corrección que un humano aprueba antes de que se escriban.
 
-**Tenant piloto:** Nissei — cientos de miles de SKUs, dos store views (Paraguay y
-Brasil), ~100 attribute sets, ritmo de cambio constante.
+**Tenant piloto:** Nissei — **228.881 productos**, dos store views (Paraguay y Brasil),
+**422 attribute sets definidos y 298 en uso**, ritmo de cambio constante. Desde la
+revisión 3 estas cifras no son estimaciones: son medición del catálogo real
+(`docs/superpowers/s1-datos-reales.md`).
 **Objetivo comercial:** 5 tenants en el primer año.
 
 **El principio que gobierna todo el diseño:** el mayor riesgo del sistema no es dejar
@@ -112,10 +116,10 @@ preguntas— se justifica por sí solo, sin apelar a cómo lee un LLM.
 | Conector | Módulo Magento instalable + API | Lectura masiva eficiente, deltas, write-back en bloque. La REST estándar no aguanta 400k registros |
 | Persistencia | Espejo canónico en Postgres | Re-scoring barato al iterar reglas, base para rollback, perfilado estadístico, historia |
 | Observación externa | Sonda de superficie publicada, por muestreo | Hay hallazgos que el espejo no puede ver por definición (ver 5.4) |
-| Origen de las reglas | Inferidas + curación humana + piso externo obligatorio | 100 attribute sets × 5 tenants hacen imposible la configuración manual |
+| Origen de las reglas | Inferidas + curación humana + piso externo obligatorio | 298 attribute sets en uso × 5 tenants hacen imposible la configuración manual |
 | Alcance GEO | Controles medibles sobre el registro, sin afirmar mecanismo | Ver nota en 3 |
 | Remediación | Aprobación humana obligatoria, con concurrencia controlada | El primer catálogo destrozado por un bug mata el producto |
-| Priorización | Ventas + búsqueda interna + GA4 + stock/margen, con incertidumbre visible | Sin peso comercial, 40.000 hallazgos son una lista inservible |
+| Priorización | Ventas + búsqueda interna + GA4 + stock/margen, con incertidumbre visible | Sin peso comercial, 40.000 hallazgos son una lista inservible. La búsqueda interna **no está instrumentada hoy** en el tenant piloto: la fórmula degrada sin ella (ver 6.5) |
 | UI | App SaaS propia (Next.js) | Coherente con multitenancy |
 | Stack | Python + Postgres + Next.js; módulo en PHP | La parte difícil es procesamiento de datos e IA a escala |
 | Aislamiento de cómputo | Cola y worker por tenant | Con 5 tenants grandes, el pipeline compartido no aporta nada |
@@ -343,6 +347,13 @@ puede no aplicar según el tipo de producto.
   correspondiente en esa tienda, no solo que exista una fila de asignación
 - Asignación (global) frente a efecto (por tienda): un producto asignado puede no ser
   accesible en BR por root category, `is_active` o websites
+- **Qué discrimina depende de la topología, y no siempre es el árbol.** En el tenant
+  piloto las dos store views cuelgan de grupos con la misma `root_category_id`: la
+  pertenencia al árbol es idéntica para PY y BR y no separa nada. Lo que separa los
+  mercados es la **asignación de website del producto** y el **`is_active` de la
+  categoría por tienda** — 212 categorías con valor propio en PY, 66 en BR. El árbol
+  solo discrimina cuando cada mercado tiene su propia raíz, topología que este tenant no
+  usa y que no conviene dar por supuesta en los demás
 - Sin categoría, solo en la raíz, o solo en una categoría cajón de sastre
 - Categoría demasiado genérica existiendo una hoja adecuada
 - Categoría incoherente con el producto (centrifugador en Secarropas) — IA, como
@@ -463,7 +474,8 @@ Un peso mal cargado no es un defecto de calidad: es un flete mal cotizado.
 - URL key ausente, con basura, duplicada, o cambiada sin redirect
 - Contenido duplicado entre store views
 - El término por el que la gente busca ese producto no aparece en el nombre ni en el
-  title (cruce con búsqueda interna)
+  title (cruce con búsqueda interna). **No computable hoy**: la búsqueda interna del
+  tenant piloto no registra términos (ver 6.5)
 
 **Eje 10 — Controles de accesibilidad y coherencia del contenido**
 
@@ -480,7 +492,9 @@ independiente, sin afirmar mecanismos de citación (ver nota en 3).
   contra la salida real de la sonda
 - **Cobertura de preguntas de compra**: las preguntas frecuentes de ese tipo de producto
   tienen respuesta en la ficha. La lista de preguntas se deriva de la búsqueda interna y
-  se cura, no se inventa
+  se cura, no se inventa. Mientras esa señal no exista, la lista se cura a mano con el
+  equipo de catálogo: preguntas inventadas por IA son exactamente el error que este eje
+  existe para no cometer
 
 **Eje 11 — Diseño del catálogo** *(configuración, no productos)*
 
@@ -496,8 +510,22 @@ Un producto no puede tener bien un atributo que el attribute set no define.
   puede revelar un sinónimo del mapa de conceptos, o una relación de compatibilidad. Las
   tres lecturas se distinguen antes de proponer nada
 - **Filtro perdido**: atributo con buen dato, buena cobertura y demanda que no está
-  marcado como filtrable
+  marcado como filtrable. **Es el primer hallazgo demostrable del producto**, no uno más
+  de la lista: en el tenant piloto la navegación por capas se apoya en **8 atributos de
+  1.066**, con 298 sets en uso y 228.881 productos. Activar un filtro es un cambio de
+  configuración, y su efecto es que productos que ya existen empiezan a ser encontrables.
+  Por eso mismo **no puede entregarse como un volcado de mil filas**: se emite ordenado
+  por impacto y por categoría, y la primera entrega es una decena de candidatos con su
+  evidencia
 - **Filtro inútil**: filtrable con un solo valor efectivo en esa categoría
+- **Categorías sin mapeo externo**: categorías sin valor en el atributo de taxonomía
+  externa (ver 6.2) — **635 de 1.276** en el tenant piloto. Cada una es un grupo de
+  productos que no puede validarse contra ningún requisito de canal, y completar el mapeo
+  es trabajo humano acotado y de alto apalancamiento: una categoría mapeada habilita la
+  validación de todos sus productos de golpe
+- **Modelo de datos muerto**: attribute sets definidos sin un solo producto — **124** en
+  el tenant piloto. Ensucian la curación, la navegación del admin y las estadísticas del
+  perfilador
 - **La propuesta es por categoría; la escritura no puede serlo.** En Magento estándar
   `is_filterable` es propiedad del **atributo** (`catalog_eav_attribute`) y se aplica a
   toda la tienda; la navegación muestra los filtrables de los sets presentes en cada
@@ -559,6 +587,14 @@ Cada regla lleva **confianza**, **evidencia** (% de catálogo que la respalda),
 Shopping, Meta catalog y GS1, **con sus condiciones de aplicabilidad** (un producto sin
 GTIN asignado es un caso previsto, no un defecto). Impide que el sistema aprenda un
 error sistemático como norma.
+
+Los requisitos de esos canales **varían por categoría de producto** —una prenda necesita
+talle y color, un electrodoméstico no—, así que el piso externo no es una lista de campos
+sino una tabla indexada por la categoría externa. El dato que la indexa **ya existe en el
+tenant piloto y está curado a mano**: el módulo propio `Standard_GoogleCategory` define
+el atributo de categoría `google_category_id_int` y mapea **641 de 1.276 categorías** a la
+taxonomía de Google Shopping. El piso externo se lee de ahí en lugar de reconstruirse, y
+las categorías sin mapear se emiten como hallazgo del eje 11.
 
 **La curación** es una UI donde el operador acepta, ajusta o rechaza reglas por lote,
 viendo ejemplos reales de lo que cada regla marcaría **y de lo que descartaría**.
@@ -628,6 +664,22 @@ Con la incertidumbre **visible**, no escondida en un número:
 - **Medición posterior del resultado observado**, considerando estacionalidad y otros
   cambios comerciales. La prioridad es una **estimación**, y el sistema debe aprender de
   lo que pasó de verdad en vez de confiar en su propia fórmula
+
+**La búsqueda interna no está disponible en el tenant piloto.** `search_query` tiene dos
+filas en toda la instancia, y los índices `top_queries-*` de OpenSearch son del plugin de
+*query insights* —consultas lentas del propio motor— no términos de usuarios. La fórmula
+degrada con gracia por diseño y sigue funcionando con ventas, GA4 y stock, pero la
+pérdida no es menor: la búsqueda interna era la única señal que probaba la carencia **con
+demanda medida**. Los dos detectores que dependían de ella quedan marcados como no
+computables hasta que exista: el cruce del eje 9 y la detección de atributos faltantes por
+demanda del eje 11.
+
+**Recomendación, que vale más que el parche:** `Standard_SemanticSearch` es del cliente.
+Instrumentarlo para registrar los términos buscados y, sobre todo, **las búsquedas con
+cero resultados**, daría la señal más valiosa de todo el sistema. Una búsqueda sin
+resultados es un cliente que quiso comprar algo y no lo encontró: es la prueba directa,
+con demanda medida, de que un registro está mal hecho o de que falta un atributo. Ninguna
+otra señal dice eso.
 
 El stock y el estado de descatalogado filtran antes de gastar IA.
 
@@ -802,6 +854,13 @@ dentro del SLA de delta; procedencia de scope y efecto de categoría por tienda
 verificados a mano en una muestra; una opción traducida PY/BR se reconoce como la misma
 `option_id`.
 
+*Estado (2026-09-11):* **construido y verificado contra el Magento del tenant piloto** —
+228.881 productos sincronizados en 33,6 min con 98 MB de RSS, reconciliación por
+contenido sobre 256 particiones en 11,3 s, los cinco criterios demostrados. El módulo
+funciona en Adobe Commerce y en Magento Open Source (detección de edición en tiempo de
+ejecución, sin dependencia de clases Enterprise). Riesgo residual abierto en
+`docs/superpowers/pendiente-s0.md`.
+
 ### S1 — Perfilador, reglas y puntuación
 Perfilador con reglas por subtipo, confianza, evidencia y excepciones. Piso externo con
 aplicabilidad. Mapa de conceptos. UI de curación. Motor determinista puro. Los cuatro
@@ -815,8 +874,15 @@ solo detección.
 
 *Aceptación:* catálogo puntuado con cobertura declarada; en muestra ciega los grados
 coinciden con la percepción del equipo de Nissei; falsos positivos por regla medidos y
-bajo umbral acordado; las reglas de los 10 attribute sets mayores se curan en una sesión
-de trabajo; ningún candidato a duplicado se presenta como duplicado confirmado.
+bajo umbral acordado; **la curación alcanza el 45 % del catálogo en una sesión de trabajo
+y el 80 % en la primera semana**, con los sets ordenados por número de productos; **diez
+candidatos a filtro perdido aceptados por el equipo de catálogo**, no solo detectados;
+ningún candidato a duplicado se presenta como duplicado confirmado.
+
+El criterio de curación se mide en **cobertura de producto, no en número de sets**:
+medirlo en sets premia curar sets vacíos, y hay 124 de ellos. La distribución medida lo
+hace alcanzable — 10 sets cubren el 45,8 % del catálogo, 25 cubren el 68,9 % y 50 cubren
+el 83,3 %.
 
 ### S2 — Evidencia por dato
 Trazabilidad completa (fuente, fragmento, fecha, identidad, transformación), conflictos
@@ -834,6 +900,12 @@ separada para la operación 5, con alcance real declarado.
 Entrega valor real **sin una sola llamada a IA**: sospechas de conversión confirmadas,
 nombres reconstruidos desde atributos existentes, códigos reubicados, unidades y
 opciones normalizadas.
+
+Dos hechos del entorno, medidos en S0, condicionan la escritura y dejaron de ser
+hipótesis: **`Magento_Staging` está activo**, así que una actualización programada entra
+en vigor por el paso del tiempo, sin evento, y puede pisar un write-back en el futuro; y
+**el scope de precio es Website** (165.610 filas con override), de modo que una corrección
+sobre precio aplicada en el scope equivocado corrige el mercado equivocado.
 
 *Aceptación:* lote aplicado y verificado por lectura independiente; una modificación
 concurrente inducida a propósito **invalida** la propuesta en vez de pisarla; rollback
@@ -891,6 +963,9 @@ clara y bajo riesgo de falso positivo.
 | Puntuación engañosa por controles no evaluados | Cobertura como salida de primera clase; pendiente ≠ aprobado |
 | Doble penalización de una misma causa | Deduplicación por causa raíz antes de puntuar |
 | Sesgo contra productos nuevos en la priorización | Demanda potencial además de histórica; backlog separado de la deuda |
+| **La señal de demanda más valiosa no existe** (búsqueda interna sin instrumentar) | La fórmula degrada por diseño; los detectores que dependen de ella se declaran no computables en vez de aproximarse; instrumentar `Standard_SemanticSearch` es la recomendación de mayor retorno (6.5) |
+| El piso externo se apoya en un mapeo incompleto (641 de 1.276 categorías) | Las categorías sin mapear quedan **no evaluables**, nunca aprobadas; el hueco se emite como hallazgo del eje 11 en vez de esconderse en el score |
+| `Magento_Staging` aplica una actualización programada encima de un write-back | Detección de regresión obligatoria; la propuesta declara la versión aplicada sobre la que se calculó, y la verificación independiente lee en esa misma ventana |
 | Prometer escrituras que Magento no soporta | Alcance real declarado por operación (caso `is_filterable`) |
 | Coste de IA fuera de control | Reglas primero, triage, caché, modelo por tarea, presupuesto con parada dura |
 | Coste y carga de la sonda | Muestreo estratificado dirigido por impacto; respeto de límites de tasa |
@@ -901,8 +976,10 @@ clara y bajo riesgo de falso positivo.
 
 ## 13. Preguntas abiertas
 
-1. **Versión y edición de Magento** (Open Source / Adobe Commerce), on-prem o cloud.
-   Condiciona el módulo y los límites de la API. **Bloquea S0.**
+1. **Versión y edición de Magento** — **respondida para el piloto:** Adobe Commerce
+   2.4.8-p3 on-prem. Los demás tenants pueden ser Magento Open Source, así que el módulo
+   no puede depender de clases Enterprise: detecta la edición en tiempo de ejecución y S0
+   ya lo implementa y lo prueba en ambas. **Deja de bloquear.**
 2. Presupuesto y tolerancia de coste de IA por mes.
 3. Acceso a GA4 por tenant: quién lo concede y cómo.
 4. ¿Se instrumentará el registrador con sello de origen y flag de modo rápido?
@@ -921,10 +998,46 @@ clara y bajo riesgo de falso positivo.
 11. Configuración de transportistas y sus divisores volumétricos por mercado (eje 4).
 12. ¿Existe ya una taxonomía de estados de negocio —preventa, reposición,
     descatalogado— o hay que crearla? (eje 8)
+13. **¿Se instrumenta `Standard_SemanticSearch`** para registrar términos buscados y
+    búsquedas con cero resultados? Es decisión del cliente, no nuestra, y desbloquea el
+    cruce del eje 9 y la detección de atributos faltantes por demanda del eje 11. Es la
+    única pregunta abierta cuya respuesta añade una señal nueva en vez de afinar una
+    existente.
+14. **¿Quién completa el mapeo de las 635 categorías** sin `google_category_id_int`, y
+    con qué criterio? Sin él, la mitad del árbol no puede validarse contra ningún canal.
 
 ---
 
 ## 14. Registro de revisiones
+
+**Revisión 3 — 2026-09-11.** S0 construido y verificado contra el Magento del tenant
+piloto; siete mediciones del catálogo real (`docs/superpowers/s1-datos-reales.md`)
+corrigen supuestos del diseño. Cambios de fondo:
+
+- **422 attribute sets, no ~100** — 298 con al menos un producto y 124 vacíos. Los
+  vacíos pasan a ser hallazgo del eje 11
+- El criterio de aceptación de S1 se expresa en **cobertura de catálogo** (45 % en una
+  sesión, 80 % en la primera semana), no en número de sets curados: medirlo en sets
+  premia curar sets vacíos
+- **El eje 2 no siempre discrimina por árbol.** Las dos store views comparten
+  `root_category_id`; lo que separa los mercados es el website del producto y el
+  `is_active` de la categoría por tienda
+- El **piso externo** deja de ser un catálogo de reglas a construir: `Standard_GoogleCategory`
+  ya mapea 641 de 1.276 categorías a la taxonomía de Google. Las 635 sin mapear son un
+  hallazgo nuevo del eje 11
+- El **filtro perdido** pasa a ser el primer hallazgo demostrable del producto: la tienda
+  se apoya en 8 atributos filtrables de 1.066. Y se entrega ordenado por impacto, no como
+  volcado
+- **La búsqueda interna no existe** en el tenant piloto (`search_query`: 2 filas). La
+  fórmula de 6.5 degrada por diseño; los dos detectores que dependían de ella se declaran
+  no computables. Instrumentar las búsquedas con cero resultados es la recomendación de
+  mayor retorno del documento
+- Confirmados y trasladados a S3: **`Magento_Staging` activo** y **scope de precio por
+  website** con 165.610 overrides
+- La pregunta abierta 1 queda respondida (Adobe Commerce 2.4.8-p3) con una restricción
+  nueva: **los demás tenants pueden ser Open Source**, y el módulo ya lo contempla
+
+---
 
 **Revisión 2 — 2026-09-09.** Incorpora una revisión técnica externa. Cambios de fondo:
 

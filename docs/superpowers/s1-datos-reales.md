@@ -4,6 +4,9 @@ Mediciones tomadas el 2026-09-10 contra el catálogo del tenant piloto, todas po
 consultas de solo lectura. El spec de S1 se escribió con supuestos que estas cifras
 corrigen; este documento recoge qué cambia y por qué.
 
+**Estado:** incorporado al spec en la revisión 3 (2026-09-11). Este documento queda como
+la evidencia de esos cambios; el spec es la autoridad.
+
 ---
 
 ## 1. Los attribute sets: peor de lo dicho, y mejor de lo que parecía
