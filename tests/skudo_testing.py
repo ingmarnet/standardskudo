@@ -6,9 +6,10 @@ from datetime import UTC, datetime
 
 import httpx
 
-from skudo.mirror.attributes import upsert_options
+from skudo.mirror.attributes import upsert_attribute, upsert_options
 from skudo.mirror.categories import set_products_categories
-from skudo.mirror.products import record_values, upsert_records
+from skudo.mirror.models import Tenant
+from skudo.mirror.products import ProductIdentity, record_values, upsert_records
 
 
 def skudo_response(payload: dict, status_code: int = 200) -> httpx.Response:
@@ -154,3 +155,53 @@ def upsert_option(
         [{"attribute_code": attribute_code, "option_id": option_id, "labels": labels}],
         sync_generation=sync_generation,
     )
+
+
+def preparar(
+    session,
+    atributos=(("tipo", "select", [4]), ("talle", "select", [4]), ("voltaje", "select", [4])),
+):
+    """Un tenant con atributos en el espejo. Sin ellos todo sale `desconocido`."""
+    tenant = Tenant(code="acme", name="A", base_url="http://a.test", token_env_var="X")
+    session.add(tenant)
+    session.flush()
+    for code, entrada, sets in atributos:
+        upsert_attribute(
+            session,
+            tenant.id,
+            {
+                "code": code,
+                "label": code,
+                "frontend_input": entrada,
+                "declared_scope": "global",
+                "is_filterable": False,
+                "is_required": False,
+                "attribute_set_ids": sets,
+            },
+            sync_generation=1,
+        )
+    return tenant
+
+
+def escribir(session, tenant, store_view, sku, attrs, set_id=4):
+    upsert_record(
+        session,
+        tenant.id,
+        store_view,
+        ProductIdentity(sku=sku),
+        attrs,
+        {code: "global" for code in attrs},
+        None,
+        attribute_set_id=set_id,
+    )
+
+
+def sembrar(session, tenant, n_ropa=60, n_electro=60, store_view=1):
+    """Dos fichas distintas dentro del mismo attribute set: el caso que el
+    descubrimiento de subtipos existe para encontrar."""
+    for i in range(n_ropa):
+        escribir(session, tenant, store_view, f"r{i}", {"tipo": "ropa", "talle": "M"})
+    for i in range(n_electro):
+        escribir(
+            session, tenant, store_view, f"e{i}", {"tipo": "electro", "voltaje": "220"}
+        )

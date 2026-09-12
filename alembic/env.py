@@ -17,6 +17,7 @@ if config.config_file_name is not None:
 import os
 
 from skudo.mirror.models import Base  # se crea en la Task 4
+import skudo.profile.models  # noqa: F401  (registra las tablas de perfil en Base)
 
 config.set_main_option("sqlalchemy.url", os.environ["SKUDO_DATABASE_URL"])
 target_metadata = Base.metadata

@@ -55,6 +55,8 @@ from skudo.mirror.models import (
     Tenant,
 )
 from skudo.mirror.topology import sync_topology
+from skudo.profile.report import profile_report
+from skudo.profile.run import profile_store_view
 
 # Tope de particiones que `repair --from-reconcile` acepta reparar de una vez.
 # Por encima de esto, releer partición por partición es releer una fracción
@@ -186,6 +188,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--from-reconcile",
         action="store_true",
         help="reconcilia primero y repara las particiones que reporte",
+    )
+
+    tenant_command(
+        "profile",
+        "perfila el espejo: particiones, cobertura por los cuatro estados y "
+        "distribuciones. NO habla con Magento",
+        stores=True,
     )
 
     tenant_command("status", "estado del espejo, del watermark y de la pasada en curso")
@@ -479,6 +488,19 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
 
             if args.command == "status":
                 return _status(session, tenant)
+
+            # `profile` va ANTES de leer el token, con `status`, porque no habla
+            # con Magento: lee el espejo. Exigirle el token inventaría una
+            # dependencia y dejaría el comando inutilizable en una máquina de
+            # análisis que sólo tiene acceso a Postgres.
+            if args.command == "profile":
+                salida = {}
+                for store_id in _resolve_stores(session, tenant, args.stores):
+                    run = profile_store_view(session, tenant.id, store_id)
+                    salida[str(store_id)] = profile_report(session, run)
+                session.commit()
+                _report(salida)
+                return EXIT_OK
 
             try:
                 token = tenant_token(tenant)

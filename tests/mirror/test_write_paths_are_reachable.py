@@ -12,8 +12,8 @@ Una tabla que solo se escribe desde tests es peor que una tabla ausente: el
 esquema, los tests y la documentación afirman que el dato existe, y el vacío
 solo se descubre cuando alguien consulta la tabla en producción. Por eso la
 regla que este test impone es la de "caminos alcanzables": toda función
-`upsert_*` / `set_*` de `skudo.mirror` tiene que tener al menos un llamador en
-`src/`, no solo en `tests/`.
+`upsert_*` / `set_*` de `skudo.mirror` y `skudo.profile` tiene que tener al
+menos un llamador en `src/`, no solo en `tests/`.
 
 Se analiza el AST y no el texto: un `grep` contaría el propio `def`, las
 menciones en docstrings y los comentarios como llamadas — exactamente el tipo
@@ -24,15 +24,19 @@ import ast
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "skudo"
-MIRROR = SRC / "mirror"
+# Los paquetes que escriben en Postgres. `profile/` se suma en S1a: sus tablas
+# son tan capaces como las del espejo de quedarse con un esquema, unos tests y
+# ningún ingestor que las llene.
+WRITE_DIRS = (SRC / "mirror", SRC / "profile")
 
 WRITE_PREFIXES = ("upsert_", "set_")
 
 
 def _write_functions() -> dict[str, Path]:
-    """Nombre -> archivo, de toda función pública de escritura de `mirror/`."""
+    """Nombre -> archivo, de toda función pública de escritura de los paquetes
+    que escriben en la base."""
     found: dict[str, Path] = {}
-    for path in sorted(MIRROR.glob("*.py")):
+    for path in sorted(p for d in WRITE_DIRS for p in d.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in tree.body:
             if isinstance(node, ast.FunctionDef) and node.name.startswith(WRITE_PREFIXES):

@@ -217,6 +217,20 @@ ROOT_TABLES = {
     "sync_pass",
 }
 
+# Las tablas del perfil (S1a) declaran su situación de otra forma: tienen
+# CLAVES FORÁNEAS de verdad. Las del espejo no pueden tenerlas —`sku` y
+# `category_magento_id` son referencias lógicas a un catálogo ajeno que puede
+# llegar en cualquier orden—, y por eso necesitan estas aristas vigiladas. El
+# perfil es nuestro de punta a punta, así que la base rechaza la huérfana en
+# vez de dejarla pasar, y el test de abajo comprueba que la FK existe de
+# verdad en lugar de creerle a esta lista.
+FK_ENFORCED_TABLES = {
+    "profile_run",
+    "profile_partition",
+    "profile_attribute_coverage",
+    "profile_value_stats",
+}
+
 
 def mirror_orphans(session, tenant_id: int) -> dict[str, list[str]]:
     """Todas las aristas rotas del espejo de un tenant, por clase."""
@@ -509,17 +523,35 @@ def test_every_mirror_table_declares_its_referential_status():
     Las tres rondas de este defecto (C1, C3 y M3) fueron exactamente eso: una
     tabla del esquema sobre la que nadie se hizo esta pregunta.
     """
-    declared = ROOT_TABLES | CHILD_TABLES
+    declared = ROOT_TABLES | CHILD_TABLES | FK_ENFORCED_TABLES
     tables = set(Base.metadata.tables)
 
     assert tables - declared == set(), (
-        "estas tablas del espejo no declaran su situación referencial: agregalas "
-        "a ROOT_TABLES (su única referencia es el tenant) o a CHILD_TABLES con "
-        "una arista en EDGES que vigile sus huérfanas."
+        "estas tablas no declaran su situación referencial: agregalas a "
+        "ROOT_TABLES (su única referencia es el tenant), a CHILD_TABLES con una "
+        "arista en EDGES que vigile sus huérfanas, o a FK_ENFORCED_TABLES si la "
+        "base impide la huérfana con una clave foránea."
     )
     assert declared - tables == set(), (
         "estas tablas se declaran pero ya no existen en el modelo"
     )
+
+
+def test_the_fk_enforced_tables_really_have_those_foreign_keys():
+    """Declararse en `FK_ENFORCED_TABLES` es una AFIRMACIÓN sobre el esquema, y
+    sin esta prueba sería la forma barata de sacarse de encima la pregunta: una
+    tabla nueva sin FK aterrizaría ahí y quedaría fuera de las dos capas de
+    vigilancia. Acá se comprueba que la clave foránea existe y apunta a una
+    tabla que existe."""
+    for name in sorted(FK_ENFORCED_TABLES):
+        tabla = Base.metadata.tables[name]
+        destinos = {fk.column.table.name for fk in tabla.foreign_keys}
+        assert destinos, (
+            f"{name} se declara protegida por clave foránea y no tiene ninguna"
+        )
+        assert destinos <= set(Base.metadata.tables), (
+            f"{name} referencia tablas que no existen: {destinos}"
+        )
 
 
 def test_the_database_itself_refuses_a_label_without_an_option(db_session, tenant):

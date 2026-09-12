@@ -588,3 +588,23 @@ def test_the_flag_authorises_the_sweep_the_valve_refused(cli_db, capsys):
     ) == EXIT_OK
     payload = json.loads(capsys.readouterr().out)
     assert payload["records_deleted"] == 30
+
+
+def test_profile_no_necesita_token(cli_db, monkeypatch, capsys):
+    """El perfilador no habla con Magento: exigir el token sería inventar una
+    dependencia y dejar el comando inutilizable en una máquina de análisis que
+    sólo tiene acceso al espejo."""
+    _register()
+    _run(["probe", "--tenant", "demo"], FakeMagento())
+    _run(["full-sync", "--tenant", "demo", "--stores", "1"], FakeMagento())
+    capsys.readouterr()
+    monkeypatch.delenv(TOKEN_VAR, raising=False)
+
+    assert _run(["profile", "--tenant", "demo", "--stores", "1"]) == EXIT_OK
+    salida = json.loads(capsys.readouterr().out)
+    assert salida["1"]["digest"]
+    assert salida["1"]["umbrales"]["MIN_PARTICION"] == 50
+
+
+def test_profile_de_un_tenant_desconocido(cli_db):
+    assert _run(["profile", "--tenant", "noexiste"]) == EXIT_UNKNOWN_TENANT
