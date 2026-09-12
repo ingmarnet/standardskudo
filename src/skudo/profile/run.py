@@ -26,7 +26,7 @@ from skudo.profile.partition import (
     ambiguity,
     choose_splitter,
 )
-from skudo.profile.states import codes_by_set, sets_by_code
+from skudo.profile.states import State, attribute_state, codes_by_set, sets_by_code
 
 
 def _depth_by_category(session: Session, tenant_id: int) -> dict[int, int]:
@@ -158,12 +158,21 @@ def profile_store_view(
         grupos = eleccion.groups or {SIN_VALOR: productos}
         for valor, grupo in sorted(grupos.items()):
             vector = coverage_vector(grupo, codes, por_codigo)
+            # Qué valores entran en la distribución lo decide `attribute_state`,
+            # y NO un filtro propio. La primera versión de esto traía el suyo
+            # —`str(valor).strip() != ""`— y divergía: un `null` del espejo pasó
+            # el filtro y se guardó como el valor literal "None" en cuatro
+            # atributos de fecha del catálogo real. Dos definiciones de
+            # "presente" es el defecto C2 otra vez; acá hay una sola.
             stats = {
                 code: value_stats(
                     [
                         g.attributes[code]
                         for g in grupo
-                        if str(g.attributes.get(code, "")).strip() != ""
+                        if attribute_state(
+                            g.attributes, g.attribute_set_id, code, por_codigo
+                        )
+                        is State.PRESENTE
                     ],
                     entradas.get(code, "text"),
                 )

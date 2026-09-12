@@ -1,7 +1,7 @@
 from skudo_testing import escribir, preparar, sembrar
 from sqlalchemy import select
 
-from skudo.profile.models import AttributeCoverage, ProfilePartition
+from skudo.profile.models import AttributeCoverage, ProfilePartition, ValueStats
 from skudo.profile.run import profile_store_view
 
 
@@ -101,3 +101,67 @@ def test_la_pasada_guarda_los_umbrales_con_los_que_midio(db_session):
     assert run.thresholds["MAX_CARD"] == 12
     assert run.thresholds["MIN_GANANCIA"] == 0.05
     assert run.finished_at is not None
+
+
+def test_un_nulo_del_espejo_no_es_un_valor(db_session):
+    """Encontrado ejecutando el perfilador contra un espejo real: cuatro
+    atributos de fecha guardaban `null`, y el filtro propio que la distribución
+    usaba —`str(valor) != ""`— los dejaba pasar y escribía la cadena "None"
+    como si fuera un valor observado del catálogo.
+
+    La cobertura los contaba bien, porque preguntaba a `attribute_state`. Dos
+    definiciones de "presente", y la de repuesto equivocada: el defecto C2 en
+    otra forma."""
+    tenant = preparar(db_session)
+    sembrar(db_session, tenant)
+    escribir(db_session, tenant, 1, "nulo", {"tipo": "ropa", "talle": None})
+
+    run = profile_store_view(db_session, tenant.id, 1)
+    fila = db_session.execute(
+        select(ValueStats)
+        .join(ProfilePartition, ProfilePartition.id == ValueStats.partition_id)
+        .where(
+            ProfilePartition.run_id == run.id,
+            ProfilePartition.splitter_value == "ropa",
+            ValueStats.attribute_code == "talle",
+        )
+    ).scalar_one()
+
+    assert "None" not in [valor for valor, _ in fila.top_values]
+    assert fila.n_present == 60
+
+
+def test_las_dos_cuentas_de_presente_no_pueden_divergir(db_session):
+    """Invariante de toda la pasada, y no de un caso: para cada atributo de
+    cada partición, lo que la cobertura llama `presente` y lo que la
+    distribución llama `n_present` son el mismo número. Un test por caso sólo
+    habría atrapado el `null`; esta invariante atrapa la próxima divergencia
+    sea cual sea su forma."""
+    tenant = preparar(db_session)
+    sembrar(db_session, tenant)
+    escribir(db_session, tenant, 1, "nulo", {"tipo": "ropa", "talle": None})
+    escribir(db_session, tenant, 1, "vacio", {"tipo": "ropa", "talle": ""})
+    escribir(db_session, tenant, 1, "cero", {"tipo": "ropa", "talle": "0"})
+    escribir(db_session, tenant, 1, "lista", {"tipo": "ropa", "talle": []})
+
+    run = profile_store_view(db_session, tenant.id, 1)
+    divergencias = db_session.execute(
+        select(
+            ProfilePartition.splitter_value,
+            AttributeCoverage.attribute_code,
+            AttributeCoverage.presente,
+            ValueStats.n_present,
+        )
+        .join(AttributeCoverage, AttributeCoverage.partition_id == ProfilePartition.id)
+        .join(
+            ValueStats,
+            (ValueStats.partition_id == ProfilePartition.id)
+            & (ValueStats.attribute_code == AttributeCoverage.attribute_code),
+        )
+        .where(
+            ProfilePartition.run_id == run.id,
+            AttributeCoverage.presente != ValueStats.n_present,
+        )
+    ).all()
+
+    assert divergencias == []
