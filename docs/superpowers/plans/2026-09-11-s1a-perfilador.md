@@ -15,6 +15,11 @@ y `category`, y escribe cuatro tablas nuevas de perfil.
 
 **Tech Stack:** Python 3.12, SQLAlchemy 2.0 tipado, Alembic, Postgres 16, pytest, ruff.
 
+**Estado (2026-09-11):** **Tasks 1 a 8 ejecutadas y en verde** — 398 tests, ruff limpio,
+migración 0015 de ida y vuelta, y el comando corriendo contra un espejo real. La ejecución
+encontró un defecto que el plan no traía (dos definiciones de "presente"; ver el commit
+`fix(s1a)`). **Task 9 pendiente**: necesita autorización para leer el catálogo de producción.
+
 **Spec:** `docs/superpowers/specs/2026-09-11-s1-perfilador-design.md`, que a su vez depende
 de `docs/superpowers/specs/2026-09-08-standardskudo-catalog-quality-design.md` (revisión 3).
 
