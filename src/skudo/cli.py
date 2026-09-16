@@ -29,6 +29,9 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from skudo.acceptance.s0 import run_s0_acceptance
+from skudo.auth.models import ROLES
+from skudo.auth.passwords import generate_password
+from skudo.auth.users import create_user, get_user, list_users, set_password
 from skudo.config import Settings, default_token_env_var, tenant_token
 from skudo.exit_codes import (
     EXIT_CONFIGURATION,
@@ -189,6 +192,32 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="reconcilia primero y repara las particiones que reporte",
     )
+
+    user_add = sub.add_parser(
+        "user-add",
+        help="da de alta un usuario de la plataforma y ESCRIBE SU CONTRASEÑA "
+        "una sola vez en la salida",
+    )
+    user_add.add_argument("--email", required=True)
+    user_add.add_argument(
+        "--role", required=True, choices=list(ROLES),
+        help="rol en la plataforma; el vocabulario es cerrado",
+    )
+    user_add.add_argument(
+        "--password-env",
+        default=None,
+        help="nombre de la variable de entorno con la contraseña. Si se omite, "
+        "se genera una y se imprime UNA vez. Nunca se acepta la contraseña como "
+        "argumento: quedaría en el historial y en la tabla de procesos.",
+    )
+
+    user_passwd = sub.add_parser(
+        "user-passwd", help="cambia la contraseña de un usuario de la plataforma"
+    )
+    user_passwd.add_argument("--email", required=True)
+    user_passwd.add_argument("--password-env", default=None)
+
+    sub.add_parser("user-list", help="lista los usuarios de la plataforma")
 
     tenant_command(
         "profile",
@@ -481,6 +510,9 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
             if args.command == "register-tenant":
                 return _register_tenant(session, args)
 
+            if args.command in {"user-add", "user-passwd", "user-list"}:
+                return _users(session, args)
+
             tenant = session.scalar(select(Tenant).where(Tenant.code == args.tenant))
             if tenant is None:
                 print(f"tenant desconocido: {args.tenant}", file=sys.stderr)
@@ -590,3 +622,79 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _password_from(args) -> tuple[str, bool]:
+    """La contraseña, y si hay que mostrarla.
+
+    Nunca se acepta por argumento de línea de comandos: quedaría en el historial
+    del shell y en la tabla de procesos, visible para cualquier usuario de la
+    máquina con un `ps`. O viene por el NOMBRE de una variable de entorno —el
+    mismo patrón que los tokens de tenant— o la genera el sistema y se muestra
+    una única vez.
+    """
+    if args.password_env:
+        try:
+            return os.environ[args.password_env], False
+        except KeyError:
+            raise KeyError(
+                f"falta la variable de entorno {args.password_env}, que es donde "
+                "dijiste que vive la contraseña"
+            ) from None
+    return generate_password(), True
+
+
+def _users(session: Session, args) -> int:
+    if args.command == "user-list":
+        _report(
+            [
+                {
+                    "email": u.email,
+                    "rol": u.role,
+                    "activo": u.is_active,
+                    "creado": u.created_at.isoformat() if u.created_at else None,
+                    "ultimo_ingreso": (
+                        u.last_login_at.isoformat() if u.last_login_at else None
+                    ),
+                }
+                for u in list_users(session)
+            ]
+        )
+        return EXIT_OK
+
+    try:
+        password, generada = _password_from(args)
+    except KeyError as exc:
+        print(exc.args[0], file=sys.stderr)
+        return EXIT_CONFIGURATION
+
+    if args.command == "user-add":
+        if get_user(session, args.email) is not None:
+            print(f"ya existe un usuario con el email {args.email}", file=sys.stderr)
+            return EXIT_FAILURE
+        try:
+            user = create_user(session, args.email, password, args.role)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_USAGE
+        session.commit()
+        salida = {"email": user.email, "rol": user.role, "creado": True}
+        if generada:
+            # La única vez que esta contraseña existe en texto. No se guarda, no
+            # se registra en ningún log y no se puede volver a consultar: si se
+            # pierde, se cambia con `user-passwd`.
+            salida["password"] = password
+            salida["aviso"] = "anotala ahora: no se puede volver a mostrar"
+        _report(salida)
+        return EXIT_OK
+
+    if not set_password(session, args.email, password):
+        print(f"no existe un usuario con el email {args.email}", file=sys.stderr)
+        return EXIT_FAILURE
+    session.commit()
+    salida = {"email": args.email, "password_cambiada": True}
+    if generada:
+        salida["password"] = password
+        salida["aviso"] = "anotala ahora: no se puede volver a mostrar"
+    _report(salida)
+    return EXIT_OK
