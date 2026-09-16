@@ -18,6 +18,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,6 +29,7 @@ from skudo.ingest.delta_sync import delta_sync
 from skudo.ingest.reconcile import reconcile
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import ProductRecord, Tenant
+from skudo.report.html import render as render_report
 
 
 @dataclass
@@ -84,6 +86,7 @@ def ciclo_de_un_tenant(
     *,
     transport=None,
     detectar: bool = True,
+    informes_en: Path | None = None,
     resultado: ResultadoTenant | None = None,
 ) -> ResultadoTenant:
     """Delta, reconciliación y detección para un tenant. Sin capturar errores.
@@ -115,11 +118,24 @@ def ciclo_de_un_tenant(
 
     if detectar:
         resultado.paso_fallido = "findings"
-        hallazgos = {}
+        hallazgos, informes = {}, []
         for store in stores:
             run = detect_store_view(session, tenant.id, store)
             hallazgos[str(store)] = findings_report(session, run)["hallazgos_totales"]
+            if informes_en is not None:
+                # El nombre lleva el código del tenant y la store view: el
+                # directorio es de la plataforma, no de un cliente, y dos
+                # tenants no pueden pisarse el informe.
+                informes_en.mkdir(parents=True, exist_ok=True)
+                destino = informes_en / f"{tenant.code}-{store}.html"
+                destino.write_text(
+                    render_report(session, run, tienda=tenant.name or tenant.code),
+                    encoding="utf-8",
+                )
+                informes.append(str(destino))
         resultado.pasos["hallazgos"] = hallazgos
+        if informes:
+            resultado.pasos["informes"] = informes
 
     resultado.paso_fallido = None
     return resultado
@@ -130,6 +146,7 @@ def ciclo_de_todos(
     *,
     transport=None,
     detectar: bool = True,
+    informes_en: Path | None = None,
     codigos: list[str] | None = None,
 ) -> ResultadoCiclo:
     """El ciclo para todos los tenants registrados, cada uno aislado del resto.
@@ -154,13 +171,22 @@ def ciclo_de_todos(
                 tenant = session.get(Tenant, tenant_id)
                 ciclo_de_un_tenant(
                     session, tenant, transport=transport, detectar=detectar,
-                    resultado=resultado,
+                    informes_en=informes_en, resultado=resultado,
                 )
                 session.commit()
         except KeyError as exc:
-            # `tenant_token` nombra la variable que falta, nunca su valor.
+            # Sólo es el token si todavía estábamos en ese paso. Capturar
+            # KeyError a secas hacía que CUALQUIER clave ausente —una del
+            # payload del módulo, por ejemplo— se reportara como «falta la
+            # variable de entorno», mandando a revisar credenciales que estaban
+            # perfectas. El paso, y no el tipo de excepción, es lo que dice qué
+            # pasó.
             resultado.ok = False
-            resultado.error = exc.args[0]
+            resultado.error = (
+                exc.args[0]
+                if resultado.paso_fallido == "token"
+                else f"KeyError: {exc}"
+            )
         except Exception as exc:  # noqa: BLE001 — aislar el fallo ES el punto
             resultado.ok = False
             resultado.error = f"{type(exc).__name__}: {exc}"[:400]

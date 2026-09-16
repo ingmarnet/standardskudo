@@ -8,7 +8,7 @@ diaria es un solo proceso que se cae con el primer tenant que falle.
 
 import httpx
 import pytest
-from skudo_testing import skudo_response
+from skudo_testing import checksums_payload, escribir, skudo_response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -16,8 +16,13 @@ from skudo.mirror.models import Tenant
 from skudo.operate.cycle import ciclo_de_todos
 
 
-def transporte(fallar_para: set[str] | None = None):
-    """Un Magento de mentira que falla para los hosts que se le indiquen."""
+def transporte(fallar_para: set[str] | None = None, skus: list[str] | None = None):
+    """Un Magento de mentira que falla para los hosts que se le indiquen.
+
+    Los checksums se arman con el ayudante del producto y no a mano: una forma
+    inventada acá haría fallar la reconciliación por un motivo que no existe en
+    la realidad, y ya pasó — costó una ronda de diagnóstico.
+    """
     fallar_para = fallar_para or set()
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -26,7 +31,7 @@ def transporte(fallar_para: set[str] | None = None):
         if request.url.path.endswith("/deltas"):
             return skudo_response({"items": [], "last_change_id": 0})
         if request.url.path.endswith("/checksums"):
-            return skudo_response({"partitions": [], "product_count": 0})
+            return skudo_response(checksums_payload(skus or []))
         return skudo_response({})
 
     return httpx.MockTransport(handler)
@@ -127,3 +132,41 @@ def test_se_puede_acotar_a_algunos_tenants(tres_tenants):
     ciclo = ciclo_de_todos(tres_tenants, transport=transporte(), detectar=False,
                            codigos=["uno"])
     assert [t.code for t in ciclo.tenants] == ["uno"]
+
+
+def test_el_ciclo_deja_un_informe_por_tenant_y_por_tienda(tres_tenants, tmp_path):
+    """El informe también es de la plataforma: un directorio, un archivo por
+    cada par (tenant, store view), con el nombre puesto por el sistema para que
+    dos clientes no puedan pisarse."""
+    engine_session = tres_tenants
+    with engine_session() as s:
+        tenant = s.scalars(__import__("sqlalchemy").select(Tenant)).first()
+        escribir(s, tenant, 1, "sku1",
+                 {"name": "Paleta", "status": "1", "visibility": "4"})
+        s.commit()
+
+    ciclo = ciclo_de_todos(engine_session, transport=transporte(skus=["sku1"]),
+                           informes_en=tmp_path)
+
+    assert ciclo.fallidos == []
+    archivos = sorted(p.name for p in tmp_path.glob("*.html"))
+    assert archivos, "el ciclo deja los informes escritos"
+    assert all("-" in a and a.endswith(".html") for a in archivos)
+
+
+def test_una_clave_ausente_que_no_es_el_token_no_se_reporta_como_token(tres_tenants):
+    """Capturar `KeyError` a secas hacía que cualquier clave ausente —una del
+    payload del módulo, por ejemplo— dijera «falta la variable de entorno»,
+    mandando a revisar credenciales que estaban perfectas."""
+    def rompe(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/deltas"):
+            return skudo_response({"items": [], "last_change_id": 0})
+        # Un payload de checksums al que le falta una clave.
+        return skudo_response({"partitions": [{"prefix": "00"}], "product_count": 1})
+
+    ciclo = ciclo_de_todos(tres_tenants, transport=httpx.MockTransport(rompe),
+                           detectar=False)
+    for t in ciclo.tenants:
+        if not t.ok:
+            assert t.paso_fallido != "token", t.error
+            assert "variable de entorno" not in (t.error or "")

@@ -237,6 +237,12 @@ def build_parser() -> argparse.ArgumentParser:
         "llevar el nombre de un cliente adentro.",
     )
     ciclo.add_argument(
+        "--reports-dir",
+        default=None,
+        help="directorio donde dejar un informe HTML por tenant y store view. "
+        "El nombre del archivo lo pone el sistema: <tenant>-<store view>.html",
+    )
+    ciclo.add_argument(
         "--skip-findings",
         action="store_true",
         help="sólo sincroniza y reconcilia, sin correr los detectores",
@@ -557,6 +563,7 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
                     lambda: Session(engine),
                     transport=transport,
                     detectar=not args.skip_findings,
+                    informes_en=Path(args.reports_dir) if args.reports_dir else None,
                     codigos=args.only.split(",") if args.only else None,
                 )
                 _report(resultado.resumen())
