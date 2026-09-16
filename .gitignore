@@ -6,3 +6,9 @@ node_modules/
 .venv/
 .DS_Store
 magento-module/.phpunit.cache/
+
+# La skill `impeccable` se instala localmente. Su binario y su índice de fuentes
+# son 18 MB de terceros que el propio lanzador descarga en el primer uso: no
+# tienen por qué viajar en un repositorio público.
+.claude/skills/impeccable/scripts/bin/
+.claude/skills/impeccable/scripts/data/
