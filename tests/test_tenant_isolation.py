@@ -16,12 +16,16 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from skudo_testing import checksums_payload, skudo_response, upsert_record
+from sqlalchemy import func, select
 
 from skudo.ingest.reconcile import reconcile
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import Tenant
 from skudo.mirror.products import ProductIdentity, get_record
 from skudo.mirror.signals import get_signal, upsert_signals
+from skudo.profile.models import AttributeCoverage, ProfilePartition, ProfileRun
+from skudo.profile.report import profile_report
+from skudo.profile.run import profile_store_view
 
 SHARED_SKU = "SKU-COMPARTIDO"
 STORE_VIEW = 1
@@ -120,3 +124,64 @@ def test_drift_in_one_tenant_is_not_reported_in_the_other(db_session, two_tenant
 
     assert report_a.needs_full_sync is False
     assert report_b.needs_full_sync is True
+
+
+def test_el_perfilador_solo_mide_el_catalogo_de_su_tenant(db_session, two_tenants):
+    """El aislamiento de la sección 9 del spec es *a nivel de fila, verificado en
+    la capa de acceso*. Las tablas del perfil llegaron después de este archivo y
+    se quedaron fuera de esa verificación: correctas por lectura del código, no
+    por ejecución.
+
+    La asimetría que lo hace necesario: en el espejo cada fila lleva su
+    `tenant_id`; en el perfil la pertenencia se hereda por la cadena de claves
+    foráneas desde `profile_run`. Una consulta a la que le falte el filtro no
+    rompe ninguna restricción de la base — devuelve el catálogo del otro
+    cliente y nadie se entera."""
+    a, b = two_tenants
+    # B tiene dos productos y A uno. Si el perfilador de A leyera el espejo de
+    # B, contaría tres.
+    run_a = profile_store_view(db_session, a.id, STORE_VIEW)
+    run_b = profile_store_view(db_session, b.id, STORE_VIEW)
+
+    assert run_a.product_count == 1
+    assert run_b.product_count == 2
+
+    informe_a = profile_report(db_session, run_a)
+    assert informe_a["productos"] == 1
+    assert informe_a["store_view"] == STORE_VIEW
+
+    # Y el sello de cada uno es distinto: mide catálogos distintos.
+    assert run_a.digest != run_b.digest
+
+
+def test_las_particiones_de_un_tenant_no_alcanzan_filas_del_otro(db_session, two_tenants):
+    """La comprobación por la cadena de claves: ninguna fila de cobertura de A
+    cuelga de una pasada de B, ni al revés."""
+    a, b = two_tenants
+    run_a = profile_store_view(db_session, a.id, STORE_VIEW)
+    run_b = profile_store_view(db_session, b.id, STORE_VIEW)
+
+    def particiones_de(run):
+        return set(
+            db_session.scalars(
+                select(ProfilePartition.id).where(ProfilePartition.run_id == run.id)
+            )
+        )
+
+    de_a, de_b = particiones_de(run_a), particiones_de(run_b)
+    assert de_a and de_b
+    assert de_a.isdisjoint(de_b)
+
+    ajenas = db_session.scalar(
+        select(func.count())
+        .select_from(AttributeCoverage)
+        .where(
+            AttributeCoverage.partition_id.in_(de_a),
+            ~AttributeCoverage.partition_id.in_(
+                select(ProfilePartition.id)
+                .join(ProfileRun, ProfileRun.id == ProfilePartition.run_id)
+                .where(ProfileRun.tenant_id == a.id)
+            ),
+        )
+    )
+    assert ajenas == 0
