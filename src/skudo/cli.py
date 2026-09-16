@@ -40,6 +40,7 @@ from skudo.exit_codes import (
     EXIT_UNKNOWN_TENANT,
     EXIT_USAGE,
 )
+from skudo.findings.run import detect_store_view, findings_report
 from skudo.ingest.attribute_sync import sync_attributes
 from skudo.ingest.category_sync import sync_categories
 from skudo.ingest.delta_sync import delta_sync
@@ -218,6 +219,13 @@ def build_parser() -> argparse.ArgumentParser:
     user_passwd.add_argument("--password-env", default=None)
 
     sub.add_parser("user-list", help="lista los usuarios de la plataforma")
+
+    tenant_command(
+        "findings",
+        "corre los detectores deterministas sobre el espejo y guarda los "
+        "hallazgos con su cobertura",
+        stores=True,
+    )
 
     tenant_command(
         "profile",
@@ -525,6 +533,15 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
             # con Magento: lee el espejo. Exigirle el token inventaría una
             # dependencia y dejaría el comando inutilizable en una máquina de
             # análisis que sólo tiene acceso a Postgres.
+            if args.command == "findings":
+                salida = {}
+                for store_id in _resolve_stores(session, tenant, args.stores):
+                    run = detect_store_view(session, tenant.id, store_id)
+                    salida[str(store_id)] = findings_report(session, run)
+                session.commit()
+                _report(salida)
+                return EXIT_OK
+
             if args.command == "profile":
                 salida = {}
                 for store_id in _resolve_stores(session, tenant, args.stores):

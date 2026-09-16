@@ -234,6 +234,11 @@ FK_ENFORCED_TABLES = {
     "profile_partition",
     "profile_attribute_coverage",
     "profile_value_stats",
+    # Las de hallazgos (S1c) siguen la misma forma: `finding_run` referencia al
+    # tenant, y las otras dos cuelgan de ella con clave foránea.
+    "finding_run",
+    "finding",
+    "finding_coverage",
 }
 
 
