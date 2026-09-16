@@ -1,6 +1,8 @@
 """El informe generado. Dos cosas se vigilan: que no invente y que no rompa."""
 
 
+import re
+
 import pytest
 from skudo_testing import escribir, preparar
 
@@ -66,3 +68,14 @@ def test_el_informe_es_html_cerrado(informe):
     assert informe.startswith("<!doctype html>")
     assert informe.rstrip().endswith("</html>")
     assert informe.count("<div") == informe.count("</div>")
+
+
+def test_un_solo_hallazgo_no_dice_un_productos():
+    """«1 productos» delata que el informe lo escribió una máquina sin leerlo."""
+    from skudo.report.html import mil
+    from skudo.report.textos import TEXTOS
+
+    for code, texto in TEXTOS.items():
+        encabezado = texto.encabezado(1, mil)
+        assert not re.search(r"\b1 (productos|familias|grupos|nombres)\b", encabezado), code
+        assert texto.encabezado(7, mil).startswith("7"), code

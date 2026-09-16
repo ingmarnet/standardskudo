@@ -103,7 +103,7 @@ def render(session: Session, run: FindingRun, *, tienda: str) -> str:
     bloques = []
     for d in datos:
         t, c = d["texto"], d["cobertura"]
-        titulo = t.titulo.format(n=mil(d["n"]))
+        titulo = t.encabezado(d["n"], mil)
         pct = f"{100 * d['n'] / c.evaluados:.1f} %" if c and c.evaluados else "—"
         ejemplos = "".join(_ejemplo_html(f) for f in d["ejemplos"])
         bloques.append(f"""

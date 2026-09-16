@@ -19,6 +19,13 @@ class Texto:
     significa: str
     accion: str
     unidad: str = "productos"
+    # Un hallazgo solo es un caso común —el último que queda por corregir— y
+    # «1 productos» delata que el informe lo escribió una máquina sin leerlo.
+    singular: str = ""
+
+    def encabezado(self, n: int, formatear) -> str:
+        plantilla = self.singular if n == 1 and self.singular else self.titulo
+        return plantilla.format(n=formatear(n))
 
 
 TEXTOS: dict[str, Texto] = {
@@ -29,6 +36,7 @@ TEXTOS: dict[str, Texto] = {
             "sin foto se ve, pero no se compra."
         ),
         accion="Es la lista más corta y más rentable del informe. Priorizá por lo que más se vende.",
+        singular="Un producto publicado no tiene ni una foto",
     ),
     "variantes_por_talle": Texto(
         titulo="{n} familias de talles publicadas como productos sueltos",
@@ -42,6 +50,7 @@ TEXTOS: dict[str, Texto] = {
             "El efecto se ve de inmediato en el listado y en el buscador."
         ),
         unidad="familias",
+        singular="Una familia de talles publicada como productos sueltos",
     ),
     "sin_precio": Texto(
         titulo="{n} productos publicados sin precio",
@@ -50,6 +59,7 @@ TEXTOS: dict[str, Texto] = {
             "los agrupados ni los bundles: ésos toman el precio de sus variantes."
         ),
         accion="Cargar el precio o despublicarlos.",
+        singular="Un producto publicado no tiene precio",
     ),
     "sin_descripcion": Texto(
         titulo="{n} productos sin descripción",
@@ -61,11 +71,13 @@ TEXTOS: dict[str, Texto] = {
             "Empezar por los que además venden. Buena parte se puede redactar desde los "
             "atributos que el producto ya tiene cargados."
         ),
+        singular="Un producto no tiene descripción",
     ),
     "sin_descripcion_corta": Texto(
         titulo="{n} productos sin descripción corta",
         significa="Es el texto que aparece en el listado y en los resultados de búsqueda.",
         accion="Se puede derivar de la descripción larga cuando exista.",
+        singular="Un producto no tiene descripción corta",
     ),
     "sin_meta_title": Texto(
         titulo="{n} productos sin título para buscadores",
@@ -74,6 +86,7 @@ TEXTOS: dict[str, Texto] = {
             "que llega desde una búsqueda."
         ),
         accion="Se puede generar desde el nombre y la marca con una regla, no de a uno.",
+        singular="Un producto no tiene título para buscadores",
     ),
     "sin_categoria": Texto(
         titulo="{n} productos publicados no cuelgan de ninguna categoría",
@@ -82,6 +95,7 @@ TEXTOS: dict[str, Texto] = {
             "navegando la tienda."
         ),
         accion="Asignarles categoría.",
+        singular="Un producto publicado no cuelga de ninguna categoría",
     ),
     "nombre_repetido": Texto(
         titulo="{n} grupos de productos comparten el mismo nombre",
@@ -91,12 +105,14 @@ TEXTOS: dict[str, Texto] = {
         ),
         accion="Revisar cada grupo y decidir: unificar, renombrar, o dejar como están.",
         unidad="grupos",
+        singular="Un grupo de productos comparte el mismo nombre",
     ),
     "variantes_sueltas": Texto(
         titulo="{n} grupos de variantes publicadas por separado",
         significa="Varios productos idénticos en nombre que parecen variantes del mismo modelo.",
         accion="Agruparlos bajo un producto configurable.",
         unidad="grupos",
+        singular="Un grupo de variantes publicadas por separado",
     ),
     "nombre_en_mayusculas": Texto(
         titulo="{n} nombres están íntegramente en MAYÚSCULAS",
@@ -109,6 +125,7 @@ TEXTOS: dict[str, Texto] = {
             "Decidir la convención. Si se cambia, se cambia con una regla sobre todo el "
             "catálogo, no producto por producto."
         ),
+        singular="Un nombre está íntegramente en MAYÚSCULAS",
     ),
 }
 
