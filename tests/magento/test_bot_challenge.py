@@ -17,6 +17,27 @@ from skudo.magento.client import (
     raise_for_status,
 )
 
+ENTORNO = {
+    "edition": "Community",
+    "version": "2.4.8-p3",
+    "product_entity_key": "entity_id",
+    "staging_enabled": False,
+    "msi_enabled": True,
+    "default_stock_id": 1,
+    "websites": [{"id": 1, "code": "base", "name": "Main Website"}],
+    "store_groups": [
+        {"id": 1, "website_id": 1, "code": "store_py", "name": "Paraguay Gs",
+         "root_category_id": 2}
+    ],
+    "store_views": [
+        {"id": 1, "group_id": 1, "code": "py", "name": "Paraguay",
+         "is_active": True, "locale": "es_AR", "currency": "PYG"}
+    ],
+    "counts": {"products": 3681, "attribute_sets": 8, "attributes": 152,
+               "categories": 59},
+    "module_version": "1.0.0",
+}
+
 DESAFIO = (
     '<!DOCTYPE html><html lang="en-US"><head><title>Just a moment...</title>'
     '<meta http-equiv="content-security-policy" content="default-src \'none\'; '
@@ -88,13 +109,16 @@ def test_el_ingestor_se_identifica_con_su_nombre_y_un_contacto():
         visto["ua"] = request.headers.get("user-agent")
         visto["accept"] = request.headers.get("accept")
         visto["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, json=[{"edition": "Community"}])
+        # La forma real, medida contra renovapadel.com.py: así el test ejerce
+        # el camino entero —envoltorio incluido— y no sólo las cabeceras.
+        return httpx.Response(200, json=[ENTORNO])
 
     cliente = MagentoClient(
         "https://tienda.test", "tok", transport=httpx.MockTransport(handler)
     )
-    with pytest.raises(Exception):
-        cliente.environment()
+    perfil = cliente.environment()
+    assert perfil.edition == "Community"
+    assert perfil.product_entity_key == "entity_id"
 
     assert visto["ua"] == USER_AGENT
     assert "StandardSkudo" in visto["ua"]
