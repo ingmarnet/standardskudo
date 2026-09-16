@@ -10,7 +10,7 @@ from skudo.findings.models import DetectorCoverage, Finding, FindingRun
 from skudo.mirror.models import ProductCategoryAssignment, ProductRecord
 
 
-def _fichas(session: Session, tenant_id: int, store_view_magento_id: int) -> list[Ficha]:
+def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> list[Ficha]:
     categorias: dict[str, list[int]] = {}
     for sku, cat in session.execute(
         select(
@@ -54,7 +54,7 @@ def detect_store_view(
             ProductRecord.store_view_magento_id == store_view_magento_id,
         )
     )
-    fichas = _fichas(session, tenant_id, store_view_magento_id)
+    fichas = fichas_de(session, tenant_id, store_view_magento_id)
     run = FindingRun(
         tenant_id=tenant_id,
         store_view_magento_id=store_view_magento_id,

@@ -30,6 +30,14 @@ CANDIDATO = "candidato"  # exige revisión humana; nunca se presenta como veredi
 
 SEVERIDADES = (ALTA, MEDIA, BAJA, AVISO, CANDIDATO)
 
+# Cuántos SKUs de un grupo se guardan. Antes eran 10 —suficiente para MOSTRAR
+# ejemplos— y eso bastaba mientras el hallazgo sólo se leía. Ahora el score
+# atribuye el hallazgo de grupo a cada uno de sus miembros, así que truncar la
+# lista deja productos mal registrados con la nota intacta. El tope sigue
+# existiendo para que un grupo patológico no haga una fila de megabytes, pero es
+# alto y cuando actúa lo DICE: `truncado: true`.
+MAX_SKUS_POR_GRUPO = 500
+
 # Estados de un producto frente a la vitrina. `desconocido` no es un detalle:
 # un producto cuyo `status` o `visibility` el espejo no informó no se evalúa, y
 # eso se declara en la cobertura en vez de suponer que está publicado.
@@ -314,7 +322,8 @@ def nombres_repetidos(fichas: Sequence[Ficha]) -> Resultado:
                 nombre[:120],
                 {
                     "productos": len(grupo),
-                    "skus": sorted(g.sku for g in grupo)[:10],
+                    "skus": sorted(g.sku for g in grupo)[:MAX_SKUS_POR_GRUPO],
+                    "truncado": len(grupo) > MAX_SKUS_POR_GRUPO,
                     "lectura": (
                         "probables talles del mismo modelo cargados como productos sueltos"
                         if variante_suelta
@@ -401,7 +410,8 @@ def variantes_por_talle(fichas: Sequence[Ficha]) -> Resultado:
                 {
                     "productos": len(grupo),
                     "talles": sorted(talles)[:12],
-                    "skus": sorted(f.sku for f, _ in grupo)[:12],
+                    "skus": sorted(f.sku for f, _ in grupo)[:MAX_SKUS_POR_GRUPO],
+                    "truncado": len(grupo) > MAX_SKUS_POR_GRUPO,
                     "lectura": "talles del mismo modelo publicados como productos "
                                "sueltos; deberían ser variantes de un configurable",
                 },

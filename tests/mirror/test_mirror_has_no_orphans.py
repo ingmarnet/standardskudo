@@ -239,6 +239,10 @@ FK_ENFORCED_TABLES = {
     "finding_run",
     "finding",
     "finding_coverage",
+    # Las de nota: `catalog_score` y `product_score` referencian al tenant y a
+    # la pasada que las produjo con claves foráneas reales.
+    "product_score",
+    "catalog_score",
 }
 
 

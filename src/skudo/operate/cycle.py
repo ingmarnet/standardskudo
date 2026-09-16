@@ -30,6 +30,7 @@ from skudo.ingest.reconcile import reconcile
 from skudo.ingest.source import TenantSource
 from skudo.mirror.models import ProductRecord, Tenant
 from skudo.report.html import render as render_report
+from skudo.score.run import score_run
 
 
 @dataclass
@@ -119,9 +120,15 @@ def ciclo_de_un_tenant(
     if detectar:
         resultado.paso_fallido = "findings"
         hallazgos, informes = {}, []
+        notas = {}
         for store in stores:
             run = detect_store_view(session, tenant.id, store)
             hallazgos[str(store)] = findings_report(session, run)["hallazgos_totales"]
+            salud = score_run(session, run)
+            notas[str(store)] = {
+                "salud": salud.salud, "grado": salud.grado,
+                "criticos": salud.criticos, "distribucion": salud.distribucion,
+            }
             if informes_en is not None:
                 # El nombre lleva el código del tenant y la store view: el
                 # directorio es de la plataforma, no de un cliente, y dos
@@ -134,6 +141,7 @@ def ciclo_de_un_tenant(
                 )
                 informes.append(str(destino))
         resultado.pasos["hallazgos"] = hallazgos
+        resultado.pasos["salud"] = notas
         if informes:
             resultado.pasos["informes"] = informes
 

@@ -112,7 +112,11 @@ def test_ocho_talles_con_el_mismo_nombre_son_UN_hallazgo():
     assert h.code == "variantes_sueltas"
     assert h.severity == ALTA
     assert h.evidence["productos"] == 8
-    assert len(h.evidence["skus"]) <= 10
+    assert h.evidence["skus"] == [f"166{i}" for i in range(8)], (
+        "el score atribuye el hallazgo a CADA miembro: si la lista se trunca, "
+        "hay productos mal registrados que conservan su nota intacta"
+    )
+    assert h.evidence["truncado"] is False
 
 
 def test_dos_productos_con_el_mismo_nombre_son_CANDIDATO_no_veredicto():
