@@ -347,13 +347,22 @@ puede no aplicar según el tipo de producto.
   correspondiente en esa tienda, no solo que exista una fila de asignación
 - Asignación (global) frente a efecto (por tienda): un producto asignado puede no ser
   accesible en BR por root category, `is_active` o websites
-- **Qué discrimina depende de la topología, y no siempre es el árbol.** En el tenant
-  piloto las dos store views cuelgan de grupos con la misma `root_category_id`: la
-  pertenencia al árbol es idéntica para PY y BR y no separa nada. Lo que separa los
-  mercados es la **asignación de website del producto** y el **`is_active` de la
-  categoría por tienda** — 212 categorías con valor propio en PY, 66 en BR. El árbol
-  solo discrimina cuando cada mercado tiene su propia raíz, topología que este tenant no
-  usa y que no conviene dar por supuesta en los demás
+- **Qué discrimina depende de la topología, y hay que medirlo por tenant.** Tres
+  condiciones pueden separar dos mercados —la raíz del árbol, el website del producto y
+  el `is_active` de la categoría por tienda— y **cuáles de ellas discriminan de verdad
+  cambia de instalación en instalación**. Medido en dos tenants reales:
+  - *Nissei*: las dos store views comparten `root_category_id`, así que el árbol no
+    separa nada; lo hacen el website (`base` contra `website_br`) y el `is_active` por
+    tienda — 212 categorías con valor propio en PY, 66 en BR.
+  - *Renovapadel*: las dos store views comparten `root_category_id` **y además el mismo
+    website**, así que ni el árbol ni el website separan nada. El **único** discriminante
+    es el `is_active` de la categoría por tienda y los overrides de atributo por store
+    view.
+
+  La consecuencia para el motor: `derive_category_effect` debe **declarar cuál de sus
+  condiciones discrimina en este tenant** en lugar de suponerlo, porque una condición que
+  nunca separa nada no es una garantía cumplida, es una garantía ausente. Y el eje 2 no
+  puede reportar "accesible en BR" con la misma confianza en las dos topologías
 - Sin categoría, solo en la raíz, o solo en una categoría cajón de sastre
 - Categoría demasiado genérica existiendo una hoja adecuada
 - Categoría incoherente con el producto (centrifugador en Secarropas) — IA, como
@@ -1009,6 +1018,19 @@ clara y bajo riesgo de falso positivo.
 ---
 
 ## 14. Registro de revisiones
+
+**Revisión 4 — 2026-09-16.** Primer módulo instalado en un **segundo tenant real**
+(Renovapadel, Magento 2.4.8-p3 **Open Source**), y su topología corrige un supuesto que la
+revisión 3 había dejado a medias:
+
+- El eje 2 decía que, sin árboles separados, **el website** es el discriminante. En
+  Renovapadel las dos store views comparten árbol **y website**: el único discriminante es
+  el `is_active` por tienda. El apartado pasa a exigir que se **mida por tenant** cuál de
+  las tres condiciones separa de verdad, en vez de nombrar una
+- Confirmada en campo la compatibilidad entre ediciones: `staging_enabled: false` y
+  `product_entity_key: entity_id`, el camino que en Adobe Commerce es `row_id`
+
+---
 
 **Revisión 3 — 2026-09-11.** S0 construido y verificado contra el Magento del tenant
 piloto; siete mediciones del catálogo real (`docs/superpowers/s1-datos-reales.md`)
