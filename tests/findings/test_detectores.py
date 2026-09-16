@@ -185,3 +185,65 @@ def test_ningun_detector_marca_un_producto_desconocido():
 def test_el_vocabulario_de_severidad_es_cerrado(severidad):
     from skudo.findings.catalog import SEVERIDADES
     assert severidad in SEVERIDADES
+
+
+# --- variantes por talle ---------------------------------------------------
+
+def test_ocho_talles_del_mismo_modelo_son_un_hallazgo():
+    """El caso real: los nombres NO son iguales —difieren en el talle— así que
+    la comparación de nombres exactos devuelve cero. Un detector honesto que no
+    encuentra nada no es lo mismo que la ausencia del problema."""
+    from skudo.findings.catalog import variantes_por_talle
+    base = "CALZADO ASICS FEMENINO GEL CHALLENGER 14 CLAY {} BLUE EXPANSE"
+    fichas = [ficha(f"166{i}", nombre=base.format(t))
+              for i, t in enumerate(["5,5'", "6'", "6,5'", "7'", "7,5'", "8'", "8,5'", "9,5'"])]
+    r = variantes_por_talle(fichas)
+    assert len(r.hallazgos) == 1
+    h = r.hallazgos[0]
+    assert h.evidence["productos"] == 8
+    assert len(h.evidence["talles"]) == 8
+
+
+def test_dos_anios_del_mismo_modelo_no_son_una_familia_de_talles():
+    """La trampa de quitar cualquier número: «AT10 2024» y «AT10 2025» son dos
+    productos distintos y agruparlos sería inventar un defecto."""
+    from skudo.findings.catalog import variantes_por_talle
+    fichas = [ficha(f"a{i}", nombre=f"PALETA NOX AT10 GENIUS {anio}")
+              for i, anio in enumerate([2023, 2024, 2025])]
+    assert variantes_por_talle(fichas).hallazgos == []
+
+
+def test_hacen_falta_tres_talles_distintos():
+    """Dos productos con el mismo talle no son una familia: si el talle no los
+    separa, no fue el talle lo que los agrupó."""
+    from skudo.findings.catalog import variantes_por_talle
+    fichas = [ficha(f"a{i}", nombre="CALZADO MIZUNO WAVE ENFORCE 8'") for i in range(4)]
+    assert variantes_por_talle(fichas).hallazgos == []
+
+
+def test_un_configurable_no_entra_en_la_familia():
+    from skudo.findings.catalog import variantes_por_talle
+    fichas = [ficha(f"a{i}", nombre=f"ZAPATILLA MIZUNO WAVE EXCEED {t}")
+              for i, t in enumerate(["5,5'", "6'", "6,5'"])]
+    fichas.append(ficha("padre", nombre="ZAPATILLA MIZUNO WAVE EXCEED",
+                        tipo="configurable"))
+    r = variantes_por_talle(fichas)
+    assert r.hallazgos[0].evidence["productos"] == 3
+    assert r.cobertura.no_aplica == 1
+
+
+def test_el_talle_se_separa_del_nombre():
+    from skudo.findings.catalog import sin_talle
+    base, talle = sin_talle("CALZADO ASICS GEL CHALLENGER 14 CLAY 5,5' BLUE")
+    assert talle == "5,5'"
+    assert "14" in base, "un numero de modelo NO es un talle"
+    assert "5,5" not in base
+
+
+def test_un_nombre_base_demasiado_corto_no_agrupa():
+    """`REMERA S`, `REMERA M`, `REMERA L` comparten la base «remera», que es
+    demasiado genérica: agruparlas afirmaría que son el mismo producto cuando
+    lo único que comparten es la categoría."""
+    from skudo.findings.catalog import variantes_por_talle
+    fichas = [ficha(f"a{i}", nombre=f"REMERA {t}") for i, t in enumerate(["xs", "xl", "xxl"])]
+    assert variantes_por_talle(fichas).hallazgos == []

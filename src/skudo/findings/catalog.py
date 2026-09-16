@@ -330,10 +330,95 @@ def nombres_repetidos(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Tokens que denotan un TALLE dentro del nombre. La lista es corta a propósito:
+# quitar cualquier número agruparía «AT10 2024» con «AT10 2025», que son dos
+# productos distintos. Sólo se quitan las formas que no pueden ser otra cosa —
+# decimales con coma o apóstrofo, y marcadores explícitos de talle.
+# `\b` no sirve de cierre acá: después de un apóstrofo no hay frontera de
+# palabra —los dos son caracteres no-palabra— así que `5,5'` quedaba a medio
+# quitar y `6'` no se quitaba nunca. Se cierra con `(?!\w)` y se abre con un
+# lookbehind que impide casar dentro de una palabra (la `t` de `at10`).
+_TALLE = re.compile(
+    r"(?<![\w.,])("
+    r"\d{1,2}[.,]\d\s*'?"        # 5,5'   6.5
+    r"|\d{1,2}\s*'"              # 6'
+    r"|talles?\s*\d{1,3}"
+    r"|t\s?\d{2}"                # T40
+    r"|xxs|xs|xl|xxl|xxxl"
+    r")(?!\w)"
+)
+
+
+def sin_talle(nombre: str) -> tuple[str, str]:
+    """El nombre sin su talle, y el talle que se quitó.
+
+    Devuelve las dos mitades porque la segunda es la que valida el hallazgo: si
+    todos los miembros de un grupo tenían el MISMO talle, entonces no fue el
+    talle lo que los separaba y no son una familia.
+    """
+    base = normalizar_nombre(nombre)
+    quitados = " ".join(m.group(0).strip() for m in _TALLE.finditer(base))
+    return re.sub(r"\s+", " ", _TALLE.sub(" ", base)).strip(), quitados
+
+
+def variantes_por_talle(fichas: Sequence[Ficha]) -> Resultado:
+    """Familias de talles publicadas como productos sueltos.
+
+    El caso que lo motivó: ocho zapatillas `simple`, visibles en catálogo y
+    búsqueda, cuyos nombres sólo se diferencian en `5,5'`, `6'`, `6,5'`… Son
+    ocho filas casi idénticas en los resultados de búsqueda de un comprador que
+    busca un modelo, cuando deberían ser un producto con selector de talle.
+
+    Se descubrió porque un detector anterior —comparación de nombres exactos—
+    devolvió cero: los nombres NO son iguales, difieren justamente en el talle.
+    Un detector honesto que no encuentra nada no es lo mismo que la ausencia del
+    problema.
+
+    Tres condiciones, todas necesarias: al menos tres productos, todos simples
+    y publicados, y **al menos tres talles distintos** entre ellos. La última es
+    la que impide que un grupo unido por casualidad pase por familia.
+    """
+    evaluables, no_aplica, no_evaluado = _particionar(
+        fichas, lambda f: _publicado(f) and (f.type_id or "simple") == "simple"
+    )
+    familias: dict[str, list[tuple[Ficha, str]]] = defaultdict(list)
+    for f in evaluables:
+        nombre = f.valor("name")
+        if not nombre:
+            continue
+        base, talle = sin_talle(nombre)
+        if talle and len(base) > 12:
+            familias[base].append((f, talle))
+
+    hallazgos = []
+    for base, grupo in sorted(familias.items()):
+        talles = {t for _, t in grupo}
+        if len(grupo) < 3 or len(talles) < 3:
+            continue
+        hallazgos.append(
+            Hallazgo(
+                "variantes_por_talle", 1, ALTA, "grupo", base[:120],
+                {
+                    "productos": len(grupo),
+                    "talles": sorted(talles)[:12],
+                    "skus": sorted(f.sku for f, _ in grupo)[:12],
+                    "lectura": "talles del mismo modelo publicados como productos "
+                               "sueltos; deberían ser variantes de un configurable",
+                },
+            )
+        )
+    return Resultado(
+        hallazgos,
+        Cobertura("variantes_por_talle", len(evaluables), no_aplica, no_evaluado,
+                  "configurables, variantes no navegables y deshabilitados"),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
     nombres_repetidos,
+    variantes_por_talle,
     sin_descripcion,
     sin_descripcion_corta,
     sin_meta_title,
