@@ -608,3 +608,31 @@ def test_profile_no_necesita_token(cli_db, monkeypatch, capsys):
 
 def test_profile_de_un_tenant_desconocido(cli_db):
     assert _run(["profile", "--tenant", "noexiste"]) == EXIT_UNKNOWN_TENANT
+
+
+def test_cycle_no_exige_nombrar_un_tenant(cli_db, capsys):
+    """El comando que un temporizador puede invocar sin saber quiénes son los
+    clientes. Que NO tenga `--tenant` es la característica, no un descuido."""
+    _register()
+    _run(["probe", "--tenant", "demo"], FakeMagento())
+    _run(["full-sync", "--tenant", "demo", "--stores", "1"], FakeMagento())
+    capsys.readouterr()
+
+    assert _run(["cycle"], FakeMagento()) == EXIT_OK
+    salida = json.loads(capsys.readouterr().out)
+    assert salida["tenants"] == 1
+    assert salida["con_error"] == []
+    assert salida["detalle"]["demo"]["ok"] is True
+
+
+def test_cycle_sale_con_error_si_algun_tenant_falla(cli_db, monkeypatch, capsys):
+    """Un temporizador que siempre sale 0 no avisa nunca."""
+    _register()
+    _run(["probe", "--tenant", "demo"], FakeMagento())
+    capsys.readouterr()
+    monkeypatch.delenv(TOKEN_VAR, raising=False)
+
+    assert _run(["cycle"], FakeMagento()) == EXIT_FAILURE
+    salida = json.loads(capsys.readouterr().out)
+    assert salida["con_error"] == ["demo"]
+    assert salida["detalle"]["demo"]["paso"] == "token"

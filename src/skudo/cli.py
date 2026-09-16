@@ -61,6 +61,7 @@ from skudo.mirror.models import (
     Tenant,
 )
 from skudo.mirror.topology import sync_topology
+from skudo.operate.cycle import ciclo_de_todos
 from skudo.profile.report import profile_report
 from skudo.profile.run import profile_store_view
 from skudo.report.html import render as render_report
@@ -222,6 +223,24 @@ def build_parser() -> argparse.ArgumentParser:
     user_passwd.add_argument("--password-env", default=None)
 
     sub.add_parser("user-list", help="lista los usuarios de la plataforma")
+
+    ciclo = sub.add_parser(
+        "cycle",
+        help="el ciclo diario sobre TODOS los tenants registrados: delta, "
+        "reconciliación y detección. Aísla el fallo de cada uno.",
+    )
+    ciclo.add_argument(
+        "--only",
+        default=None,
+        help="códigos de tenant separados por coma, para acotar. Por defecto: "
+        "todos los registrados, que es lo que un temporizador necesita para no "
+        "llevar el nombre de un cliente adentro.",
+    )
+    ciclo.add_argument(
+        "--skip-findings",
+        action="store_true",
+        help="sólo sincroniza y reconcilia, sin correr los detectores",
+    )
 
     reporte = tenant_command(
         "report",
@@ -528,6 +547,22 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
         with Session(engine) as session:
             if args.command == "register-tenant":
                 return _register_tenant(session, args)
+
+            if args.command == "cycle":
+                # Sale de la sesión: el ciclo abre una POR TENANT, que es lo que
+                # impide que el fallo de uno deje la transacción de los demás
+                # inservible.
+                session.close()
+                resultado = ciclo_de_todos(
+                    lambda: Session(engine),
+                    transport=transport,
+                    detectar=not args.skip_findings,
+                    codigos=args.only.split(",") if args.only else None,
+                )
+                _report(resultado.resumen())
+                # Salida 1 si ALGUNO falló: un temporizador que siempre sale 0
+                # no avisa nunca.
+                return EXIT_FAILURE if resultado.fallidos else EXIT_OK
 
             if args.command in {"user-add", "user-passwd", "user-list"}:
                 return _users(session, args)
