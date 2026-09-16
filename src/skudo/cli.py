@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 import httpx
 from pydantic import ValidationError
@@ -40,6 +41,7 @@ from skudo.exit_codes import (
     EXIT_UNKNOWN_TENANT,
     EXIT_USAGE,
 )
+from skudo.findings.models import FindingRun
 from skudo.findings.run import detect_store_view, findings_report
 from skudo.ingest.attribute_sync import sync_attributes
 from skudo.ingest.category_sync import sync_categories
@@ -61,6 +63,7 @@ from skudo.mirror.models import (
 from skudo.mirror.topology import sync_topology
 from skudo.profile.report import profile_report
 from skudo.profile.run import profile_store_view
+from skudo.report.html import render as render_report
 
 # Tope de particiones que `repair --from-reconcile` acepta reparar de una vez.
 # Por encima de esto, releer partición por partición es releer una fracción
@@ -219,6 +222,14 @@ def build_parser() -> argparse.ArgumentParser:
     user_passwd.add_argument("--password-env", default=None)
 
     sub.add_parser("user-list", help="lista los usuarios de la plataforma")
+
+    reporte = tenant_command(
+        "report",
+        "genera el informe HTML de la última pasada de detección",
+    )
+    reporte.add_argument("--store", type=int, required=True,
+                         help="id de la store view; el informe es por tienda")
+    reporte.add_argument("--out", required=True, help="archivo HTML de salida")
 
     tenant_command(
         "findings",
@@ -533,6 +544,33 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
             # con Magento: lee el espejo. Exigirle el token inventaría una
             # dependencia y dejaría el comando inutilizable en una máquina de
             # análisis que sólo tiene acceso a Postgres.
+            if args.command == "report":
+                run = session.scalars(
+                    select(FindingRun)
+                    .where(
+                        FindingRun.tenant_id == tenant.id,
+                        FindingRun.store_view_magento_id == args.store,
+                        FindingRun.finished_at.is_not(None),
+                    )
+                    .order_by(FindingRun.id.desc())
+                    .limit(1)
+                ).first()
+                if run is None:
+                    print(
+                        f"no hay ninguna pasada de deteccion terminada para la store "
+                        f"view {args.store}: corre primero `skudo findings --tenant "
+                        f"{tenant.code}`",
+                        file=sys.stderr,
+                    )
+                    return EXIT_FAILURE
+                Path(args.out).write_text(
+                    render_report(session, run, tienda=tenant.name or tenant.code),
+                    encoding="utf-8",
+                )
+                _report({"archivo": args.out, "run_id": run.id,
+                         "store_view": run.store_view_magento_id})
+                return EXIT_OK
+
             if args.command == "findings":
                 salida = {}
                 for store_id in _resolve_stores(session, tenant, args.stores):
