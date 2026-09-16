@@ -61,6 +61,53 @@ def _interpolate(template: str, parameters: object) -> str:
     return template
 
 
+# Cómo se presenta este ingestor ante el Magento del tenant. No es cosmético:
+# un cliente que se identifica es un cliente que el dueño del sitio puede
+# AUTORIZAR POR NOMBRE en su WAF, en vez de tener que adivinar qué es ese
+# `python-httpx/0.27` que le golpea la API cientos de veces seguidas. El default
+# de la librería es una firma de robot anónimo, que es justo lo que un filtro de
+# bots está entrenado para frenar.
+# Sin tildes: una cabecera HTTP no admite caracteres fuera de ASCII y httpx se
+# niega a enviarla. Un acento acá rompe TODAS las peticiones, no una.
+USER_AGENT = (
+    "StandardSkudo/0.1 (catalog quality ingestor; "
+    "+https://github.com/ingmarnet/standardskudo)"
+)
+
+# Marcas de una página de desafío de navegador. Se buscan en el CUERPO y solo
+# cuando el tipo de contenido es HTML: un error legítimo del módulo siempre
+# llega como JSON.
+CHALLENGE_MARKERS = (
+    "just a moment",
+    "cf-browser-verification",
+    "challenges.cloudflare.com",
+    "cf_chl_opt",
+    "attention required",
+    "__cf_chl",
+)
+
+
+class BotChallengeError(MagentoApiError):
+    """La petición NO llegó a Magento: la respondió un intermediario.
+
+    Se separa de `MagentoApiError` porque el diagnóstico y el remedio son
+    completamente distintos. Un 403 del módulo significa "tu token no tiene
+    este permiso" y se arregla en la integración; un 403 con una página de
+    desafío significa "un filtro de bots te frenó antes de llegar" y se arregla
+    en la configuración del sitio. Confundirlos manda a revisar el token
+    durante una hora.
+    """
+
+
+def _is_bot_challenge(response: httpx.Response) -> bool:
+    if response.status_code not in {403, 429, 503}:
+        return False
+    if "html" not in response.headers.get("content-type", "").lower():
+        return False
+    cuerpo = response.text[:4000].lower()
+    return any(marca in cuerpo for marca in CHALLENGE_MARKERS)
+
+
 def raise_for_status(response: httpx.Response) -> None:
     """Reemplaza `response.raise_for_status()` en todo el cliente.
 
@@ -81,6 +128,20 @@ def raise_for_status(response: httpx.Response) -> None:
         raise MagentoApiError(
             response.status_code,
             _interpolate(body["message"], body.get("parameters")),
+            path,
+        )
+
+    if _is_bot_challenge(response):
+        # El cuerpo crudo acá son cuatro kilobytes de cabeceras CSP y un script
+        # de desafío: no enseñan nada y esconden el hecho útil, que es que la
+        # petición nunca llegó a Magento.
+        raise BotChallengeError(
+            response.status_code,
+            "la respondió un filtro de bots con un desafío de navegador, no "
+            "Magento. Ni el token ni el módulo están en juego. Se resuelve del "
+            "lado del sitio: autorizar la IP de este ingestor para "
+            "/rest/V1/skudo/*, o apuntar la base_url del tenant al origen en "
+            "vez de al dominio público",
             path,
         )
 
@@ -127,7 +188,11 @@ class MagentoClient:
     def __init__(self, base_url: str, token: str, transport: httpx.BaseTransport | None = None):
         self._client = httpx.Client(
             base_url=base_url.rstrip("/") + "/rest/V1/skudo",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+            },
             timeout=httpx.Timeout(60.0, connect=10.0),
             transport=transport,
         )
