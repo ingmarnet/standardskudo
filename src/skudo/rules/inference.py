@@ -51,8 +51,8 @@ def inferir(session: Session, profile_run_id: int) -> list[Rule]:
     existente porque la inferencia es una función del perfil, no del estado.
     """
     run = session.get(ProfileRun, profile_run_id)
-    if run is None:
-        raise ValueError(f"perfil {profile_run_id} inexistente")
+    if run is None or run.finished_at is None:
+        raise ValueError(f"perfil {profile_run_id} inexistente o sin terminar")
 
     particiones = session.scalars(
         select(ProfilePartition)

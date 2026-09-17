@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from skudo.mirror.models import Tenant
 from skudo.profile.models import (
     AttributeCoverage,
@@ -22,7 +24,8 @@ def _tenant(session):
 
 def _run_con_particion(session, tenant, *, splitter_value=None):
     run = ProfileRun(tenant_id=tenant.id, store_view_magento_id=1,
-                     mirror_sync_generation=1, thresholds={}, product_count=200)
+                     mirror_sync_generation=1, thresholds={}, product_count=200,
+                     finished_at=datetime.now(UTC))
     session.add(run)
     session.flush()
     part = ProfilePartition(
