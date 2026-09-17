@@ -222,21 +222,35 @@ def findings_report(session: Session, run: FindingRun) -> dict:
         "nombre_repetido": "nombres_repetidos",
     }
 
+    # Un código `regla:*` viene siempre de UNA regla (kind + attribute), así
+    # que alcanza con un valor por código para adjuntarlo a su fila del
+    # informe, sin tocar el conteo agrupado de arriba.
+    regla_id_por_codigo = dict(
+        session.execute(
+            select(Finding.code, func.max(Finding.rule_id))
+            .where(Finding.run_id == run.id, Finding.rule_id.is_not(None))
+            .group_by(Finding.code)
+        ).all()
+    )
+
     hallazgos = []
     for code, severity, axis, n in por_codigo:
         c = coberturas.get(de_detector.get(code, code))
-        hallazgos.append(
-            {
-                "code": code,
-                "eje": axis,
-                "severidad": severity,
-                "hallazgos": n,
-                "evaluados": c.evaluados if c else None,
-                "porcentaje": round(100 * n / c.evaluados, 1) if c and c.evaluados else None,
-                "no_aplica": c.no_aplica if c else None,
-                "no_evaluado": c.no_evaluado if c else None,
-            }
-        )
+        origen = "regla" if code.startswith("regla:") else "detector"
+        fila = {
+            "code": code,
+            "eje": axis,
+            "severidad": severity,
+            "hallazgos": n,
+            "evaluados": c.evaluados if c else None,
+            "porcentaje": round(100 * n / c.evaluados, 1) if c and c.evaluados else None,
+            "no_aplica": c.no_aplica if c else None,
+            "no_evaluado": c.no_evaluado if c else None,
+            "origen": origen,
+        }
+        if origen == "regla":
+            fila["rule_id"] = regla_id_por_codigo.get(code)
+        hallazgos.append(fila)
 
     return {
         "run_id": run.id,

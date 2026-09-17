@@ -15,9 +15,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from skudo.auth.users import authenticate
-from skudo.findings.models import FindingRun
+from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
 from skudo.mirror.models import ProductRecord, Tenant
+from skudo.rules.models import Rule
 from skudo.score.models import CatalogScore, ProductScore
 from skudo.score.run import tendencia
 from skudo.score.trend import comparar_ultima
@@ -190,6 +191,67 @@ def tenant_findings(
 
     report = findings_report(db, run)
     return report
+
+
+# --- Reglas activas por store view ------------------------------------------
+
+
+@app.get("/api/tenants/{tenant_code}/rules")
+def tenant_rules(
+    tenant_code: str,
+    store: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+
+    reglas = db.scalars(
+        select(Rule)
+        .where(
+            Rule.tenant_id == tenant.id,
+            Rule.status.in_(("aceptada", "aviso", "borrador")),
+            (Rule.store_view_magento_id == store) | (Rule.store_view_magento_id.is_(None)),
+        )
+        .order_by(Rule.id)
+    ).all()
+
+    # recuento de productos marcados por regla en la última pasada de esa store view
+    ultima = db.scalars(
+        select(FindingRun)
+        .where(
+            FindingRun.tenant_id == tenant.id,
+            FindingRun.store_view_magento_id == store,
+            FindingRun.finished_at.is_not(None),
+        )
+        .order_by(FindingRun.id.desc())
+        .limit(1)
+    ).first()
+    marcados: dict[int, int] = {}
+    if ultima is not None:
+        for rid, n in db.execute(
+            select(Finding.rule_id, func.count())
+            .where(Finding.run_id == ultima.id, Finding.rule_id.is_not(None))
+            .group_by(Finding.rule_id)
+        ).all():
+            marcados[rid] = n
+
+    return [
+        {
+            "id": r.id,
+            "kind": r.kind,
+            "attribute": (r.definition or {}).get("attribute"),
+            "scope": f"{r.scope_kind}:{r.scope_key}",
+            "axis": r.axis,
+            "confidence": r.confidence,
+            "evidence_count": r.evidence_count,
+            "status": r.status,
+            "origin": r.origin,
+            "productos_marcados": marcados.get(r.id, 0),
+        }
+        for r in reglas
+    ]
 
 
 # --- Productos con peor nota ------------------------------------------------
