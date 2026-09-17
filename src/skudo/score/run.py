@@ -30,7 +30,12 @@ def _hallazgos_por_sku(session: Session, run: FindingRun) -> dict[str, list]:
     """
     por_sku: dict[str, list] = {}
     for f in session.scalars(select(Finding).where(Finding.run_id == run.id)):
-        h = HallazgoDeProducto(code=f.code, severity=f.severity, axis=f.axis)
+        # Las reglas guardan el atributo en evidence.attribute; los detectores
+        # especiales de carencia de campo lo guardan en evidence.campo. Ambos
+        # alimentan la misma causa, que es lo que funde las dos marcas del
+        # mismo atributo (spec §6.4: sin doble penalización).
+        causa = (f.evidence or {}).get("attribute") or (f.evidence or {}).get("campo")
+        h = HallazgoDeProducto(code=f.code, severity=f.severity, axis=f.axis, causa=causa)
         if f.subject_type == "producto":
             por_sku.setdefault(f.subject_key, []).append(h)
         elif f.subject_type == "grupo":
