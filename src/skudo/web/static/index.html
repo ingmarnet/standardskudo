@@ -67,6 +67,11 @@ body {
 ::selection { background: var(--accent-light); color: var(--ink); }
 
 /* --- Login screen --- */
+/* El atributo `hidden` debe ganar sobre las reglas de clase con `display`:
+   sin esto, `.login-screen`/`.app` (display:flex) tapan el `display:none` del
+   user-agent y ocultar el login con hidden=true no hace nada. */
+[hidden] { display: none !important; }
+
 .login-screen {
   display: flex;
   align-items: center;
