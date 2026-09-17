@@ -37,3 +37,26 @@ def test_sin_causa_deduplica_por_code_como_antes():
     ]
     nota = nota_de_producto("P1", hallazgos)
     assert len(nota.deducciones) == 1
+
+
+def test_el_critico_sobrevive_aunque_el_dedup_haga_ganar_a_la_regla():
+    # sin_imagen (ALTA, código crítico) y una regla de la MISMA causa, también
+    # ALTA: en empate de peso el dedup conserva el PRIMERO que llegó — acá la
+    # regla, que no es código crítico. El flag `critico` no debe depender de
+    # cuál de los dos gana el dedup: se calcula sobre los hallazgos crudos.
+    hallazgos = [
+        HallazgoDeProducto(code="regla:obligatoriedad:image", severity="alta",
+                           axis=7, causa="image"),
+        HallazgoDeProducto(code="sin_imagen", severity="alta", axis=7, causa="image"),
+    ]
+    nota = nota_de_producto("P1", hallazgos)
+    assert len(nota.deducciones) == 1  # una sola causa, un solo descuento
+    assert nota.critico is True  # pero sigue no-publicable
+
+
+def test_sin_precio_solo_marca_critico():
+    nota = nota_de_producto(
+        "P1", [HallazgoDeProducto(code="sin_precio", severity="alta", axis=1,
+                                  causa="price")]
+    )
+    assert nota.critico is True

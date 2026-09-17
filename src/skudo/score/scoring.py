@@ -94,9 +94,15 @@ def nota_de_producto(sku: str, hallazgos: list[HallazgoDeProducto]) -> NotaDePro
     La causa raíz es `h.causa`, o el propio `code` cuando no hay causa (los
     hallazgos sin evidencia de atributo, que dedupan como siempre). Cuando dos
     hallazgos comparten causa —un detector y una regla sobre el mismo
-    atributo, spec §6.4— se conserva el de mayor peso de severidad, porque el
-    detector especial suele ser más específico; ante empate, el primero que
-    llegó.
+    atributo, spec §6.4— se conserva el de mayor peso de severidad; ante
+    empate de peso, el primero que llegó.
+
+    El flag `critico` se calcula sobre los hallazgos ORIGINALES, no sobre los
+    deduplicados: es la pregunta «¿este producto tiene algún hallazgo de
+    código crítico?», independiente de qué hallazgo gane el dedup por causa.
+    Si se calculara post-dedup, un empate de severidad entre `sin_imagen` y
+    una regla de la misma causa podría hacer ganar a la regla y perder la
+    marca de no-publicable — exactamente lo que este cálculo evita.
     """
     vistos: dict[str, HallazgoDeProducto] = {}
     for h in hallazgos:
@@ -121,7 +127,7 @@ def nota_de_producto(sku: str, hallazgos: list[HallazgoDeProducto]) -> NotaDePro
         sku=sku,
         puntaje=puntaje,
         grado=grado(puntaje),
-        critico=any(h.code in CODIGOS_CRITICOS for h in vistos.values()),
+        critico=any(h.code in CODIGOS_CRITICOS for h in hallazgos),
         deducciones=deducciones,
     )
 
