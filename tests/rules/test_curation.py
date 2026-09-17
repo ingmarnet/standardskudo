@@ -145,3 +145,52 @@ def test_inspeccionar_muestra_lo_que_marcaria_y_lo_que_descartaria(db_session):
     assert info["marcaria"] == 6
     assert info["descartaria"] == 194
     assert info["attribute"] == "color"
+
+
+def test_aceptar_lote_con_ambigua_no_mueve_ninguna(db_session):
+    """La regla válida va PRIMERO en la lista: un diseño ingenuo de un solo loop
+    la habría movido antes de toparse con la ambigua y lanzar. El chequeo
+    "todo antes que cualquiera" tiene que sostenerse igual."""
+    t = _tenant(db_session)
+    valida = _regla(db_session, t)
+    ambigua = _regla(db_session, t, definition={"attribute": "material", "ambiguo": True})
+    with pytest.raises(ReglaAmbiguaSinConfirmar):
+        aceptar(db_session, [valida.id, ambigua.id], actor="ana@x.com")
+    db_session.refresh(valida)
+    db_session.refresh(ambigua)
+    assert valida.status == "borrador", "nada se movió, ni la válida"
+    assert ambigua.status == "borrador"
+
+
+def test_degradar_por_fp_no_hace_nada_en_los_casos_negativos(db_session):
+    t = _tenant(db_session)
+
+    # (a) no está aceptada
+    borrador = _regla(db_session, t, status="borrador")
+    borrador.false_positive_rate = 0.50
+    db_session.flush()
+    assert degradar_por_fp(db_session, borrador.id) is False
+    db_session.refresh(borrador)
+    assert borrador.status == "borrador"
+
+    # (b) false_positive_rate sin medir
+    sin_medir = _regla(db_session, t, status="aceptada")
+    assert sin_medir.false_positive_rate is None
+    assert degradar_por_fp(db_session, sin_medir.id) is False
+    db_session.refresh(sin_medir)
+    assert sin_medir.status == "aceptada"
+
+    # (c) fp medido pero bajo el umbral
+    bajo_umbral = _regla(db_session, t, status="aceptada")
+    bajo_umbral.false_positive_rate = 0.05
+    db_session.flush()
+    assert degradar_por_fp(db_session, bajo_umbral.id) is False
+    db_session.refresh(bajo_umbral)
+    assert bajo_umbral.status == "aceptada"
+
+
+def test_acotar_exige_motivo(db_session):
+    t = _tenant(db_session)
+    r = _regla(db_session, t, origin="piso_externo", status="aceptada")
+    with pytest.raises(ValueError):
+        acotar(db_session, r.id, actor="ana@x.com", motivo="")
