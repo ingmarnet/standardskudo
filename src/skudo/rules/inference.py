@@ -36,6 +36,37 @@ MAX_RATIO_AMBIGUO = 0.10
 MAX_EXCEPCIONES = 500
 
 
+# --- Filtro de atributos de sistema ---------------------------------------
+#
+# Calibrado contra el catálogo real (2026-09-17): la primera pasada sobre
+# Renovapadel infirió 560 reglas, de las que ~la mitad eran atributos de SISTEMA
+# de Magento —presentes al 100 % porque el motor siempre los setea, no porque
+# sean señal de calidad— y reglas de rango sobre campos de config
+# (`tax_class_id [2,2]`, `status [1,1]`). Inferir obligatoriedad/rango sobre
+# ellos es ruido que ensucia la curación y nunca produce un hallazgo útil.
+#
+# El filtro CORRECTO a largo plazo es `is_user_defined` de Magento (un atributo
+# de sistema lo trae en false), pero eso exige exponerlo en el módulo PHP y
+# guardarlo en el espejo. Hasta entonces, este denylist pragmático —constante
+# del código, editable en el diff como los umbrales— cubre los conocidos.
+ATRIBUTOS_DE_SISTEMA = frozenset({
+    "status", "visibility", "tax_class_id", "page_layout", "options_container",
+    "gift_message_available", "gift_wrapping_available", "gift_wrapping_price",
+    "msrp", "msrp_display_actual_price_type", "quantity_and_stock_status",
+    "has_options", "required_options", "url_key", "meta_keyword",
+    "custom_design", "custom_design_from", "custom_design_to", "custom_layout",
+    "custom_layout_update", "custom_layout_update_file", "weight_type",
+    "sku_type", "price_type", "price_view", "shipment_type",
+})
+# Prefijos de familias técnicas y de plugins (medidos en el catálogo real).
+PREFIJOS_DE_SISTEMA = ("ts_dimensions_", "aw_arp_", "use_config_", "links_",
+                       "samples_", "bundle_", "giftcard_")
+
+
+def _es_atributo_de_sistema(code: str) -> bool:
+    return code in ATRIBUTOS_DE_SISTEMA or code.startswith(PREFIJOS_DE_SISTEMA)
+
+
 def _scope(part: ProfilePartition) -> tuple[str, str]:
     """El scope de una partición: subtype si tiene divisor, si no attribute_set."""
     if part.splitter_value is not None:
@@ -89,10 +120,19 @@ def _obligatoriedad(session, run, part, scope_kind, scope_key) -> list[Rule]:
     ).all()
     reglas = []
     for cov in coberturas:
+        # Atributo de sistema de Magento: siempre presente por el motor, no es
+        # señal de calidad. Ver ATRIBUTOS_DE_SISTEMA.
+        if _es_atributo_de_sistema(cov.attribute_code):
+            continue
         evaluables = cov.presente + cov.vacio
         if cov.coverage is None or evaluables < MIN_EVIDENCIA:
             continue
         if cov.coverage < UMBRAL_MEDIO:
+            continue
+        # Una obligatoriedad que no marca a nadie (todos lo tienen) no es
+        # accionable: no produce hallazgo y sólo ensucia la curación. Si mañana
+        # aparece un hueco, la regla se re-infiere del perfil de esa pasada.
+        if cov.vacio == 0:
             continue
         definition = {"attribute": cov.attribute_code, "marcaria": cov.vacio}
         if cov.coverage < UMBRAL_ALTO:
@@ -115,6 +155,8 @@ def _numericas(session, run, part, scope_kind, scope_key) -> list[Rule]:
     ).all()
     reglas = []
     for s in stats:
+        if _es_atributo_de_sistema(s.attribute_code):
+            continue
         if s.n_present < MIN_EVIDENCIA:
             continue
         ratio = (s.n_ambiguous / s.n_present) if s.n_present else 1.0
@@ -130,6 +172,11 @@ def _numericas(session, run, part, scope_kind, scope_key) -> list[Rule]:
             ))
             continue
         if s.p05 is None or s.p95 is None:
+            continue
+        # Un rango degenerado (p05 == p95) es un valor constante, no un rango de
+        # plausibilidad: nada cae "fuera" y la regla no marca nunca. Suele ser un
+        # campo de config numérico que el denylist no cubrió.
+        if s.p05 == s.p95:
             continue
         reglas.append(Rule(
             tenant_id=run.tenant_id, scope_kind=scope_kind, scope_key=scope_key,

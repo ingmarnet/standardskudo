@@ -176,3 +176,64 @@ def test_reproducible_dos_inferencias_dan_lo_mismo(db_session):
     db_session.flush()
     r2 = firma(inferir(db_session, run.id))
     assert r1 == r2
+
+
+def test_no_infiere_obligatoriedad_de_atributo_de_sistema(db_session):
+    """tax_class_id está siempre presente por Magento: no es señal de calidad."""
+    t = _tenant(db_session)
+    run, part = _run_con_particion(db_session, t)
+    _cobertura(db_session, part, "tax_class_id", presente=150, vacio=50)  # 0.75, marcaría 50
+    _cobertura(db_session, part, "color", presente=150, vacio=50)  # atributo real, igual gap
+    reglas = inferir(db_session, run.id)
+    attrs = {r.definition.get("attribute") for r in reglas}
+    assert "tax_class_id" not in attrs, "un atributo de sistema no se infiere"
+    assert "color" in attrs, "un atributo de calidad con el mismo gap sí se infiere"
+
+
+def test_no_infiere_de_prefijo_de_sistema(db_session):
+    t = _tenant(db_session)
+    run, part = _run_con_particion(db_session, t)
+    _cobertura(db_session, part, "ts_dimensions_height", presente=150, vacio=50)
+    _cobertura(db_session, part, "aw_arp_override_native", presente=150, vacio=50)
+    reglas = inferir(db_session, run.id)
+    attrs = {r.definition.get("attribute") for r in reglas}
+    assert "ts_dimensions_height" not in attrs
+    assert "aw_arp_override_native" not in attrs
+
+
+def test_no_infiere_obligatoriedad_que_no_marca_a_nadie(db_session):
+    """Cobertura 100% (vacio=0): la regla no marcaría a nadie, es inútil."""
+    t = _tenant(db_session)
+    run, part = _run_con_particion(db_session, t)
+    _cobertura(db_session, part, "marca", presente=200, vacio=0)  # 1.0, marcaría 0
+    reglas = inferir(db_session, run.id)
+    assert not any(r.definition.get("attribute") == "marca" for r in reglas)
+
+
+def test_no_infiere_rango_degenerado_ni_de_sistema(db_session):
+    t = _tenant(db_session)
+    run, part = _run_con_particion(db_session, t)
+    # rango degenerado: p05 == p95 (un valor constante, no un rango)
+    db_session.add(ValueStats(
+        partition_id=part.id, attribute_code="descuento", kind="numerico",
+        n_present=200, n_ambiguous=0, minimum=0.0, p05=2.0, p50=2.0, p95=2.0,
+        maximum=2.0, distinct_values=1, mode_share=1.0, top_values=[],
+    ))
+    # atributo de sistema numérico
+    db_session.add(ValueStats(
+        partition_id=part.id, attribute_code="tax_class_id", kind="numerico",
+        n_present=200, n_ambiguous=0, minimum=2.0, p05=2.0, p50=2.0, p95=2.0,
+        maximum=2.0, distinct_values=1, mode_share=1.0, top_values=[],
+    ))
+    # atributo real con rango legítimo
+    db_session.add(ValueStats(
+        partition_id=part.id, attribute_code="peso", kind="numerico",
+        n_present=200, n_ambiguous=2, minimum=0.1, p05=0.5, p50=2.0, p95=8.0,
+        maximum=50.0, distinct_values=40, mode_share=0.1, top_values=[],
+    ))
+    db_session.flush()
+    reglas = inferir(db_session, run.id)
+    rangos = {r.definition.get("attribute") for r in reglas if r.kind == "rango"}
+    assert "descuento" not in rangos, "un rango degenerado no se infiere"
+    assert "tax_class_id" not in rangos, "un numérico de sistema no se infiere"
+    assert "peso" in rangos, "un rango legítimo sí se infiere"
