@@ -270,11 +270,29 @@ def build_parser() -> argparse.ArgumentParser:
         stores=True,
     )
 
+    trend = tenant_command(
+        "trend",
+        "muestra la tendencia del catálogo: historial de salud y comparación "
+        "con la corrida anterior",
+        stores=True,
+    )
+    trend.add_argument(
+        "--limit", type=int, default=30,
+        help="cuántas mediciones mostrar en el historial (por defecto 30)",
+    )
+
     tenant_command("status", "estado del espejo, del watermark y de la pasada en curso")
     tenant_command(
         "accept", "verifica los criterios de aceptación de S0 contra el espejo",
         stores=True,
     )
+
+    serve = sub.add_parser(
+        "serve",
+        help="arranca el servidor web de la API y el panel",
+    )
+    serve.add_argument("--host", default="0.0.0.0", help="interfaz (por defecto todas)")
+    serve.add_argument("--port", type=int, default=8000, help="puerto (por defecto 8000)")
 
     return parser
 
@@ -548,6 +566,12 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
         )
         return EXIT_CONFIGURATION
 
+    if args.command == "serve":
+        import uvicorn
+        print(f"Skudo API → http://{args.host}:{args.port}/docs")
+        uvicorn.run("skudo.web.app:app", host=args.host, port=args.port, reload=False)
+        return EXIT_OK
+
     engine = create_engine(settings.database_url)
     try:
         with Session(engine) as session:
@@ -619,6 +643,22 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
                     run = detect_store_view(session, tenant.id, store_id)
                     salida[str(store_id)] = findings_report(session, run)
                 session.commit()
+                _report(salida)
+                return EXIT_OK
+
+            if args.command == "trend":
+                from skudo.score.run import tendencia
+                from skudo.score.trend import comparar_ultima
+
+                salida = {}
+                for store_id in _resolve_stores(session, tenant, args.stores):
+                    datos = {
+                        "historial": tendencia(session, tenant.id, store_id, args.limit),
+                    }
+                    comp = comparar_ultima(session, tenant.id, store_id)
+                    if comp is not None:
+                        datos["comparacion"] = comp.resumen()
+                    salida[str(store_id)] = datos
                 _report(salida)
                 return EXIT_OK
 

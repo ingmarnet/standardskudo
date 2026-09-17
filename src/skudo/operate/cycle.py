@@ -31,6 +31,7 @@ from skudo.ingest.source import TenantSource
 from skudo.mirror.models import ProductRecord, Tenant
 from skudo.report.html import render as render_report
 from skudo.score.run import score_run
+from skudo.score.trend import comparar_ultima
 
 
 @dataclass
@@ -142,6 +143,13 @@ def ciclo_de_un_tenant(
                 informes.append(str(destino))
         resultado.pasos["hallazgos"] = hallazgos
         resultado.pasos["salud"] = notas
+        tendencias = {}
+        for store in stores:
+            comp = comparar_ultima(session, tenant.id, store)
+            if comp is not None:
+                tendencias[str(store)] = comp.resumen()
+        if tendencias:
+            resultado.pasos["tendencia"] = tendencias
         if informes:
             resultado.pasos["informes"] = informes
 
