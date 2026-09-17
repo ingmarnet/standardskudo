@@ -270,6 +270,17 @@ def build_parser() -> argparse.ArgumentParser:
         stores=True,
     )
 
+    ev = sub.add_parser(
+        "evaluate",
+        help="corre detectores + motor de reglas contra un snapshot y puntúa (S1c)",
+    )
+    ev.add_argument("--tenant", required=True)
+    ev.add_argument("--store", type=int, required=True)
+    ev.add_argument(
+        "--ruleset", type=int, default=None,
+        help="versión del ruleset_snapshot; por defecto el último",
+    )
+
     tenant_command(
         "profile",
         "perfila el espejo: particiones, cobertura por los cuatro estados y "
@@ -705,6 +716,16 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
                     salida[str(store_id)] = findings_report(session, run)
                 session.commit()
                 _report(salida)
+                return EXIT_OK
+
+            if args.command == "evaluate":
+                from skudo.score.run import score_run
+
+                run = detect_store_view(session, tenant.id, args.store, args.ruleset)
+                salud = score_run(session, run)
+                session.commit()
+                print(f"pasada {run.id}: ruleset v{run.ruleset_version}, "
+                      f"salud {salud.salud} ({salud.grado})")
                 return EXIT_OK
 
             if args.command == "trend":

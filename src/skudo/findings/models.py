@@ -37,6 +37,9 @@ class FindingRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # La versión del ruleset con la que se evaluaron las reglas de esta pasada.
+    # NULL si no había snapshot (sólo corrieron los detectores especiales).
+    ruleset_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Finding(Base):
@@ -50,6 +53,13 @@ class Finding(Base):
     subject_type: Mapped[str] = mapped_column(String(16))
     subject_key: Mapped[str] = mapped_column(String(255))
     evidence: Mapped[dict] = mapped_column(JSON)
+    # De qué regla salió el hallazgo. NULL para los detectores especiales, que
+    # no nacen de una regla. Es lo que deja al panel decir "esto lo produjo esta
+    # regla".
+    rule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("rule.id"), nullable=True, index=True
+    )
+    ruleset_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class DetectorCoverage(Base):

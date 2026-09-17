@@ -343,6 +343,31 @@ body {
   flex-shrink: 0;
 }
 
+/* --- Rules tile (dashboard) --- */
+.rules-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.rules-tile:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(37,99,235,.1); }
+.rules-tile .rules-tile-icon { display: flex; color: var(--accent); flex-shrink: 0; }
+.rules-tile .rules-tile-icon svg { width: 20px; height: 20px; }
+.rules-tile .rules-tile-text { font-size: 13px; color: var(--ink-secondary); }
+.rules-tile .rules-tile-text strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+.rules-tile .rules-tile-arrow { margin-left: auto; color: var(--ink-secondary); }
+
 /* --- Two-column grid --- */
 .grid-2 {
   display: grid;
@@ -459,6 +484,21 @@ body {
   height: 100%;
   border-radius: 2px;
   transition: width .3s;
+}
+
+/* --- Origin / status badges (reuse .severity-badge sizing) --- */
+.origin-inferida { background: var(--accent-light); color: var(--accent); }
+.origin-piso_externo { background: var(--surface); color: var(--ink-secondary); border: 1px solid var(--border); }
+.origin-curada { background: var(--positive-light); color: var(--positive); }
+.rule-status-aceptada { background: var(--positive-light); color: var(--positive); }
+.rule-status-aviso { background: var(--warning-light); color: var(--warning); }
+.rule-status-borrador { background: var(--surface); color: var(--ink-secondary); border: 1px solid var(--border); }
+.origen-detector { background: var(--surface); color: var(--ink-secondary); border: 1px solid var(--border); }
+.origen-regla { background: var(--accent-light); color: var(--accent); }
+.rule-draft-note {
+  font-size: 11px;
+  color: var(--ink-secondary);
+  margin-top: 4px;
 }
 
 /* --- Products table --- */
@@ -594,6 +634,10 @@ body {
       <a data-view="findings" id="nav-findings" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
         Hallazgos
+      </a>
+      <a data-view="rules" id="nav-rules" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        Reglas
       </a>
       <a data-view="products" id="nav-products" hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
@@ -757,6 +801,7 @@ function selectTenant(t) {
   state.store = t.store_views?.[0] || null;
   document.getElementById('nav-dashboard').hidden = false;
   document.getElementById('nav-findings').hidden = false;
+  document.getElementById('nav-rules').hidden = false;
   document.getElementById('nav-products').hidden = false;
   navigate('dashboard');
 }
@@ -813,6 +858,25 @@ async function renderDashboard() {
       renderDistribution(sv.distribucion, sv.productos),
     );
     main.append(heroStrip);
+
+    // Reglas activas tile (best-effort: si /rules falla, el dashboard no se cae)
+    try {
+      const rules = await API.get(`/api/tenants/${state.tenant.code}/rules?store=${state.store}`);
+      const counts = { aceptada: 0, aviso: 0, borrador: 0 };
+      for (const r of (rules || [])) counts[r.status] = (counts[r.status] || 0) + 1;
+      const activas = counts.aceptada + counts.aviso;
+      const icon = el('span', { class: 'rules-tile-icon' });
+      icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 5-3.5 8-7 9-3.5-1-7-4-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>';
+      main.append(el('div', { class: 'rules-tile', onclick: () => navigate('rules') },
+        icon,
+        el('span', { class: 'rules-tile-text' },
+          el('strong', null, `${activas} activas`),
+          ` · ${counts.aceptada} aceptadas · ${counts.aviso} aviso`,
+          counts.borrador ? ` · ${counts.borrador} borrador` : '',
+        ),
+        el('span', { class: 'rules-tile-arrow' }, '→'),
+      ));
+    } catch { /* sin reglas o endpoint no disponible: tile omitido */ }
 
     // Two-column grid
     const grid = el('div', { class: 'grid-2' });
@@ -1003,7 +1067,11 @@ async function renderFindings() {
   );
 
   try {
-    const data = await API.get(`/api/tenants/${state.tenant.code}/findings?store=${state.store}`);
+    const [data, rules] = await Promise.all([
+      API.get(`/api/tenants/${state.tenant.code}/findings?store=${state.store}`),
+      API.get(`/api/tenants/${state.tenant.code}/rules?store=${state.store}`).catch(() => []),
+    ]);
+    const ruleConfidence = new Map((rules || []).map(r => [r.id, r.confidence]));
     const loading = main.querySelector('.loading');
     if (loading) loading.remove();
 
@@ -1018,6 +1086,7 @@ async function renderFindings() {
     const table = el('table', { class: 'findings-table' });
     table.append(el('thead', null, el('tr', null,
       el('th', null, 'Hallazgo'),
+      el('th', null, 'Origen'),
       el('th', null, 'Severidad'),
       el('th', null, 'Afectados'),
       el('th', null, 'Evaluados'),
@@ -1038,8 +1107,16 @@ async function renderFindings() {
       const impactPct = maxImpact ? (impact / maxImpact * 100) : 0;
       const impactColor = h.severidad === 'alta' ? 'var(--critical)' : h.severidad === 'media' ? 'var(--warning)' : 'var(--accent)';
 
+      const origenBadge = el('span', { class: `severity-badge origen-${h.origen === 'regla' ? 'regla' : 'detector'}` }, h.origen === 'regla' ? 'regla' : 'detector');
+      const conf = h.origen === 'regla' && h.rule_id != null ? ruleConfidence.get(h.rule_id) : null;
+      const origenCell = el('td', null,
+        origenBadge,
+        conf != null ? el('div', { class: 'rule-draft-note' }, `confianza regla: ${Math.round(conf * 100)}%`) : null,
+      );
+
       tbody.append(el('tr', null,
         el('td', { style: { fontWeight: '500' } }, LABELS[h.code] || h.code),
+        origenCell,
         el('td', null, el('span', { class: `severity-badge ${sevClass(h.severidad)}` }, h.severidad)),
         el('td', null, String(h.hallazgos)),
         el('td', null, h.evaluados != null ? String(h.evaluados) : '—'),
@@ -1067,6 +1144,81 @@ async function renderFindings() {
       }
       main.append(excCard);
     }
+  } catch (e) {
+    main.innerHTML = '';
+    main.append(el('div', { class: 'empty-state' }, el('p', null, `Error: ${e.message}`)));
+  }
+}
+
+async function renderRules() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '';
+  if (!state.tenant || state.store == null) {
+    main.append(el('div', { class: 'empty-state' }, el('p', null, 'Selecciona un tenant primero.')));
+    return;
+  }
+
+  main.append(
+    el('div', { class: 'main-header' }, el('h1', null, `Reglas · ${state.tenant.name || state.tenant.code}`)),
+    renderLoading()
+  );
+
+  try {
+    const rules = await API.get(`/api/tenants/${state.tenant.code}/rules?store=${state.store}`);
+    const loading = main.querySelector('.loading');
+    if (loading) loading.remove();
+
+    if (!rules?.length) {
+      main.append(el('div', { class: 'empty-state' }, el('p', null, 'No hay reglas activas para esta store view.')));
+      return;
+    }
+
+    // Sin severidad propia por regla: se ordena por impacto observado
+    // (productos marcados en la última pasada), de mayor a menor.
+    const sorted = [...rules].sort((a, b) => (b.productos_marcados || 0) - (a.productos_marcados || 0));
+
+    const card = el('div', { class: 'card' });
+    const table = el('table', { class: 'findings-table' });
+    table.append(el('thead', null, el('tr', null,
+      el('th', null, 'Atributo'),
+      el('th', null, 'Kind'),
+      el('th', null, 'Scope'),
+      el('th', null, 'Origen'),
+      el('th', null, 'Confianza'),
+      el('th', null, 'Evidencia'),
+      el('th', null, 'Marcados'),
+      el('th', null, 'Estado'),
+    )));
+
+    const tbody = el('tbody');
+    for (const r of sorted) {
+      const isDraft = r.status === 'borrador';
+      const pct = Math.round((r.confidence || 0) * 100);
+
+      const estadoCell = el('td', null,
+        el('span', { class: `severity-badge rule-status-${r.status}` }, r.status),
+        isDraft ? el('div', { class: 'rule-draft-note' }, 'disponible para curar (S1d)') : null,
+      );
+
+      tbody.append(el('tr', isDraft ? { style: { opacity: '.6' } } : null,
+        el('td', { style: { fontWeight: '500' } }, r.attribute || '—'),
+        el('td', null, r.kind || '—'),
+        el('td', { style: { color: 'var(--ink-secondary)', fontSize: '12px' } }, r.scope ? r.scope.replace(':', ' · ') : '—'),
+        el('td', null, el('span', { class: `severity-badge origin-${r.origin}` }, (r.origin || '—').replace('_', ' '))),
+        el('td', null,
+          el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+            el('div', { class: 'impact-bar' }, el('div', { class: 'impact-bar-fill', style: { width: `${pct}%`, background: 'var(--accent)' } })),
+            el('span', { style: { fontSize: '12px', color: 'var(--ink-secondary)' } }, `${pct}%`),
+          ),
+        ),
+        el('td', null, r.evidence_count != null ? String(r.evidence_count) : '—'),
+        el('td', null, String(r.productos_marcados || 0)),
+        estadoCell,
+      ));
+    }
+    table.append(tbody);
+    card.append(table);
+    main.append(card);
   } catch (e) {
     main.innerHTML = '';
     main.append(el('div', { class: 'empty-state' }, el('p', null, `Error: ${e.message}`)));
@@ -1170,6 +1322,7 @@ function navigate(view) {
     case 'tenants': renderTenants(); break;
     case 'dashboard': renderDashboard(); break;
     case 'findings': renderFindings(); break;
+    case 'rules': renderRules(); break;
     case 'products': renderProducts(); break;
   }
 }

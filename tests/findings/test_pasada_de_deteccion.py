@@ -1,8 +1,9 @@
 from skudo_testing import escribir, preparar
 from sqlalchemy import select
 
-from skudo.findings.models import DetectorCoverage, Finding
+from skudo.findings.models import DetectorCoverage, Finding, FindingRun
 from skudo.findings.run import detect_store_view, findings_report
+from skudo.rules.models import Rule
 
 
 def sembrar(session, tenant):
@@ -84,3 +85,74 @@ def test_una_variante_no_navegable_no_genera_hallazgo_de_imagen(db_session):
         )
     }
     assert sin_img == {"pub-sin-foto"}
+
+
+def _regla(session, tenant, scope_key, attribute="color", **kw):
+    r = Rule(
+        tenant_id=tenant.id, scope_kind="attribute_set", scope_key=scope_key,
+        store_view_magento_id=1, axis=3, kind="obligatoriedad",
+        definition={"attribute": attribute}, confidence=0.9, evidence_count=10,
+        exceptions=[], status="aceptada", origin="inferida",
+    )
+    for k, v in kw.items():
+        setattr(r, k, v)
+    session.add(r)
+    session.flush()
+    return r
+
+
+def test_el_informe_deja_rule_id_ambiguo_si_dos_reglas_comparten_codigo(db_session):
+    """`regla:obligatoriedad:color` en el attribute_set 4 y en el 9 son DOS
+    reglas distintas que comparten kind+attribute (y por lo tanto código): el
+    conteo agregado las suma, pero `rule_id` no puede atribuirse a una sola
+    sin mentir, así que la fila debe quedar con `rule_id = None`."""
+    tenant = preparar(db_session)
+    r1 = _regla(db_session, tenant, "4")
+    r2 = _regla(db_session, tenant, "9")
+    run = FindingRun(
+        tenant_id=tenant.id, store_view_magento_id=1, mirror_sync_generation=1,
+        product_count=4,
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.add_all([
+        Finding(run_id=run.id, code="regla:obligatoriedad:color", axis=3,
+                severity="media", subject_type="producto", subject_key="A",
+                evidence={}, rule_id=r1.id, ruleset_version=1),
+        Finding(run_id=run.id, code="regla:obligatoriedad:color", axis=3,
+                severity="media", subject_type="producto", subject_key="B",
+                evidence={}, rule_id=r2.id, ruleset_version=1),
+    ])
+    db_session.flush()
+
+    informe = findings_report(db_session, run)
+    fila = next(
+        h for h in informe["por_deteccion"] if h["code"] == "regla:obligatoriedad:color"
+    )
+    assert fila["hallazgos"] == 2
+    assert fila["origen"] == "regla"
+    assert fila["rule_id"] is None
+
+
+def test_el_informe_atribuye_rule_id_cuando_una_sola_regla_produce_el_codigo(db_session):
+    tenant = preparar(db_session)
+    r = _regla(db_session, tenant, "4", attribute="talle")
+    run = FindingRun(
+        tenant_id=tenant.id, store_view_magento_id=1, mirror_sync_generation=1,
+        product_count=2,
+    )
+    db_session.add(run)
+    db_session.flush()
+    db_session.add(
+        Finding(run_id=run.id, code="regla:obligatoriedad:talle", axis=3,
+                severity="media", subject_type="producto", subject_key="C",
+                evidence={}, rule_id=r.id, ruleset_version=1)
+    )
+    db_session.flush()
+
+    informe = findings_report(db_session, run)
+    fila = next(
+        h for h in informe["por_deteccion"] if h["code"] == "regla:obligatoriedad:talle"
+    )
+    assert fila["origen"] == "regla"
+    assert fila["rule_id"] == r.id

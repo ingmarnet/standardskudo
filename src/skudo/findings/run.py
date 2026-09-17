@@ -5,9 +5,12 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from skudo.findings.catalog import Ficha, evaluar
+from skudo.findings.catalog import CANDIDATO, MEDIA, Ficha, Resultado, evaluar
 from skudo.findings.models import DetectorCoverage, Finding, FindingRun
+from skudo.findings.rules_eval import ReglaEvaluable, evaluar_regla
 from skudo.mirror.models import ProductCategoryAssignment, ProductRecord
+from skudo.profile.states import sets_by_code
+from skudo.rules.models import Rule, RulesetSnapshot
 
 
 def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> list[Ficha]:
@@ -44,10 +47,116 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
     ]
 
 
+def _escribir_resultado(
+    session: Session,
+    run: FindingRun,
+    resultado: Resultado,
+    rule_id: int | None,
+    version: int | None,
+) -> None:
+    """Escribe la cobertura y los hallazgos de UN resultado (detector o regla).
+
+    `rule_id`/`version` son None para un detector especial; para una regla,
+    su id y la versión del snapshot con que corrió la pasada. Es el único
+    lugar que escribe `DetectorCoverage`/`Finding`: detectores y reglas pasan
+    por acá para que la atribución no se escriba dos veces distinto.
+    """
+    c = resultado.cobertura
+    session.add(
+        DetectorCoverage(
+            run_id=run.id,
+            detector=c.detector,
+            evaluados=c.evaluados,
+            no_aplica=c.no_aplica,
+            no_evaluado=c.no_evaluado,
+            motivo_no_aplica=c.motivo_no_aplica[:512],
+        )
+    )
+    for h in resultado.hallazgos:
+        session.add(
+            Finding(
+                run_id=run.id,
+                code=h.code,
+                axis=h.axis,
+                severity=h.severity,
+                subject_type=h.subject_type,
+                subject_key=h.subject_key[:255],
+                evidence=h.evidence,
+                rule_id=rule_id,
+                ruleset_version=version,
+            )
+        )
+
+
+def _severidad_base(r: Rule) -> str:
+    """La severidad con que puntúa una regla ACEPTADA, según su kind."""
+    if r.kind == "obligatoriedad":
+        return r.definition.get("severidad", MEDIA)
+    return CANDIDATO  # rango, formato
+
+
+def _reglas_del_snapshot(
+    session: Session,
+    tenant_id: int,
+    store_view_magento_id: int,
+    ruleset_version: int | None = None,
+) -> tuple[list[ReglaEvaluable], int | None]:
+    """Las reglas activas del snapshot pedido (o el último) como ReglaEvaluable.
+
+    Sin snapshot, no hay reglas: el motor no aporta y la pasada lo declara con
+    ruleset_version = None. Los detectores especiales corren igual.
+    """
+    q = select(RulesetSnapshot).where(
+        RulesetSnapshot.tenant_id == tenant_id,
+        RulesetSnapshot.store_view_magento_id == store_view_magento_id,
+    )
+    if ruleset_version is not None:
+        q = q.where(RulesetSnapshot.version == ruleset_version)
+    snap = session.scalars(q.order_by(RulesetSnapshot.version.desc()).limit(1)).first()
+    if snap is None:
+        return [], None
+    filas = session.scalars(
+        select(Rule).where(Rule.id.in_(snap.rule_ids)).order_by(Rule.id)
+    ).all()
+    reglas = [
+        ReglaEvaluable(
+            id=r.id, kind=r.kind, axis=r.axis,
+            # una regla en `aviso` no penaliza: su severidad efectiva es 'aviso'
+            severity=("aviso" if r.status == "aviso" else _severidad_base(r)),
+            scope_kind=r.scope_kind, scope_key=r.scope_key,
+            store_view=r.store_view_magento_id, definition=r.definition,
+        )
+        for r in filas
+        if r.kind in ("obligatoriedad", "rango", "formato")
+        and "attribute" in (r.definition or {})
+        # el snapshot congela IDs, no estado: una regla que ERA aceptada al
+        # snapshotear y después pasó a rechazada/borrador no debe penalizar
+        # sólo porque un `evaluate --ruleset <version vieja>` la trae de vuelta.
+        # El estado que manda es el VIVO, no el de cuando se armó el snapshot.
+        and r.status in ("aceptada", "aviso")
+    ]
+    return reglas, snap.version
+
+
+def _skus_por_categoria(session: Session, tenant_id: int) -> dict[int, set[str]]:
+    """SKUs asignados a cada categoría, para acotar las reglas con scope `category`."""
+    por_categoria: dict[int, set[str]] = {}
+    for sku, cat in session.execute(
+        select(
+            ProductCategoryAssignment.sku, ProductCategoryAssignment.category_magento_id
+        ).where(ProductCategoryAssignment.tenant_id == tenant_id)
+    ).all():
+        por_categoria.setdefault(cat, set()).add(sku)
+    return por_categoria
+
+
 def detect_store_view(
-    session: Session, tenant_id: int, store_view_magento_id: int
+    session: Session,
+    tenant_id: int,
+    store_view_magento_id: int,
+    ruleset_version: int | None = None,
 ) -> FindingRun:
-    """Corre todos los detectores y deja la pasada escrita."""
+    """Corre todos los detectores y el motor de reglas, y deja la pasada escrita."""
     generacion = session.scalar(
         select(func.coalesce(func.max(ProductRecord.sync_generation), 0)).where(
             ProductRecord.tenant_id == tenant_id,
@@ -55,39 +164,38 @@ def detect_store_view(
         )
     )
     fichas = fichas_de(session, tenant_id, store_view_magento_id)
+    reglas, version = _reglas_del_snapshot(
+        session, tenant_id, store_view_magento_id, ruleset_version
+    )
     run = FindingRun(
         tenant_id=tenant_id,
         store_view_magento_id=store_view_magento_id,
         mirror_sync_generation=generacion or 0,
         product_count=len(fichas),
+        ruleset_version=version,
     )
     session.add(run)
     session.flush()
 
+    # 1) detectores especiales
     for resultado in evaluar(fichas):
-        c = resultado.cobertura
-        session.add(
-            DetectorCoverage(
-                run_id=run.id,
-                detector=c.detector,
-                evaluados=c.evaluados,
-                no_aplica=c.no_aplica,
-                no_evaluado=c.no_evaluado,
-                motivo_no_aplica=c.motivo_no_aplica[:512],
-            )
-        )
-        for h in resultado.hallazgos:
-            session.add(
-                Finding(
-                    run_id=run.id,
-                    code=h.code,
-                    axis=h.axis,
-                    severity=h.severity,
-                    subject_type=h.subject_type,
-                    subject_key=h.subject_key[:255],
-                    evidence=h.evidence,
-                )
-            )
+        _escribir_resultado(session, run, resultado, rule_id=None, version=None)
+
+    # 2) motor de reglas, sobre el snapshot resuelto arriba
+    por_categoria = (
+        _skus_por_categoria(session, tenant_id)
+        if any(r.scope_kind == "category" for r in reglas)
+        else {}
+    )
+    sets = sets_by_code(session, tenant_id)
+    for regla in reglas:
+        fichas_regla = fichas
+        if regla.scope_kind == "category":
+            skus = por_categoria.get(int(regla.scope_key), set())
+            fichas_regla = [f for f in fichas if f.sku in skus]
+        resultado = evaluar_regla(regla, fichas_regla, sets)
+        _escribir_resultado(session, run, resultado, rule_id=regla.id, version=version)
+
     run.finished_at = datetime.now(UTC)
     session.flush()
     return run
@@ -119,21 +227,40 @@ def findings_report(session: Session, run: FindingRun) -> dict:
         "nombre_repetido": "nombres_repetidos",
     }
 
+    # Un código `regla:*` (kind + attribute) puede venir de MÁS DE UNA regla
+    # si dos reglas comparten kind+attribute con distinto scope (ej.
+    # `obligatoriedad:color` en el attribute_set 4 y en el 9: ambas producen
+    # el mismo código, el conteo agrupado de arriba las suma). `rule_id` sólo
+    # puede atribuirse a una regla sin ambigüedad, así que se arma el
+    # conjunto de rule_ids distintos por código y, si hay más de uno, la fila
+    # queda con `rule_id = None` en vez de mentir con cualquiera de los dos.
+    reglas_por_codigo: dict[str, set[int]] = {}
+    for code, rule_id in session.execute(
+        select(Finding.code, Finding.rule_id)
+        .where(Finding.run_id == run.id, Finding.rule_id.is_not(None))
+        .distinct()
+    ).all():
+        reglas_por_codigo.setdefault(code, set()).add(rule_id)
+
     hallazgos = []
     for code, severity, axis, n in por_codigo:
         c = coberturas.get(de_detector.get(code, code))
-        hallazgos.append(
-            {
-                "code": code,
-                "eje": axis,
-                "severidad": severity,
-                "hallazgos": n,
-                "evaluados": c.evaluados if c else None,
-                "porcentaje": round(100 * n / c.evaluados, 1) if c and c.evaluados else None,
-                "no_aplica": c.no_aplica if c else None,
-                "no_evaluado": c.no_evaluado if c else None,
-            }
-        )
+        origen = "regla" if code.startswith("regla:") else "detector"
+        fila = {
+            "code": code,
+            "eje": axis,
+            "severidad": severity,
+            "hallazgos": n,
+            "evaluados": c.evaluados if c else None,
+            "porcentaje": round(100 * n / c.evaluados, 1) if c and c.evaluados else None,
+            "no_aplica": c.no_aplica if c else None,
+            "no_evaluado": c.no_evaluado if c else None,
+            "origen": origen,
+        }
+        if origen == "regla":
+            distintos = reglas_por_codigo.get(code, set())
+            fila["rule_id"] = next(iter(distintos)) if len(distintos) == 1 else None
+        hallazgos.append(fila)
 
     return {
         "run_id": run.id,

@@ -67,6 +67,10 @@ class HallazgoDeProducto:
     code: str
     severity: str
     axis: int
+    # La causa raíz. Cuando dos hallazgos la comparten —un detector y una regla
+    # sobre el mismo atributo— son UNA causa y pesan una vez (spec §6.4: sin
+    # doble penalización). None → la causa es el propio code.
+    causa: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,17 +90,36 @@ def nota_de_producto(sku: str, hallazgos: list[HallazgoDeProducto]) -> NotaDePro
     Un mismo código no descuenta dos veces aunque llegue repetido —puede venir
     del detector por producto y del de grupo—: se penaliza la causa, no sus
     manifestaciones, que es lo que el spec llama deduplicación por causa raíz.
+
+    La causa raíz es `h.causa`, o el propio `code` cuando no hay causa (los
+    hallazgos sin evidencia de atributo, que dedupan como siempre). Cuando dos
+    hallazgos comparten causa —un detector y una regla sobre el mismo
+    atributo, spec §6.4— se conserva el de mayor peso de severidad; ante
+    empate de peso, el primero que llegó.
+
+    El flag `critico` se calcula sobre los hallazgos ORIGINALES, no sobre los
+    deduplicados: es la pregunta «¿este producto tiene algún hallazgo de
+    código crítico?», independiente de qué hallazgo gane el dedup por causa.
+    Si se calculara post-dedup, un empate de severidad entre `sin_imagen` y
+    una regla de la misma causa podría hacer ganar a la regla y perder la
+    marca de no-publicable — exactamente lo que este cálculo evita.
     """
     vistos: dict[str, HallazgoDeProducto] = {}
     for h in hallazgos:
-        vistos.setdefault(h.code, h)
+        clave = h.causa or h.code
+        actual = vistos.get(clave)
+        if actual is None or PESO_POR_SEVERIDAD.get(h.severity, 0) > PESO_POR_SEVERIDAD.get(
+            actual.severity, 0
+        ):
+            vistos[clave] = h
 
     deducciones = []
     total = 0
-    for code, h in sorted(vistos.items()):
+    for clave in sorted(vistos):
+        h = vistos[clave]
         peso = PESO_POR_SEVERIDAD.get(h.severity, 0)
         if peso:
-            deducciones.append({"code": code, "severidad": h.severity, "resta": peso})
+            deducciones.append({"code": h.code, "severidad": h.severity, "resta": peso})
             total += peso
 
     puntaje = max(0, 100 - total)
@@ -104,7 +127,7 @@ def nota_de_producto(sku: str, hallazgos: list[HallazgoDeProducto]) -> NotaDePro
         sku=sku,
         puntaje=puntaje,
         grado=grado(puntaje),
-        critico=any(c in CODIGOS_CRITICOS for c in vistos),
+        critico=any(h.code in CODIGOS_CRITICOS for h in hallazgos),
         deducciones=deducciones,
     )
 
