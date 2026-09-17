@@ -731,6 +731,10 @@ function el(tag, attrs, ...children) {
 }
 
 function gradeClass(g) { return `grade-${g}`; }
+function gradoTitle(g) {
+  const i = (typeof GRADOS !== 'undefined') && GRADOS[g];
+  return i ? `Grado ${g}: ${i.label} (nota ${i.rango} de 100)` : `Grado ${g}`;
+}
 function sevClass(s) { return `sev-${s}`; }
 
 function deltaArrow(d) {
@@ -784,7 +788,7 @@ async function renderTenants() {
             ? el('span', { class: 'th-num' }, String(t.ultima_salud))
             : el('span', { class: 'th-num', style: { color: 'var(--ink-secondary)', fontSize: '1rem' } }, 'Sin datos'),
           t.ultimo_grado
-            ? el('span', { class: `grade ${gradeClass(t.ultimo_grado)}`, style: { padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--font-display)', fontWeight: '700', fontSize: '.875rem' } }, t.ultimo_grado)
+            ? el('span', { class: `grade ${gradeClass(t.ultimo_grado)}`, title: gradoTitle(t.ultimo_grado), style: { padding: '2px 8px', borderRadius: '4px', fontFamily: 'var(--font-display)', fontWeight: '700', fontSize: '.875rem' } }, t.ultimo_grado)
             : null,
           t.criticos
             ? el('span', { style: { color: 'var(--critical)', fontSize: '12px', fontWeight: '500' } }, `${t.criticos} no publicables`)
@@ -850,7 +854,7 @@ async function renderDashboard() {
     const heroStrip = el('div', { class: 'hero-strip' },
       el('div', { class: 'health-score' },
         el('span', { class: 'number' }, String(sv.salud)),
-        el('span', { class: `grade ${gradeClass(sv.grado)}` }, sv.grado),
+        el('span', { class: `grade ${gradeClass(sv.grado)}`, title: gradoTitle(sv.grado) }, sv.grado),
       ),
       el('div', { class: 'health-meta' },
         delta != null
@@ -928,6 +932,16 @@ function compItem(label, value, cls) {
   );
 }
 
+// Qué significa cada grado y sobre qué rango de la nota PHS (0–100) se asigna.
+// Los cortes son los de score/scoring.py: A>=95, B>=80, C>=60, D>=40, E<40.
+const GRADOS = {
+  A: { label: 'Excelente', rango: '95–100' },
+  B: { label: 'Bueno',     rango: '80–94'  },
+  C: { label: 'Aceptable', rango: '60–79'  },
+  D: { label: 'Deficiente', rango: '40–59' },
+  E: { label: 'Crítico',   rango: '0–39'   },
+};
+
 function renderDistribution(dist, total) {
   if (!dist || !total) return el('div');
   const wrap = el('div');
@@ -938,9 +952,11 @@ function renderDistribution(dist, total) {
     const n = dist[g] || 0;
     if (n === 0) continue;
     const pct = (n / total * 100);
-    const seg = el('div', { class: colors[g], style: { flex: String(n) }, title: `${g}: ${n} (${pct.toFixed(1)}%)` },
-      pct >= 8 ? `${g} ${n}` : (pct >= 4 ? g : '')
-    );
+    const info = GRADOS[g];
+    const seg = el('div', {
+      class: colors[g], style: { flex: String(n) },
+      title: `${g} · ${info.label} (nota ${info.rango}): ${n} productos (${pct.toFixed(1)}%)`,
+    }, pct >= 8 ? `${g} ${n}` : (pct >= 4 ? g : ''));
     bar.append(seg);
   }
   wrap.append(bar);
@@ -949,13 +965,21 @@ function renderDistribution(dist, total) {
   for (const g of grades) {
     const n = dist[g] || 0;
     if (n === 0) continue;
+    const info = GRADOS[g];
     const dotColors = { A: 'var(--positive)', B: 'var(--accent)', C: 'var(--warning)', D: '#b45309', E: 'var(--critical)' };
-    legend.append(el('span', null,
+    legend.append(el('span', { title: `Grado ${g}: ${info.label}, nota ${info.rango} de 100` },
       el('span', { class: 'dot', style: { background: dotColors[g] } }),
-      `${g}: ${n}`
+      el('strong', { style: { fontWeight: '700' } }, g),
+      ` · ${info.label} `,
+      el('span', { style: { color: 'var(--ink-secondary)' } }, `(${info.rango})`),
+      `: ${n}`
     ));
   }
   wrap.append(legend);
+  wrap.append(el('div', {
+    style: { fontSize: '11px', color: 'var(--ink-secondary)', marginTop: '8px', lineHeight: '1.5' },
+  }, 'El grado resume la calidad de registro de cada producto según su nota (0–100): A excelente, E crítico. '
+   + 'La nota baja por cada carencia (sin imagen −25, sin descripción −10, etc.). Los avisos no restan.'));
   return wrap;
 }
 
@@ -1294,7 +1318,7 @@ async function renderProducts() {
       tbody.append(el('tr', null,
         el('td', { style: { fontWeight: '500', fontFamily: 'var(--font-body)', fontSize: '13px' } }, p.sku),
         el('td', { style: { fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-display)', fontWeight: '700' } }, String(p.puntaje)),
-        el('td', null, el('span', { class: `severity-badge ${gradeClass(p.grado)}`, style: { fontFamily: 'var(--font-display)' } }, p.grado)),
+        el('td', null, el('span', { class: `severity-badge ${gradeClass(p.grado)}`, title: gradoTitle(p.grado), style: { fontFamily: 'var(--font-display)' } }, p.grado)),
         el('td', null, p.critico ? el('span', { style: { color: 'var(--critical)', fontWeight: '500' } }, 'Sí') : '—'),
         el('td', { style: { fontSize: '12px', color: 'var(--ink-secondary)' } },
           (p.deducciones || []).map(d => `${LABELS[d.code] || d.code} (−${d.resta})`).join(', ') || '—'
