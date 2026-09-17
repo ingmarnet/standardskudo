@@ -15,3 +15,4 @@ magento-module/.phpunit.cache/
 
 # Worktrees aislados de subagent-driven-development
 .worktrees/
+.superpowers/
