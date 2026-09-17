@@ -33,14 +33,20 @@ def cargar_seed(session: Session) -> int:
 
 
 def _mapa_google_a_espejo(session, tenant_id) -> dict[str, str]:
-    """Para cada atributo de Google (canónico), el código del espejo que lo implementa."""
+    """Para cada atributo de Google (canónico), el código del espejo que lo implementa.
+
+    Un canónico puede tener más de un candidato (un sinónimo inferido
+    conviviendo con el equivalente curado): gana el de mayor confianza. La
+    consulta ya viene ordenada por confianza descendente (y attribute_code
+    para desempatar), así que el primero visto por canónico es el ganador.
+    """
     filas = session.execute(
         select(ConceptMap.canonical, ConceptMap.attribute_code)
         .where(ConceptMap.tenant_id == tenant_id)
+        .order_by(ConceptMap.confidence.desc(), ConceptMap.attribute_code)
     ).all()
-    # Preferimos el equivalente de mayor confianza; aquí basta el primero estable.
     mapa: dict[str, str] = {}
-    for canonical, code in sorted(filas):
+    for canonical, code in filas:
         mapa.setdefault(canonical, code)
     return mapa
 

@@ -94,3 +94,40 @@ def test_la_autoasignacion_canonica_es_curada_no_inferida(db_session):
     assert len(sinonimo) == 1
     assert sinonimo[0].origin == "inferida"
     assert sinonimo[0].confidence < 1.0
+
+
+def test_sembrar_puentea_size_a_talle_para_un_tenant_de_un_solo_atributo(db_session):
+    """El puente SEED_CATEGORIA es lo que permite que el piso (floor.py)
+    resuelva `size` (nombre de Google) contra `talle` (lo que el tenant
+    realmente tiene). `talle` solo, sin ninguna otra variante, no alcanza para
+    que `inferir_sinonimos` cree nada (exige al menos 2 presentes), así que
+    sin este puente `size` no mapea a nada."""
+    t = _tenant(db_session)
+    _attr(db_session, t, "talle")
+    creados = sembrar(db_session, t.id)
+    por_canonico = {c.canonical: c for c in creados}
+    assert por_canonico["size"].attribute_code == "talle"
+    assert por_canonico["size"].confidence == 1.0
+    assert por_canonico["size"].origin == "curada"
+
+
+def test_sembrar_no_puentea_un_nombre_de_google_sin_ningun_candidato(db_session):
+    t = _tenant(db_session)
+    _attr(db_session, t, "name")  # nada de color/size/gender/age_group
+    creados = sembrar(db_session, t.id)
+    canonicos = {c.canonical for c in creados}
+    assert "size" not in canonicos
+    assert "gender" not in canonicos
+    assert "age_group" not in canonicos
+    assert "color" not in canonicos
+
+
+def test_sembrar_prefiere_el_primer_candidato_presente_de_size(db_session):
+    """Con `size` y `talle` ambos presentes, gana `size` (el primer candidato
+    de la tupla), no un orden alfabético ni el último agregado."""
+    t = _tenant(db_session)
+    _attr(db_session, t, "size")
+    _attr(db_session, t, "talle")
+    creados = sembrar(db_session, t.id)
+    por_canonico = {c.canonical: c for c in creados}
+    assert por_canonico["size"].attribute_code == "size"

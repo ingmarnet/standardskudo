@@ -925,14 +925,19 @@ def _rules(session: Session, args) -> int:
         )
         if run is None:
             raise SystemExit("no hay perfil terminado para esa store view")
-        # Re-inferir: borra las reglas inferidas de ese run primero (idempotencia).
-        # `rule_version.rule_id` no tiene ON DELETE CASCADE, así que hay que
-        # borrar antes las RuleVersion de esas reglas o el DELETE de Rule
-        # revienta con una violación de llave foránea.
+        # Re-inferir: borra los BORRADORES inferidos de ese run primero
+        # (idempotencia). No toca una regla ya curada (aceptada/rechazada):
+        # borrarla descartaría la decisión de un humano y, si la aceptación
+        # quedó snapshotada en un ruleset, dejaría un id colgante en
+        # `ruleset_snapshot.rule_ids`. `rule_version.rule_id` no tiene ON
+        # DELETE CASCADE, así que hay que borrar antes las RuleVersion de esas
+        # reglas o el DELETE de Rule revienta con una violación de llave foránea.
         ids_a_borrar = list(
             session.scalars(
                 select(Rule.id).where(
-                    Rule.profile_run_id == run.id, Rule.origin == "inferida"
+                    Rule.profile_run_id == run.id,
+                    Rule.origin == "inferida",
+                    Rule.status == "borrador",
                 )
             ).all()
         )

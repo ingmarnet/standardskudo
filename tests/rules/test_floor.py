@@ -118,3 +118,81 @@ def test_indumentaria_exige_color_ademas_del_universal(db_session):
     atributos = {r.definition.get("google_attribute") for r in reglas}
     assert "color" in atributos
     assert "title" in atributos
+
+
+def test_puente_de_categoria_mapea_color_y_size_al_espejo(db_session):
+    """Regresión del hallazgo Importante: sin el puente (SEED_CATEGORIA), color
+    y size nacen sin_mapeo aunque el tenant tenga los atributos, porque el
+    piso busca por nombre de Google y el concept_map los tenía sólo bajo
+    canónicos en español (talle) o no los tenía en absoluto (age_group no
+    tenía familia). Con `sembrar` puenteando el vocabulario, un tenant real
+    (con `color` y `talle`, no `size`) debe salir con ambos requisitos
+    mapeados y aceptados."""
+    t = _tenant(db_session)
+    cargar_seed(db_session)
+    for code in ("name", "color", "talle"):
+        db_session.add(Attribute(tenant_id=t.id, code=code, label=code,
+                                 frontend_input="text", declared_scope="global",
+                                 is_filterable=False, is_required=False,
+                                 attribute_set_ids=[4]))
+    db_session.flush()
+    sembrar(db_session, t.id)
+    db_session.add(Category(tenant_id=t.id, magento_id=100, path=[1, 100],
+                            default_name="Ropa"))
+    # 1604 cae dentro del rango de indumentaria del seed
+    db_session.add(ProductRecord(
+        tenant_id=t.id, sku="P1", store_view_magento_id=1,
+        attributes={"google_category_id_int": "1604"}, attribute_set_id=4,
+        type_id="simple", sync_generation=1,
+        scope_provenance={}, content_hash="test",
+    ))
+    db_session.add(ProductCategoryAssignment(tenant_id=t.id, sku="P1", category_magento_id=100))
+    db_session.flush()
+
+    reglas = generar_piso(db_session, t.id)
+    por_atributo = {r.definition["google_attribute"]: r for r in reglas}
+
+    r_color = por_atributo["color"]
+    assert r_color.definition.get("espejo_attribute") == "color"
+    assert r_color.status == "aceptada"
+    assert "sin_mapeo" not in r_color.definition
+
+    r_size = por_atributo["size"]
+    assert r_size.definition.get("espejo_attribute") == "talle", (
+        "size es el nombre de Google; talle es lo que el tenant tiene"
+    )
+    assert r_size.status == "aceptada"
+    assert "sin_mapeo" not in r_size.definition
+
+
+def test_sin_atributo_de_talle_ni_genero_el_piso_sigue_honesto(db_session):
+    """Degradación honesta preservada: un tenant sin ningún candidato de size
+    ni de gender (ni age_group) debe seguir naciendo sin_mapeo/aviso para esos
+    requisitos, aun con el puente de categoría sembrado."""
+    t = _tenant(db_session)
+    cargar_seed(db_session)
+    db_session.add(Attribute(tenant_id=t.id, code="name", label="name",
+                             frontend_input="text", declared_scope="global",
+                             is_filterable=False, is_required=False,
+                             attribute_set_ids=[4]))
+    db_session.flush()
+    sembrar(db_session, t.id)
+    db_session.add(Category(tenant_id=t.id, magento_id=100, path=[1, 100],
+                            default_name="Ropa"))
+    db_session.add(ProductRecord(
+        tenant_id=t.id, sku="P1", store_view_magento_id=1,
+        attributes={"google_category_id_int": "1604"}, attribute_set_id=4,
+        type_id="simple", sync_generation=1,
+        scope_provenance={}, content_hash="test",
+    ))
+    db_session.add(ProductCategoryAssignment(tenant_id=t.id, sku="P1", category_magento_id=100))
+    db_session.flush()
+
+    reglas = generar_piso(db_session, t.id)
+    por_atributo = {r.definition["google_attribute"]: r for r in reglas}
+
+    for nombre in ("size", "gender", "age_group"):
+        r = por_atributo[nombre]
+        assert r.status == "aviso"
+        assert r.definition["sin_mapeo"] is True
+        assert "espejo_attribute" not in r.definition

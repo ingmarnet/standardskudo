@@ -75,19 +75,15 @@ def test_rules_list_devuelve_json(cli_db, capsys):
 def test_rules_infer_dos_veces_no_rompe_por_fk_de_rule_version(cli_db, capsys):
     """Carry-forward de Task 3: re-inferir borraba Rule sin borrar antes sus
     RuleVersion, y rule_version.rule_id no tiene ON DELETE CASCADE. Un segundo
-    `rules infer` sobre el mismo perfil debe limpiar ambas tablas y no fallar,
-    dejando sólo una generación de reglas (no reglas duplicadas)."""
+    `rules infer` sobre el mismo perfil debe limpiar ambas tablas y no fallar
+    para los BORRADORES (los no curados): esos sí se reemplazan por la nueva
+    generación."""
     tid = _sembrar_perfil(cli_db)
     assert cli.main(["rules", "infer", "--tenant", "acme", "--store", "1"]) == 0
     with Session(cli_db) as s:
         primera_generacion = s.query(Rule).filter_by(tenant_id=tid).all()
         assert primera_generacion
-        rid = primera_generacion[0].id
-    # Aceptar una regla escribe un RuleVersion; así el segundo infer tiene que
-    # borrar una fila de rule_version además de la de rule.
-    assert cli.main(["rules", "accept", str(rid), "--actor", "ana@x.com"]) == 0
-    with Session(cli_db) as s:
-        assert s.query(RuleVersion).filter_by(rule_id=rid).count() >= 1
+        rid_borrador = primera_generacion[0].id
 
     assert cli.main(["rules", "infer", "--tenant", "acme", "--store", "1"]) == 0
 
@@ -95,9 +91,37 @@ def test_rules_infer_dos_veces_no_rompe_por_fk_de_rule_version(cli_db, capsys):
         segunda_generacion = s.query(Rule).filter_by(tenant_id=tid).all()
         assert len(segunda_generacion) == len(primera_generacion)
         assert all(r.status == "borrador" for r in segunda_generacion)
-        # Ninguna RuleVersion apunta a un id de la primera generación: se
-        # borraron junto con sus reglas.
+        # El borrador de la primera generación se borró (y con él, ningún
+        # RuleVersion cuelga apuntándolo).
         ids_primera_generacion = {r.id for r in primera_generacion}
+        assert rid_borrador not in {r.id for r in segunda_generacion}
         assert not (
             set(s.scalars(select(RuleVersion.rule_id)).all()) & ids_primera_generacion
         )
+
+
+def test_rules_infer_no_borra_una_regla_ya_aceptada(cli_db, capsys):
+    """El hallazgo Importante de la revisión final: re-inferir borraba TODA
+    regla inferida del run sin mirar el status, así que descartaba una regla
+    que un humano ya había ACEPTADO (y su RuleVersion, dejando un id colgante
+    si esa aceptación quedó snapshotada). Un segundo `rules infer` sobre el
+    mismo perfil no debe tocar la regla aceptada ni reventar."""
+    tid = _sembrar_perfil(cli_db)
+    assert cli.main(["rules", "infer", "--tenant", "acme", "--store", "1"]) == 0
+    with Session(cli_db) as s:
+        rid = s.query(Rule).filter_by(tenant_id=tid).first().id
+    assert cli.main(["rules", "accept", str(rid), "--actor", "ana@x.com"]) == 0
+    with Session(cli_db) as s:
+        assert s.get(Rule, rid).status == "aceptada"
+        version_count_antes = s.query(RuleVersion).filter_by(rule_id=rid).count()
+        assert version_count_antes >= 1
+
+    # Segundo infer sobre el mismo perfil: no debe lanzar, y la regla aceptada
+    # debe sobrevivir intacta con su historial de versiones.
+    assert cli.main(["rules", "infer", "--tenant", "acme", "--store", "1"]) == 0
+
+    with Session(cli_db) as s:
+        aceptada = s.get(Rule, rid)
+        assert aceptada is not None, "la regla aceptada no debe borrarse al re-inferir"
+        assert aceptada.status == "aceptada"
+        assert s.query(RuleVersion).filter_by(rule_id=rid).count() == version_count_antes
