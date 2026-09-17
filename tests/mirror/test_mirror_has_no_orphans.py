@@ -220,6 +220,11 @@ ROOT_TABLES = {
     # no dentro de uno. Cuando S7 traiga los roles por tenant, la tabla de
     # pertenencia que los una sí será hija y necesitará su arista.
     "platform_user",
+    # `google_floor` (S1b) es raíz en el mismo sentido que `platform_user`, pero
+    # por otra razón: son los requisitos de Google Shopping, iguales para todos
+    # los tenants, así que la tabla ni siquiera tiene `tenant_id`. Sin columna
+    # de referencia no hay arista que vigilar.
+    "google_floor",
 }
 
 # Las tablas del perfil (S1a) declaran su situación de otra forma: tienen
@@ -243,6 +248,13 @@ FK_ENFORCED_TABLES = {
     # la pasada que las produjo con claves foráneas reales.
     "product_score",
     "catalog_score",
+    # Las de reglas (S1b) son igual de nuestras: `rule` y `ruleset_snapshot`
+    # referencian al tenant, `rule_version` referencia a la regla que versiona,
+    # y `concept_map` referencia al tenant, todas con clave foránea real.
+    "rule",
+    "rule_version",
+    "ruleset_snapshot",
+    "concept_map",
 }
 
 
