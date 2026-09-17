@@ -92,11 +92,12 @@ def inferir_sinonimos(session: Session, tenant_id: int) -> list[ConceptMap]:
         for code in sorted(presentes):
             relacion = "equivalente" if code == canonical else "sinonimo"
             conf = 1.0 if code == canonical else CONFIANZA_SINONIMO
+            origen = "curada" if code == canonical else "inferida"
             if _existe(session, tenant_id, canonical, code):
                 continue
             fila = ConceptMap(tenant_id=tenant_id, canonical=canonical,
                               attribute_code=code, relation=relacion,
-                              confidence=conf, origin="inferida")
+                              confidence=conf, origin=origen)
             session.add(fila)
             creados.append(fila)
     session.flush()

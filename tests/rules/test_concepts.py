@@ -74,3 +74,23 @@ def test_no_infiere_un_falso_sinonimo_por_prefijo(db_session):
         and c.canonical == "precio"
         for c in creados
     )
+
+
+def test_la_autoasignacion_canonica_es_curada_no_inferida(db_session):
+    t = _tenant(db_session)
+    _attr(db_session, t, "color")
+    _attr(db_session, t, "colour")
+    creados = inferir_sinonimos(db_session, t.id)
+
+    # El mapeo canónico color→color es cierto (el atributo color implementa color)
+    # así que debe ser origin="curada", no "inferida"
+    canonico = [c for c in creados if c.canonical == "color" and c.attribute_code == "color"]
+    assert len(canonico) == 1
+    assert canonico[0].origin == "curada"
+    assert canonico[0].confidence == 1.0
+
+    # El sinónimo colour→color es inferido y debe tener confidence < 1.0
+    sinonimo = [c for c in creados if c.canonical == "color" and c.attribute_code == "colour"]
+    assert len(sinonimo) == 1
+    assert sinonimo[0].origin == "inferida"
+    assert sinonimo[0].confidence < 1.0
