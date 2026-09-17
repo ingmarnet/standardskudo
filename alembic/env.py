@@ -21,6 +21,7 @@ import skudo.profile.models  # noqa: F401  (registra las tablas de perfil en Bas
 import skudo.findings.models  # noqa: F401  (registra las tablas de hallazgos)
 import skudo.auth.models  # noqa: F401  (registra la tabla de usuarios)
 import skudo.score.models  # noqa: F401  (registra las tablas de nota)
+import skudo.rules.models  # noqa: F401  (registra las tablas de reglas)
 
 config.set_main_option("sqlalchemy.url", os.environ["SKUDO_DATABASE_URL"])
 target_metadata = Base.metadata
