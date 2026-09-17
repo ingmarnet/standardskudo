@@ -839,10 +839,6 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
     raise AssertionError(f"comando sin despachar: {args.command}")
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
 def _password_from(args) -> tuple[str, bool]:
     """La contraseña, y si hay que mostrarla.
 
@@ -1053,3 +1049,7 @@ def _rules(session: Session, args) -> int:
             ], ensure_ascii=False, indent=2))
         return 0
     raise SystemExit(f"subcomando de rules desconocido: {cmd}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
