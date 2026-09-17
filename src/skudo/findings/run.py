@@ -222,16 +222,20 @@ def findings_report(session: Session, run: FindingRun) -> dict:
         "nombre_repetido": "nombres_repetidos",
     }
 
-    # Un código `regla:*` viene siempre de UNA regla (kind + attribute), así
-    # que alcanza con un valor por código para adjuntarlo a su fila del
-    # informe, sin tocar el conteo agrupado de arriba.
-    regla_id_por_codigo = dict(
-        session.execute(
-            select(Finding.code, func.max(Finding.rule_id))
-            .where(Finding.run_id == run.id, Finding.rule_id.is_not(None))
-            .group_by(Finding.code)
-        ).all()
-    )
+    # Un código `regla:*` (kind + attribute) puede venir de MÁS DE UNA regla
+    # si dos reglas comparten kind+attribute con distinto scope (ej.
+    # `obligatoriedad:color` en el attribute_set 4 y en el 9: ambas producen
+    # el mismo código, el conteo agrupado de arriba las suma). `rule_id` sólo
+    # puede atribuirse a una regla sin ambigüedad, así que se arma el
+    # conjunto de rule_ids distintos por código y, si hay más de uno, la fila
+    # queda con `rule_id = None` en vez de mentir con cualquiera de los dos.
+    reglas_por_codigo: dict[str, set[int]] = {}
+    for code, rule_id in session.execute(
+        select(Finding.code, Finding.rule_id)
+        .where(Finding.run_id == run.id, Finding.rule_id.is_not(None))
+        .distinct()
+    ).all():
+        reglas_por_codigo.setdefault(code, set()).add(rule_id)
 
     hallazgos = []
     for code, severity, axis, n in por_codigo:
@@ -249,7 +253,8 @@ def findings_report(session: Session, run: FindingRun) -> dict:
             "origen": origen,
         }
         if origen == "regla":
-            fila["rule_id"] = regla_id_por_codigo.get(code)
+            distintos = reglas_por_codigo.get(code, set())
+            fila["rule_id"] = next(iter(distintos)) if len(distintos) == 1 else None
         hallazgos.append(fila)
 
     return {
