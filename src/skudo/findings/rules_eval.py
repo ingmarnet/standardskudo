@@ -59,7 +59,16 @@ def _scope_estado(regla: ReglaEvaluable, f: Ficha) -> str:
     """
     if regla.scope_kind == "global":
         return "en_scope"
-    if regla.scope_kind in ("attribute_set", "subtype"):
+    if regla.scope_kind == "subtype":
+        # `scope_key` de un subtipo es un VALOR de divisor (ej. "ropa"), no un
+        # attribute_set_id: comparalo contra attribute_set_id normalmente no
+        # matchea nada, pero PODRÍA mis-fire si un valor de divisor coincide
+        # numéricamente con un set id real (ej. "9"). La resolución fina de
+        # subtipo está diferida (spec §3.2), así que acá gana la ignorancia:
+        # nunca se compara, siempre desconocido/no_evaluado. Un subtype jamás
+        # puede rendir veredicto ni mis-fire.
+        return "desconocido"
+    if regla.scope_kind == "attribute_set":
         if f.attribute_set_id is None:
             return "desconocido"
         return "en_scope" if str(f.attribute_set_id) == regla.scope_key else "fuera"

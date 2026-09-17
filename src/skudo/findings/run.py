@@ -129,6 +129,11 @@ def _reglas_del_snapshot(
         for r in filas
         if r.kind in ("obligatoriedad", "rango", "formato")
         and "attribute" in (r.definition or {})
+        # el snapshot congela IDs, no estado: una regla que ERA aceptada al
+        # snapshotear y después pasó a rechazada/borrador no debe penalizar
+        # sólo porque un `evaluate --ruleset <version vieja>` la trae de vuelta.
+        # El estado que manda es el VIVO, no el de cuando se armó el snapshot.
+        and r.status in ("aceptada", "aviso")
     ]
     return reglas, snap.version
 

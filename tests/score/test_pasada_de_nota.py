@@ -1,9 +1,10 @@
 from skudo_testing import escribir, preparar, set_product_categories
 from sqlalchemy import select
 
+from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import detect_store_view
 from skudo.score.models import CatalogScore, ProductScore
-from skudo.score.run import score_run, tendencia
+from skudo.score.run import _hallazgos_por_sku, score_run, tendencia
 
 
 def sembrar(session, tenant):
@@ -100,6 +101,41 @@ def test_la_nota_de_producto_se_reescribe_y_no_se_duplica(db_session):
     assert db_session.scalar(
         select(__import__("sqlalchemy").func.count()).select_from(ProductScore)
     ) == 2, "una fila por producto, no una por pasada"
+
+
+def test_hallazgos_por_sku_respeta_el_orden_de_id_no_uno_incidental(db_session):
+    """Sin ORDER BY, un empate exacto de severidad+causa deja el `code`
+    representativo (el que gana el dedup por causa en `nota_de_producto`,
+    "ante empate de peso, el primero que llegó") a merced del orden físico
+    que Postgres decida devolver, que puede cambiar entre corridas. Con
+    `.order_by(Finding.id)` el "primero que llegó" es siempre el de menor id,
+    sin importar el orden alfabético de sus códigos ni nada más."""
+    tenant = preparar(db_session)
+    run = FindingRun(tenant_id=tenant.id, store_view_magento_id=1,
+                      mirror_sync_generation=1, product_count=1)
+    db_session.add(run); db_session.flush()
+
+    # códigos a propósito en orden alfabético INVERSO al de inserción, para
+    # que un test que dependiera del orden alfabético (o de cualquier orden
+    # que no sea el id) fallara.
+    db_session.add(Finding(run_id=run.id, code="zzz_ultimo", axis=3, severity="media",
+                           subject_type="producto", subject_key="X",
+                           evidence={"attribute": "color"}))
+    db_session.add(Finding(run_id=run.id, code="aaa_primero", axis=3, severity="media",
+                           subject_type="producto", subject_key="X",
+                           evidence={"attribute": "color"}))
+    db_session.flush()
+
+    por_sku = _hallazgos_por_sku(db_session, run)
+    codigos = [h.code for h in por_sku["X"]]
+    assert codigos == ["zzz_ultimo", "aaa_primero"], (
+        "el orden es el de inserción (id ascendente), no el alfabético"
+    )
+
+    # y es estable entre llamadas: dos pasadas sobre los mismos hallazgos
+    # producen el mismo orden, siempre.
+    otra = _hallazgos_por_sku(db_session, run)
+    assert [h.code for h in otra["X"]] == codigos
 
 
 def test_la_historia_del_catalogo_si_se_acumula(db_session):

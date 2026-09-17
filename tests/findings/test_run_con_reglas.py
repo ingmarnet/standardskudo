@@ -58,6 +58,26 @@ def test_una_regla_borrador_no_esta_en_el_snapshot_y_no_marca(db_session):
     assert run.ruleset_version is None
 
 
+def test_una_regla_rechazada_tras_snapshotear_ya_no_penaliza(db_session):
+    """El snapshot congela IDs, no estado. Si la regla se rechazó DESPUÉS de
+    quedar en el snapshot, un `evaluate --ruleset <version vieja>` no debe
+    resucitarla: el estado que manda es el vivo, no el de cuando se armó el
+    snapshot."""
+    t = _setup(db_session)
+    r = _regla_aceptada(db_session, t)
+    snap = RulesetSnapshot(tenant_id=t.id, store_view_magento_id=1, version=1,
+                           rule_ids=[r.id])
+    db_session.add(snap); db_session.flush()
+
+    r.status = "rechazada"
+    db_session.flush()
+
+    run = detect_store_view(db_session, t.id, 1, ruleset_version=1)
+    assert run.ruleset_version == 1
+    assert db_session.query(Finding).filter(
+        Finding.run_id == run.id, Finding.code == "regla:obligatoriedad:color").count() == 0
+
+
 def test_los_detectores_especiales_siguen_corriendo(db_session):
     t = _setup(db_session)
     run = detect_store_view(db_session, t.id, 1)

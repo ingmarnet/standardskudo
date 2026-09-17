@@ -77,5 +77,28 @@ def test_fuera_de_scope_no_se_evalua():
     assert res.cobertura.no_aplica == 1
 
 
+def test_subtype_nunca_rinde_veredicto_ni_aunque_el_set_id_coincida():
+    """El scope_key de un subtipo es un VALOR de divisor (ej. "9" de una
+    categoría), no un attribute_set_id. La resolución fina de subtipo está
+    diferida (spec §3.2): una regla `subtype` debe ir siempre a
+    no_evaluado, nunca comparar contra attribute_set_id — ni siquiera cuando
+    el string coincide numéricamente con un set real, que sería un mis-fire
+    por coincidencia."""
+    regla = ReglaEvaluable(
+        id=1, kind="obligatoriedad", axis=3, severity=MEDIA,
+        scope_kind="subtype", scope_key="9", store_view=1,
+        definition={"attribute": "color"},
+    )
+    # la ficha tiene attribute_set_id=9: coincidiría con scope_key="9" si se
+    # comparara como attribute_set, pero acá NUNCA debe compararse así.
+    fichas = [Ficha(sku="A", attributes={"status": "1", "visibility": "4"},
+                    attribute_set_id=9, type_id="simple")]
+    res = evaluar_regla(regla, fichas, SETS)
+    assert res.hallazgos == []
+    assert res.cobertura.no_evaluado == 1
+    assert res.cobertura.no_aplica == 0
+    assert res.cobertura.evaluados == 0
+
+
 def test_codigo_de_agrupa_por_atributo():
     assert codigo_de("obligatoriedad", "color") == "regla:obligatoriedad:color"

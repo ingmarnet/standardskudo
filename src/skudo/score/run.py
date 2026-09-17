@@ -29,7 +29,9 @@ def _hallazgos_por_sku(session: Session, run: FindingRun) -> dict[str, list]:
     detector guarda la lista completa de SKUs y no sólo unos ejemplos.
     """
     por_sku: dict[str, list] = {}
-    for f in session.scalars(select(Finding).where(Finding.run_id == run.id)):
+    for f in session.scalars(
+        select(Finding).where(Finding.run_id == run.id).order_by(Finding.id)
+    ):
         # Las reglas guardan el atributo en evidence.attribute; los detectores
         # especiales de carencia de campo lo guardan en evidence.campo. Ambos
         # alimentan la misma causa, que es lo que funde las dos marcas del
