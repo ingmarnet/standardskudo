@@ -12,3 +12,6 @@ magento-module/.phpunit.cache/
 # tienen por qué viajar en un repositorio público.
 .claude/skills/impeccable/scripts/bin/
 .claude/skills/impeccable/scripts/data/
+
+# Worktrees aislados de subagent-driven-development
+.worktrees/
