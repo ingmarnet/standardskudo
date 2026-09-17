@@ -26,7 +26,7 @@ from pathlib import Path
 
 import httpx
 from pydantic import ValidationError
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session
 
 from skudo.acceptance.s0 import run_s0_acceptance
@@ -62,9 +62,16 @@ from skudo.mirror.models import (
 )
 from skudo.mirror.topology import sync_topology
 from skudo.operate.cycle import ciclo_de_todos
+from skudo.profile.models import ProfileRun
 from skudo.profile.report import profile_report
 from skudo.profile.run import profile_store_view
 from skudo.report.html import render as render_report
+from skudo.rules import concepts as _concepts
+from skudo.rules import curation as _curation
+from skudo.rules.floor import cargar_seed, generar_piso
+from skudo.rules.inference import inferir
+from skudo.rules.models import ConceptMap, Rule, RuleVersion
+from skudo.rules.transitions import TransicionInvalida
 
 # Tope de particiones que `repair --from-reconcile` acepta reparar de una vez.
 # Por encima de esto, releer partición por partición es releer una fracción
@@ -293,6 +300,57 @@ def build_parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--host", default="0.0.0.0", help="interfaz (por defecto todas)")
     serve.add_argument("--port", type=int, default=8000, help="puerto (por defecto 8000)")
+
+    rules = sub.add_parser("rules", help="inferencia, piso externo y curación de reglas (S1b)")
+    rsub = rules.add_subparsers(dest="rules_command", required=True)
+
+    r_infer = rsub.add_parser("infer", help="infiere reglas borrador desde el último perfil")
+    r_infer.add_argument("--tenant", required=True)
+    r_infer.add_argument("--store", type=int, required=True)
+
+    r_floor = rsub.add_parser("floor", help="genera/actualiza el piso externo de Google")
+    r_floor.add_argument("--tenant", required=True)
+
+    r_list = rsub.add_parser("list", help="lista reglas (JSON)")
+    r_list.add_argument("--tenant", required=True)
+    r_list.add_argument("--status", default=None)
+    r_list.add_argument("--kind", default=None)
+    r_list.add_argument("--origin", default=None)
+    r_list.add_argument("--store", type=int, default=None)
+
+    r_inspect = rsub.add_parser("inspect", help="qué marcaría y qué descartaría una regla")
+    r_inspect.add_argument("rule_id", type=int)
+
+    r_accept = rsub.add_parser("accept", help="acepta reglas por lote")
+    r_accept.add_argument("rule_id", type=int, nargs="+")
+    r_accept.add_argument("--actor", required=True)
+    r_accept.add_argument("--confirm-ambiguo", action="store_true")
+
+    r_reject = rsub.add_parser("reject", help="rechaza una regla con motivo")
+    r_reject.add_argument("rule_id", type=int)
+    r_reject.add_argument("--actor", required=True)
+    r_reject.add_argument("--reason", required=True)
+
+    r_limit = rsub.add_parser("limit", help="acota un piso externo a aviso")
+    r_limit.add_argument("rule_id", type=int)
+    r_limit.add_argument("--actor", required=True)
+    r_limit.add_argument("--reason", required=True)
+
+    r_adjust = rsub.add_parser("adjust", help="ajusta la definición (JSON) de una regla")
+    r_adjust.add_argument("rule_id", type=int)
+    r_adjust.add_argument("--actor", required=True)
+    r_adjust.add_argument("--definition", required=True, help="JSON de la nueva definición")
+
+    r_snap = rsub.add_parser("snapshot", help="congela las reglas activas de una store view")
+    r_snap.add_argument("--tenant", required=True)
+    r_snap.add_argument("--store", type=int, required=True)
+
+    r_conc = rsub.add_parser("concepts", help="mapa de conceptos")
+    csub = r_conc.add_subparsers(dest="concepts_command", required=True)
+    c_seed = csub.add_parser("seed", help="siembra universales de Google e infiere sinónimos")
+    c_seed.add_argument("--tenant", required=True)
+    c_list = csub.add_parser("list", help="lista el mapa de conceptos (JSON)")
+    c_list.add_argument("--tenant", required=True)
 
     return parser
 
@@ -598,6 +656,9 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
             if args.command in {"user-add", "user-passwd", "user-list"}:
                 return _users(session, args)
 
+            if args.command == "rules":
+                return _rules(session, args)
+
             tenant = session.scalar(select(Tenant).where(Tenant.code == args.tenant))
             if tenant is None:
                 print(f"tenant desconocido: {args.tenant}", file=sys.stderr)
@@ -835,3 +896,134 @@ def _users(session: Session, args) -> int:
         salida["aviso"] = "anotala ahora: no se puede volver a mostrar"
     _report(salida)
     return EXIT_OK
+
+
+def _tenant_por_codigo(session: Session, code: str) -> Tenant:
+    t = session.scalar(select(Tenant).where(Tenant.code == code))
+    if t is None:
+        raise SystemExit(f"tenant desconocido: {code}")
+    return t
+
+
+def _rules(session: Session, args) -> int:
+    """Los subcomandos de `rules` (S1b): inferencia, piso externo y curación.
+
+    Ninguna función de `skudo.rules` comitea (sólo `flush`): son puras y las
+    reutiliza S1c dentro de sus propias transacciones. Acá SÍ hay que comitear,
+    porque `main()` abre una sesión propia y un segundo proceso (o el segundo
+    `Session` que abren los tests de CLI) no ve nada no comiteado.
+    """
+    cmd = args.rules_command
+    if cmd == "infer":
+        t = _tenant_por_codigo(session, args.tenant)
+        run = session.scalar(
+            select(ProfileRun)
+            .where(ProfileRun.tenant_id == t.id,
+                   ProfileRun.store_view_magento_id == args.store,
+                   ProfileRun.finished_at.isnot(None))
+            .order_by(ProfileRun.id.desc()).limit(1)
+        )
+        if run is None:
+            raise SystemExit("no hay perfil terminado para esa store view")
+        # Re-inferir: borra las reglas inferidas de ese run primero (idempotencia).
+        # `rule_version.rule_id` no tiene ON DELETE CASCADE, así que hay que
+        # borrar antes las RuleVersion de esas reglas o el DELETE de Rule
+        # revienta con una violación de llave foránea.
+        ids_a_borrar = list(
+            session.scalars(
+                select(Rule.id).where(
+                    Rule.profile_run_id == run.id, Rule.origin == "inferida"
+                )
+            ).all()
+        )
+        if ids_a_borrar:
+            session.execute(delete(RuleVersion).where(RuleVersion.rule_id.in_(ids_a_borrar)))
+            session.execute(delete(Rule).where(Rule.id.in_(ids_a_borrar)))
+        session.flush()
+        reglas = inferir(session, run.id)
+        session.commit()
+        print(f"{len(reglas)} reglas inferidas en borrador")
+        return 0
+    if cmd == "floor":
+        t = _tenant_por_codigo(session, args.tenant)
+        cargar_seed(session)
+        reglas = generar_piso(session, t.id)
+        session.commit()
+        print(f"{len(reglas)} reglas de piso externo")
+        return 0
+    if cmd == "list":
+        t = _tenant_por_codigo(session, args.tenant)
+        q = select(Rule).where(Rule.tenant_id == t.id)
+        if args.status:
+            q = q.where(Rule.status == args.status)
+        if args.kind:
+            q = q.where(Rule.kind == args.kind)
+        if args.origin:
+            q = q.where(Rule.origin == args.origin)
+        if args.store is not None:
+            q = q.where(Rule.store_view_magento_id == args.store)
+        filas = session.scalars(q.order_by(Rule.id)).all()
+        print(json.dumps([
+            {"id": r.id, "kind": r.kind, "scope": f"{r.scope_kind}:{r.scope_key}",
+             "attribute": r.definition.get("attribute"), "confidence": r.confidence,
+             "evidence": r.evidence_count, "status": r.status, "origin": r.origin}
+            for r in filas
+        ], ensure_ascii=False, indent=2))
+        return 0
+    if cmd == "inspect":
+        print(json.dumps(_curation.inspeccionar(session, args.rule_id),
+                          ensure_ascii=False, indent=2))
+        return 0
+    if cmd == "accept":
+        try:
+            _curation.aceptar(session, args.rule_id, actor=args.actor,
+                              confirmar_ambiguo=args.confirm_ambiguo)
+        except _curation.ReglaAmbiguaSinConfirmar as e:
+            raise SystemExit(f"{e}. Reintentar con --confirm-ambiguo") from e
+        session.commit()
+        print(f"{len(args.rule_id)} regla(s) aceptada(s)")
+        return 0
+    if cmd == "reject":
+        _curation.rechazar(session, args.rule_id, actor=args.actor, motivo=args.reason)
+        session.commit()
+        print("rechazada")
+        return 0
+    if cmd == "limit":
+        try:
+            _curation.acotar(session, args.rule_id, actor=args.actor, motivo=args.reason)
+        except TransicionInvalida as e:
+            raise SystemExit(str(e)) from e
+        session.commit()
+        print("acotada a aviso")
+        return 0
+    if cmd == "adjust":
+        _curation.ajustar(session, args.rule_id, actor=args.actor,
+                          definition=json.loads(args.definition))
+        session.commit()
+        print("ajustada")
+        return 0
+    if cmd == "snapshot":
+        t = _tenant_por_codigo(session, args.tenant)
+        snap = _curation.snapshot(session, t.id, store_view=args.store)
+        session.commit()
+        print(f"snapshot v{snap.version} con {len(snap.rule_ids)} reglas")
+        return 0
+    if cmd == "concepts":
+        t = _tenant_por_codigo(session, args.tenant)
+        if args.concepts_command == "seed":
+            sembrados = _concepts.sembrar(session, t.id)
+            sinonimos = _concepts.inferir_sinonimos(session, t.id)
+            session.commit()
+            print(f"{len(sembrados)} universales, {len(sinonimos)} sinónimos inferidos")
+        else:
+            filas = session.scalars(
+                select(ConceptMap).where(ConceptMap.tenant_id == t.id)
+                .order_by(ConceptMap.canonical, ConceptMap.attribute_code)
+            ).all()
+            print(json.dumps([
+                {"canonical": c.canonical, "attribute": c.attribute_code,
+                 "relation": c.relation, "confidence": c.confidence, "origin": c.origin}
+                for c in filas
+            ], ensure_ascii=False, indent=2))
+        return 0
+    raise SystemExit(f"subcomando de rules desconocido: {cmd}")

@@ -25,8 +25,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+from conftest import TOKEN, TOKEN_VAR
 from skudo_testing import checksums_payload, skudo_response
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from skudo import cli
 from skudo.exit_codes import (
@@ -40,9 +41,6 @@ from skudo.ingest.reconcile import partition_of
 from skudo.mirror.models import ProductRecord, StoreView, Tenant
 
 FIXTURES = Path(__file__).parent / "fixtures"
-
-TOKEN = "el-token-secreto-que-no-debe-aparecer"
-TOKEN_VAR = "SKUDO_TENANT_DEMO_TOKEN"
 
 SKU = "SKU-A"
 
@@ -145,39 +143,6 @@ class FakeMagento:
             return httpx.Response(404)
 
         return httpx.MockTransport(handler)
-
-
-@pytest.fixture
-def cli_db(migrated_engine, monkeypatch):
-    """El CLI abre su PROPIA sesión y confirma de verdad, así que estas pruebas
-    no pueden usar el `db_session` de rollback: usan la base de tests y la
-    dejan limpia al terminar.
-
-    El `TRUNCATE` no toca `alembic_version` —el esquema se migra una vez por
-    sesión de pytest— y es seguro porque `conftest.require_test_database` ya se
-    negó a apuntar a una base cuyo nombre no termine en `_test`.
-    """
-    # `str(engine.url)` enmascara la contraseña con '***': hay que renderizarla
-    # explícitamente o el CLI no puede conectarse.
-    monkeypatch.setenv(
-        "SKUDO_DATABASE_URL", migrated_engine.url.render_as_string(hide_password=False)
-    )
-    monkeypatch.setenv(TOKEN_VAR, TOKEN)
-    yield migrated_engine
-    with migrated_engine.begin() as conn:
-        tables = [
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
-                    "AND tablename <> 'alembic_version'"
-                )
-            )
-        ]
-        if tables:
-            conn.execute(
-                text(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-            )
 
 
 def _run(argv, magento: FakeMagento | None = None) -> int:
