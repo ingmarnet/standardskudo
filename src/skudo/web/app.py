@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from skudo.auth.users import authenticate
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
-from skudo.mirror.models import ProductRecord, Tenant
+from skudo.mirror.models import Attribute, ProductRecord, Tenant
 from skudo.rules import curation
 from skudo.rules.models import Rule
 from skudo.rules.transitions import TransicionInvalida
@@ -376,6 +376,80 @@ def snapshot_rules(
     snap = curation.snapshot(db, tenant_id=tenant.id, store_view=store)
     db.commit()
     return {"version": snap.version, "rule_count": len(snap.rule_ids)}
+
+
+class CrearReglaRequest(BaseModel):
+    kind: str
+    attribute: str
+    scope_kind: str
+    scope_key: str | None = None
+    minimo: float | None = None
+    maximo: float | None = None
+
+
+@app.get("/api/tenants/{tenant_code}/rules/opciones")
+def rule_options(
+    tenant_code: str,
+    store: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    """Atributos y attribute sets reales del tenant, para los desplegables del
+    formulario de nueva regla. El atributo es libre en el panel (datalist), esto
+    solo sugiere los que existen."""
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+    atributos = [
+        {"code": code, "label": label}
+        for code, label in db.execute(
+            select(Attribute.code, Attribute.label)
+            .where(Attribute.tenant_id == tenant.id)
+            .order_by(Attribute.code)
+        ).all()
+    ]
+    sets = sorted(
+        s
+        for (s,) in db.execute(
+            select(ProductRecord.attribute_set_id)
+            .where(
+                ProductRecord.tenant_id == tenant.id,
+                ProductRecord.store_view_magento_id == store,
+                ProductRecord.attribute_set_id.is_not(None),
+            )
+            .distinct()
+        )
+    )
+    return {"atributos": atributos, "sets": sets}
+
+
+@app.post("/api/tenants/{tenant_code}/rules")
+def create_rule(
+    tenant_code: str,
+    store: int,
+    body: CrearReglaRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*CURATION_ROLES)),
+):
+    """Crea una regla `curada` en borrador desde el panel. Entra al mismo
+    circuito de curación que las inferidas."""
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+    try:
+        regla = curation.crear(
+            db, tenant_id=tenant.id, store_view_magento_id=store,
+            scope_kind=body.scope_kind, scope_key=body.scope_key, kind=body.kind,
+            attribute=body.attribute, actor=user["email"],
+            minimo=body.minimo, maximo=body.maximo,
+        )
+    except curation.ReglaDuplicada as e:
+        raise HTTPException(409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    db.commit()
+    db.refresh(regla)
+    return _regla_json(regla)
 
 
 # --- Productos con peor nota ------------------------------------------------

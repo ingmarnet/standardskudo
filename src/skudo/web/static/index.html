@@ -606,7 +606,6 @@ body {
 .btn-reject { border-color: var(--critical); color: var(--critical); }
 .btn-reject:hover { background: var(--critical-light); }
 .btn-snapshot {
-  margin-left: auto;
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 600;
@@ -619,6 +618,61 @@ body {
 }
 .btn-snapshot:hover { filter: brightness(1.05); }
 .btn-snapshot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-nueva {
+  margin-left: auto;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+.btn-nueva:hover { background: var(--accent-light); }
+.btn-nueva:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* --- Formulario de nueva regla --- */
+.nueva-regla-form {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nueva-regla-form .form-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.nueva-regla-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+.nueva-regla-form label.grow { flex: 1; min-width: 200px; }
+.nueva-regla-form input,
+.nueva-regla-form select {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 400;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+}
+.nueva-regla-form input:focus,
+.nueva-regla-form select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.nueva-regla-form .form-actions { display: flex; gap: 8px; }
 .toast {
   position: fixed;
   bottom: 24px;
@@ -1421,6 +1475,80 @@ const ORIGEN_INFO = {
 
 function tipoLabel(kind) { return (TIPO_INFO[kind] || {}).label || kind || '—'; }
 
+// --- Crear una regla a mano (origin curada) --------------------------------
+async function crearRegla(form) {
+  const kind = form.querySelector('[name=kind]').value;
+  const attribute = form.querySelector('[name=attribute]').value.trim();
+  const [scope_kind, scope_key] = form.querySelector('[name=alcance]').value.split(':');
+  if (!attribute) { toast('Poné un atributo', true); return; }
+  const payload = { kind, attribute, scope_kind, scope_key: scope_key || null };
+  if (kind === 'rango') {
+    payload.minimo = parseFloat(form.querySelector('[name=minimo]').value);
+    payload.maximo = parseFloat(form.querySelector('[name=maximo]').value);
+    if (Number.isNaN(payload.minimo) || Number.isNaN(payload.maximo)) {
+      toast('Rango: poné un mínimo y un máximo numéricos', true); return;
+    }
+  }
+  try {
+    await API.post(`/api/tenants/${state.tenant.code}/rules?store=${state.store}`, payload);
+    toast(`Regla de "${attribute}" creada (en borrador para curar)`);
+    renderRules();
+  } catch (e) {
+    toast(`Error: ${e.message}`, true);
+  }
+}
+
+function construirFormNuevaRegla() {
+  const datalist = el('datalist', { id: 'skudo-attrs' });
+  const attribute = el('input', { name: 'attribute', list: 'skudo-attrs', autocomplete: 'off',
+    placeholder: 'ej. color, ean_13, peso… (elegí o escribí)' });
+
+  const rangoRow = el('div', { class: 'form-row rango-row' },
+    el('label', null, 'Mínimo', el('input', { name: 'minimo', type: 'number', step: 'any' })),
+    el('label', null, 'Máximo', el('input', { name: 'maximo', type: 'number', step: 'any' })),
+  );
+  rangoRow.hidden = true;
+
+  const tipo = el('select', { name: 'kind', onchange: () => { rangoRow.hidden = tipo.value !== 'rango'; } },
+    el('option', { value: 'obligatoriedad' }, 'Obligatorio (debe estar cargado)'),
+    el('option', { value: 'rango' }, 'Rango (valor entre mínimo y máximo)'),
+  );
+
+  const alcance = el('select', { name: 'alcance' },
+    el('option', { value: 'global:' }, 'Global (toda la tienda)'),
+  );
+
+  const form = el('form', { class: 'nueva-regla-form',
+    onsubmit: (e) => { e.preventDefault(); crearRegla(form); } },
+    el('div', { class: 'form-row' },
+      el('label', null, 'Tipo', tipo),
+      el('label', { class: 'grow' }, 'Atributo', attribute, datalist),
+      el('label', null, 'Alcance', alcance),
+    ),
+    rangoRow,
+    el('div', { class: 'form-actions' },
+      el('button', { type: 'submit', class: 'rule-btn btn-accept' }, 'Crear regla'),
+      el('button', { type: 'button', class: 'rule-btn',
+        onclick: () => { form.hidden = true; } }, 'Cancelar'),
+    ),
+  );
+  form.hidden = true;
+
+  // Poblá los desplegables con los atributos y sets reales (una vez).
+  let cargado = false;
+  form._mostrar = async () => {
+    form.hidden = !form.hidden;
+    if (form.hidden || cargado) return;
+    cargado = true;
+    try {
+      const op = await API.get(`/api/tenants/${state.tenant.code}/rules/opciones?store=${state.store}`);
+      for (const a of (op.atributos || [])) datalist.append(el('option', { value: a.code }, a.label || a.code));
+      for (const s of (op.sets || [])) alcance.append(el('option', { value: `attribute_set:${s}` }, `Attribute set ${s}`));
+    } catch { /* el atributo se puede escribir a mano igual */ }
+  };
+  return form;
+}
+
 function reglasAyuda(canCurate) {
   const abierto = (() => { try { return localStorage.getItem('skudo_reglas_ayuda') !== 'cerrado'; } catch { return true; } })();
   const d = el('details', { class: 'ayuda-panel' });
@@ -1480,12 +1608,18 @@ async function renderRules() {
 
   const canCurate = puedeCurar();
   const header = el('div', { class: 'main-header' }, el('h1', null, `Reglas · ${state.tenant.name || state.tenant.code}`));
+  const formNueva = canCurate ? construirFormNuevaRegla() : null;
   if (canCurate) {
-    header.append(el('button', { class: 'btn-snapshot', onclick: crearSnapshot }, 'Crear snapshot'));
+    header.append(
+      el('button', { class: 'btn-nueva', onclick: () => formNueva._mostrar() }, '+ Nueva regla'),
+      el('button', { class: 'btn-snapshot', onclick: crearSnapshot }, 'Crear snapshot'),
+    );
   }
   main.append(header, el('p', { class: 'section-intro' },
     'Las reglas son las expectativas de calidad con que Skudo mide tu catálogo. Acá revisás las que propone y decidís cuáles valen.'),
-    reglasAyuda(canCurate), renderLoading());
+    reglasAyuda(canCurate));
+  if (formNueva) main.append(formNueva);
+  main.append(renderLoading());
 
   try {
     const rules = await API.get(`/api/tenants/${state.tenant.code}/rules?store=${state.store}`);

@@ -21,6 +21,97 @@ class ReglaAmbiguaSinConfirmar(Exception):
     """Se intentó aceptar por lote una regla marcada `ambiguo` sin confirmar."""
 
 
+class ReglaDuplicada(Exception):
+    """Se intentó crear una regla idéntica a una ya existente (no rechazada)."""
+
+
+# Tipos que una persona puede escribir a mano. `formato` queda afuera: es una
+# heurística de sospecha de conversión que se INFIERE de la evidencia, no algo
+# que alguien declare.
+TIPOS_MANUALES = ("obligatoriedad", "rango")
+ALCANCES_MANUALES = ("global", "attribute_set")
+
+
+def crear(
+    session: Session,
+    *,
+    tenant_id: int,
+    store_view_magento_id: int | None,
+    scope_kind: str,
+    scope_key: str | None,
+    kind: str,
+    attribute: str,
+    actor: str,
+    minimo: float | None = None,
+    maximo: float | None = None,
+) -> Rule:
+    """Crea una regla `curada` en borrador desde una declaración humana.
+
+    `confidence = 1.0` no es una medición escrita a mano (lo que §5 prohíbe para
+    las inferidas) sino la marca de una decisión de una persona —igual que el
+    seed curado del mapa de conceptos—. Nace en borrador y entra al mismo
+    circuito de curación que las inferidas.
+    """
+    attribute = (attribute or "").strip()
+    if not attribute:
+        raise ValueError("una regla necesita un atributo")
+    if kind not in TIPOS_MANUALES:
+        raise ValueError(f"tipo no soportado para creación manual: {kind!r}")
+    if scope_kind not in ALCANCES_MANUALES:
+        raise ValueError(f"alcance no soportado: {scope_kind!r}")
+
+    if scope_kind == "attribute_set":
+        scope_key = (scope_key or "").strip()
+        if not scope_key:
+            raise ValueError("un alcance de attribute_set necesita un set")
+    else:  # global: una sola clave canónica, no un id
+        scope_key = "*"
+
+    if kind == "obligatoriedad":
+        definition: dict = {"attribute": attribute}
+    else:  # rango
+        if minimo is None or maximo is None:
+            raise ValueError("un rango necesita min y max")
+        if minimo >= maximo:
+            raise ValueError("el min de un rango debe ser menor que el max")
+        definition = {"attribute": attribute, "min": minimo, "max": maximo}
+
+    # Duplicado exacto: misma clave lógica (tenant, store, alcance, tipo,
+    # atributo) y no rechazada. Una rechazada no bloquea recrear —es una
+    # decisión que se puede revertir escribiéndola de nuevo—.
+    existentes = session.scalars(
+        select(Rule).where(
+            Rule.tenant_id == tenant_id,
+            Rule.kind == kind,
+            Rule.scope_kind == scope_kind,
+            Rule.scope_key == scope_key,
+            Rule.status != "rechazada",
+        )
+    ).all()
+    for r in existentes:
+        mismo_atributo = (r.definition or {}).get("attribute") == attribute
+        misma_store = r.store_view_magento_id == store_view_magento_id
+        if mismo_atributo and misma_store:
+            raise ReglaDuplicada(
+                f"ya existe una regla {kind} de '{attribute}' en ese alcance"
+            )
+
+    regla = Rule(
+        tenant_id=tenant_id, scope_kind=scope_kind, scope_key=scope_key,
+        store_view_magento_id=store_view_magento_id, axis=3, kind=kind,
+        definition=definition, confidence=1.0, evidence_count=0, exceptions=[],
+        status="borrador", origin="curada", profile_run_id=None,
+    )
+    session.add(regla)
+    session.flush()
+    session.add(RuleVersion(
+        rule_id=regla.id, from_status=None, to_status="borrador",
+        actor=actor, motivo="alta manual", definition_snapshot=regla.definition,
+    ))
+    session.flush()
+    return regla
+
+
 def _transicionar(session, rule: Rule, to_status: str, actor: str, motivo: str) -> None:
     exigir_transicion(rule.origin, rule.status, to_status)
     from_status = rule.status
