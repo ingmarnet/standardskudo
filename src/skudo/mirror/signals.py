@@ -6,7 +6,7 @@ from skudo.mirror.models import ProductRecord, ProductSignal
 
 _UPDATABLE = (
     "units_sold", "revenue", "salable_qty", "physical_qty",
-    "uses_msi", "margin", "search_demand",
+    "uses_msi", "margin", "search_demand", "is_in_stock",
 )
 
 
