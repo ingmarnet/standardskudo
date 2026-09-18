@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from skudo.findings.catalog import CANDIDATO, MEDIA, Cobertura, Ficha, Resultado, evaluar
 from skudo.findings.models import DetectorCoverage, Finding, FindingRun
 from skudo.findings.rules_eval import ReglaEvaluable, evaluar_regla
-from skudo.mirror.models import ProductCategoryAssignment, ProductRecord
+from skudo.mirror.models import ProductCategoryAssignment, ProductRecord, ProductSignal
+from skudo.mirror.store_settings import muestra_sin_stock
 from skudo.profile.states import sets_by_code
 from skudo.rules.models import Rule, RulesetSnapshot
 
@@ -21,6 +22,16 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
         ).where(ProductCategoryAssignment.tenant_id == tenant_id)
     ).all():
         categorias.setdefault(sku, []).append(cat)
+
+    stock_por_sku = dict(
+        session.execute(
+            select(ProductSignal.sku, ProductSignal.is_in_stock).where(
+                ProductSignal.tenant_id == tenant_id,
+                ProductSignal.store_view_magento_id == store_view_magento_id,
+            )
+        ).all()
+    )
+    muestra = muestra_sin_stock(session, tenant_id, store_view_magento_id)
 
     filas = session.execute(
         select(
@@ -42,6 +53,8 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
             attribute_set_id=set_id,
             type_id=type_id,
             categorias=tuple(sorted(categorias.get(sku, ()))),
+            is_in_stock=stock_por_sku.get(sku),
+            muestra_sin_stock=muestra,
         )
         for sku, attrs, set_id, type_id in filas
     ]
