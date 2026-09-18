@@ -18,11 +18,17 @@ from skudo.auth.users import authenticate
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
 from skudo.mirror.models import ProductRecord, Tenant
+from skudo.rules import curation
 from skudo.rules.models import Rule
+from skudo.rules.transitions import TransicionInvalida
 from skudo.score.models import CatalogScore, ProductScore
 from skudo.score.run import tendencia
 from skudo.score.trend import comparar_ultima
-from skudo.web.auth import create_token, require_user
+from skudo.web.auth import create_token, require_role, require_user
+
+# Roles con permiso para curar (aceptar, acotar, rechazar, snapshot). La
+# curación es una decisión de gobierno: el lector y el operador no la tocan.
+CURATION_ROLES = ("superadmin", "administrador", "aprobador")
 
 app = FastAPI(title="Skudo", version="0.1.0")
 
@@ -248,10 +254,128 @@ def tenant_rules(
             "evidence_count": r.evidence_count,
             "status": r.status,
             "origin": r.origin,
+            "ambiguo": bool((r.definition or {}).get("ambiguo")),
+            "definition": r.definition,
             "productos_marcados": marcados.get(r.id, 0),
         }
         for r in reglas
     ]
+
+
+# --- Curación de reglas desde el panel --------------------------------------
+#
+# Endpoints de ESCRITURA: envuelven las funciones puras de `skudo.rules.curation`
+# y delegan la validez de cada transición en la máquina de estados. La capa web
+# sólo agrega control de rol, pertenencia al tenant y el mapeo de las excepciones
+# de curación a códigos HTTP. Ninguna re-decide qué transición es válida.
+
+
+class AceptarRequest(BaseModel):
+    confirmar_ambiguo: bool = False
+
+
+class MotivoRequest(BaseModel):
+    motivo: str
+
+
+def _regla_del_tenant(db: Session, tenant_code: str, rule_id: int) -> Rule:
+    """Resuelve una regla comprobando que pertenece al tenant. 404 si no."""
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+    regla = db.get(Rule, rule_id)
+    if regla is None or regla.tenant_id != tenant.id:
+        raise HTTPException(404, "Regla no encontrada en este tenant")
+    return regla
+
+
+def _regla_json(r: Rule) -> dict:
+    return {
+        "id": r.id,
+        "kind": r.kind,
+        "attribute": (r.definition or {}).get("attribute"),
+        "status": r.status,
+        "origin": r.origin,
+        "ambiguo": bool((r.definition or {}).get("ambiguo")),
+    }
+
+
+@app.post("/api/tenants/{tenant_code}/rules/{rule_id}/accept")
+def accept_rule(
+    tenant_code: str,
+    rule_id: int,
+    body: AceptarRequest = AceptarRequest(),
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*CURATION_ROLES)),
+):
+    regla = _regla_del_tenant(db, tenant_code, rule_id)
+    try:
+        curation.aceptar(
+            db, [regla.id], actor=user["email"],
+            confirmar_ambiguo=body.confirmar_ambiguo,
+        )
+    except curation.ReglaAmbiguaSinConfirmar as e:
+        raise HTTPException(409, detail={"needs_confirm": True, "message": str(e)})
+    except TransicionInvalida as e:
+        raise HTTPException(409, detail=str(e))
+    db.commit()
+    db.refresh(regla)
+    return _regla_json(regla)
+
+
+@app.post("/api/tenants/{tenant_code}/rules/{rule_id}/reject")
+def reject_rule(
+    tenant_code: str,
+    rule_id: int,
+    body: MotivoRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*CURATION_ROLES)),
+):
+    regla = _regla_del_tenant(db, tenant_code, rule_id)
+    try:
+        curation.rechazar(db, regla.id, actor=user["email"], motivo=body.motivo)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except TransicionInvalida as e:
+        raise HTTPException(409, detail=str(e))
+    db.commit()
+    db.refresh(regla)
+    return _regla_json(regla)
+
+
+@app.post("/api/tenants/{tenant_code}/rules/{rule_id}/limit")
+def limit_rule(
+    tenant_code: str,
+    rule_id: int,
+    body: MotivoRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*CURATION_ROLES)),
+):
+    regla = _regla_del_tenant(db, tenant_code, rule_id)
+    try:
+        curation.acotar(db, regla.id, actor=user["email"], motivo=body.motivo)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    except TransicionInvalida as e:
+        raise HTTPException(409, detail=str(e))
+    db.commit()
+    db.refresh(regla)
+    return _regla_json(regla)
+
+
+@app.post("/api/tenants/{tenant_code}/rules/snapshot")
+def snapshot_rules(
+    tenant_code: str,
+    store: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*CURATION_ROLES)),
+):
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+    snap = curation.snapshot(db, tenant_id=tenant.id, store_view=store)
+    db.commit()
+    return {"version": snap.version, "rule_count": len(snap.rule_ids)}
 
 
 # --- Productos con peor nota ------------------------------------------------

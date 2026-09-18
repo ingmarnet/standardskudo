@@ -94,3 +94,21 @@ def require_user(creds: HTTPAuthorizationCredentials = Depends(_bearer)) -> dict
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
         )
+
+
+def require_role(*roles: str):
+    """Dependencia que exige un rol dentro de `roles`. 403 si no lo tiene.
+
+    Un usuario válido pero sin el rol NO es un 401 (sí está autenticado) sino un
+    403 (autenticado pero sin permiso para esta acción).
+    """
+
+    def _dep(user: dict = Depends(require_user)) -> dict:
+        if user.get("role") not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="rol sin permiso para esta acción",
+            )
+        return user
+
+    return _dep

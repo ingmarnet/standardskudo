@@ -500,11 +500,78 @@ body {
 .rule-status-borrador { background: var(--surface); color: var(--ink-secondary); border: 1px solid var(--border); }
 .origen-detector { background: var(--surface); color: var(--ink-secondary); border: 1px solid var(--border); }
 .origen-regla { background: var(--accent-light); color: var(--accent); }
+.rule-status-rechazada { background: var(--critical-light); color: var(--critical); }
 .rule-draft-note {
   font-size: 11px;
   color: var(--ink-secondary);
   margin-top: 4px;
 }
+
+/* --- Curación de reglas --- */
+.rules-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.rule-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.rule-btn {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.rule-btn:hover { background: var(--surface); }
+.rule-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn-accept { border-color: var(--positive); color: var(--positive); }
+.btn-accept:hover { background: var(--positive-light); }
+.btn-limit { border-color: var(--warning); color: var(--warning); }
+.btn-limit:hover { background: var(--warning-light); }
+.btn-reject { border-color: var(--critical); color: var(--critical); }
+.btn-reject:hover { background: var(--critical-light); }
+.btn-snapshot {
+  margin-left: auto;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+.btn-snapshot:hover { filter: brightness(1.05); }
+.btn-snapshot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  background: var(--ink);
+  color: var(--card);
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s, transform .2s;
+  z-index: 1000;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.toast-error { background: var(--critical); color: #fff; }
 
 /* --- Products table --- */
 .products-header {
@@ -671,7 +738,14 @@ const API = (() => {
     if (res.status === 401) { logout(); throw new Error('Sesión expirada'); }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail || `Error ${res.status}`);
+      const detail = body.detail;
+      const msg = (detail && typeof detail === 'object')
+        ? (detail.message || `Error ${res.status}`)
+        : (detail || `Error ${res.status}`);
+      const err = new Error(msg);
+      err.status = res.status;
+      err.detail = detail;
+      throw err;
     }
     return res.json();
   }
@@ -1179,6 +1253,78 @@ async function renderFindings() {
   }
 }
 
+function toast(msg, isError = false) {
+  let t = document.getElementById('skudo-toast');
+  if (!t) { t = el('div', { id: 'skudo-toast', class: 'toast' }); document.body.append(t); }
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' toast-error' : '');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+const CURATION_ROLES = ['superadmin', 'administrador', 'aprobador'];
+function puedeCurar() { return CURATION_ROLES.includes(API.user?.role); }
+
+// Qué acciones ofrece una regla según su estado y origen. El backend y la
+// máquina de estados son la autoridad; esto sólo evita mostrar botones que
+// darían 409. Un piso externo nunca se rechaza (sólo se acota).
+function accionesDeRegla(r) {
+  const piso = r.origin === 'piso_externo';
+  if (r.status === 'borrador')
+    return [{ tipo: 'accept', label: 'Aceptar', clase: 'btn-accept' },
+            { tipo: 'reject', label: 'Rechazar', clase: 'btn-reject' }];
+  if (r.status === 'aceptada') {
+    const a = [{ tipo: 'limit', label: 'Acotar', clase: 'btn-limit' }];
+    if (!piso) a.push({ tipo: 'reject', label: 'Rechazar', clase: 'btn-reject' });
+    return a;
+  }
+  if (r.status === 'aviso') {
+    const a = [{ tipo: 'accept', label: 'Reactivar', clase: 'btn-accept' }];
+    if (!piso) a.push({ tipo: 'reject', label: 'Rechazar', clase: 'btn-reject' });
+    return a;
+  }
+  return []; // rechazada: terminal
+}
+
+async function curarRegla(r, tipo) {
+  const base = `/api/tenants/${state.tenant.code}/rules/${r.id}`;
+  const attr = r.attribute || `#${r.id}`;
+  try {
+    if (tipo === 'accept') {
+      try {
+        await API.post(`${base}/accept`, {});
+      } catch (e) {
+        if (e.status === 409 && e.detail && e.detail.needs_confirm) {
+          if (!window.confirm(`La regla de "${attr}" tiene confianza media (ambigua). ¿Aceptarla igual?`)) return;
+          await API.post(`${base}/accept`, { confirmar_ambiguo: true });
+        } else { throw e; }
+      }
+    } else if (tipo === 'reject') {
+      const motivo = window.prompt(`Motivo para rechazar la regla de "${attr}":`, '');
+      if (motivo == null || !motivo.trim()) return;
+      await API.post(`${base}/reject`, { motivo });
+    } else if (tipo === 'limit') {
+      const motivo = window.prompt(`Motivo para acotar a aviso la regla de "${attr}":`, '');
+      if (motivo == null || !motivo.trim()) return;
+      await API.post(`${base}/limit`, { motivo });
+    }
+    toast(`Regla de "${attr}" actualizada`);
+    renderRules();
+  } catch (e) {
+    toast(`Error: ${e.message}`, true);
+  }
+}
+
+async function crearSnapshot() {
+  if (!window.confirm('Un snapshot congela las reglas activas actuales para reproducir la próxima evaluación. ¿Crearlo?')) return;
+  try {
+    const res = await API.post(`/api/tenants/${state.tenant.code}/rules/snapshot?store=${state.store}`, {});
+    toast(`Snapshot v${res.version} con ${res.rule_count} reglas activas`);
+  } catch (e) {
+    toast(`Error: ${e.message}`, true);
+  }
+}
+
 async function renderRules() {
   const main = document.getElementById('main-content');
   main.innerHTML = '';
@@ -1187,10 +1333,12 @@ async function renderRules() {
     return;
   }
 
-  main.append(
-    el('div', { class: 'main-header' }, el('h1', null, `Reglas · ${state.tenant.name || state.tenant.code}`)),
-    renderLoading()
-  );
+  const canCurate = puedeCurar();
+  const header = el('div', { class: 'main-header' }, el('h1', null, `Reglas · ${state.tenant.name || state.tenant.code}`));
+  if (canCurate) {
+    header.append(el('button', { class: 'btn-snapshot', onclick: crearSnapshot }, 'Crear snapshot'));
+  }
+  main.append(header, renderLoading());
 
   try {
     const rules = await API.get(`/api/tenants/${state.tenant.code}/rules?store=${state.store}`);
@@ -1198,17 +1346,27 @@ async function renderRules() {
     if (loading) loading.remove();
 
     if (!rules?.length) {
-      main.append(el('div', { class: 'empty-state' }, el('p', null, 'No hay reglas activas para esta store view.')));
+      main.append(el('div', { class: 'empty-state' }, el('p', null, 'No hay reglas para esta store view.')));
       return;
     }
 
-    // Sin severidad propia por regla: se ordena por impacto observado
-    // (productos marcados en la última pasada), de mayor a menor.
-    const sorted = [...rules].sort((a, b) => (b.productos_marcados || 0) - (a.productos_marcados || 0));
+    // Resumen por estado: cuántas hay para curar vs. ya activas.
+    const cuenta = {};
+    for (const r of rules) cuenta[r.status] = (cuenta[r.status] || 0) + 1;
+    const resumen = el('div', { class: 'rules-summary' });
+    for (const [estado, n] of Object.entries(cuenta)) {
+      resumen.append(el('span', { class: `severity-badge rule-status-${estado}` }, `${n} ${estado}`));
+    }
+    main.append(resumen);
+
+    // Borradores primero (lo que hay para curar), luego por impacto observado.
+    const orden = { borrador: 0, aceptada: 1, aviso: 2, rechazada: 3 };
+    const sorted = [...rules].sort((a, b) =>
+      (orden[a.status] - orden[b.status]) || ((b.productos_marcados || 0) - (a.productos_marcados || 0)));
 
     const card = el('div', { class: 'card' });
     const table = el('table', { class: 'findings-table' });
-    table.append(el('thead', null, el('tr', null,
+    const headRow = el('tr', null,
       el('th', null, 'Atributo'),
       el('th', null, 'Kind'),
       el('th', null, 'Scope'),
@@ -1217,19 +1375,21 @@ async function renderRules() {
       el('th', null, 'Evidencia'),
       el('th', null, 'Marcados'),
       el('th', null, 'Estado'),
-    )));
+    );
+    if (canCurate) headRow.append(el('th', null, 'Acciones'));
+    table.append(el('thead', null, headRow));
 
     const tbody = el('tbody');
     for (const r of sorted) {
-      const isDraft = r.status === 'borrador';
+      const dim = r.status === 'rechazada';
       const pct = Math.round((r.confidence || 0) * 100);
 
       const estadoCell = el('td', null,
         el('span', { class: `severity-badge rule-status-${r.status}` }, r.status),
-        isDraft ? el('div', { class: 'rule-draft-note' }, 'disponible para curar (S1d)') : null,
+        r.ambiguo ? el('div', { class: 'rule-draft-note' }, 'ambigua') : null,
       );
 
-      tbody.append(el('tr', isDraft ? { style: { opacity: '.6' } } : null,
+      const cells = [
         el('td', { style: { fontWeight: '500' } }, r.attribute || '—'),
         el('td', null, r.kind || '—'),
         el('td', { style: { color: 'var(--ink-secondary)', fontSize: '12px' } }, r.scope ? r.scope.replace(':', ' · ') : '—'),
@@ -1243,7 +1403,20 @@ async function renderRules() {
         el('td', null, r.evidence_count != null ? String(r.evidence_count) : '—'),
         el('td', null, String(r.productos_marcados || 0)),
         estadoCell,
-      ));
+      ];
+      if (canCurate) {
+        const acc = el('div', { class: 'rule-actions' });
+        const acciones = accionesDeRegla(r);
+        if (!acciones.length) {
+          acc.append(el('span', { style: { color: 'var(--ink-secondary)', fontSize: '12px' } }, '—'));
+        }
+        for (const a of acciones) {
+          acc.append(el('button', { class: `rule-btn ${a.clase}`, onclick: () => curarRegla(r, a.tipo) }, a.label));
+        }
+        cells.push(el('td', null, acc));
+      }
+
+      tbody.append(el('tr', dim ? { style: { opacity: '.55' } } : null, ...cells));
     }
     table.append(tbody);
     card.append(table);
