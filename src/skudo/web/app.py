@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from skudo.auth.users import authenticate
@@ -419,8 +419,11 @@ def tenant_products(
         )
     )
 
+    # pleno antes que sin_stock; NULL (sin datos de stock) al final. Dentro de
+    # cada grupo se mantiene el orden por peor nota.
+    orden_prioridad = case({"pleno": 0, "sin_stock": 1}, value=ProductScore.prioridad_vitrina, else_=2)
     filas = db.scalars(
-        q.order_by(ProductScore.puntaje, ProductScore.sku)
+        q.order_by(orden_prioridad, ProductScore.puntaje, ProductScore.sku)
         .limit(min(limit, 200))
         .offset(offset)
     ).all()
@@ -434,6 +437,7 @@ def tenant_products(
                 "grado": p.grado,
                 "critico": p.critico,
                 "deducciones": p.deducciones,
+                "prioridad_vitrina": p.prioridad_vitrina,
             }
             for p in filas
         ],

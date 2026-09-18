@@ -507,6 +507,11 @@ body {
   margin-top: 4px;
 }
 
+/* --- Vitrina (stock/visibilidad) badges --- */
+.vitrina-pleno { background: var(--positive-light); color: var(--positive); }
+.vitrina-sinstock { background: var(--warning-light); color: var(--warning); }
+.vitrina-desconocido { background: var(--surface); color: var(--ink-secondary); border: 1px solid var(--border); }
+
 /* --- Curación de reglas --- */
 .section-intro {
   color: var(--ink-secondary);
@@ -871,6 +876,16 @@ function gradoTitle(g) {
   return i ? `Grado ${g}: ${i.label} (nota ${i.rango} de 100)` : `Grado ${g}`;
 }
 function sevClass(s) { return `sev-${s}`; }
+
+const VITRINA = {
+  pleno: { label: 'Con stock', clase: 'vitrina-pleno' },
+  sin_stock: { label: 'Sin stock · visible', clase: 'vitrina-sinstock' },
+};
+function vitrinaBadge(p) {
+  const info = VITRINA[p.prioridad_vitrina];
+  if (!info) return el('span', { class: 'severity-badge vitrina-desconocido', title: 'No hay datos de stock sincronizados para este producto.' }, 'Stock desconocido');
+  return el('span', { class: `severity-badge ${info.clase}`, title: p.prioridad_vitrina === 'sin_stock' ? 'Sin stock, pero Magento lo muestra: cuenta con menor prioridad.' : 'Con stock: prioridad plena.' }, info.label);
+}
 
 function deltaArrow(d) {
   if (d > 0) return '↑';
@@ -1581,6 +1596,8 @@ async function renderProducts() {
     main.innerHTML = '';
     const header = el('div', { class: 'main-header' }, el('h1', null, `Productos · ${state.tenant.name || state.tenant.code}`));
     main.append(header);
+    main.append(el('p', { class: 'section-intro' },
+      'Los productos sin stock que Magento oculta no aparecen acá ni penalizan la nota. Los que están sin stock pero visibles se listan al final, con menor prioridad.'));
 
     const filters = el('div', { class: 'products-header' });
     const grades = ['A', 'B', 'C', 'D', 'E'];
@@ -1615,6 +1632,7 @@ async function renderProducts() {
       el('th', null, 'SKU'),
       el('th', null, 'Puntaje'),
       el('th', null, 'Grado'),
+      el('th', null, 'Vitrina'),
       el('th', null, 'No publicable'),
       el('th', null, 'Deducciones'),
     )));
@@ -1624,6 +1642,7 @@ async function renderProducts() {
         el('td', { style: { fontWeight: '500', fontFamily: 'var(--font-body)', fontSize: '13px' } }, p.sku),
         el('td', { style: { fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-display)', fontWeight: '700' } }, String(p.puntaje)),
         el('td', null, el('span', { class: `severity-badge ${gradeClass(p.grado)}`, title: gradoTitle(p.grado), style: { fontFamily: 'var(--font-display)' } }, p.grado)),
+        el('td', null, vitrinaBadge(p)),
         el('td', null, p.critico ? el('span', { style: { color: 'var(--critical)', fontWeight: '500' } }, 'Sí') : '—'),
         el('td', { style: { fontSize: '12px', color: 'var(--ink-secondary)' } },
           (p.deducciones || []).map(d => `${LABELS[d.code] || d.code} (−${d.resta})`).join(', ') || '—'
