@@ -45,6 +45,7 @@ PUBLICADO = "publicado"
 NO_NAVEGABLE = "no_navegable"
 DESHABILITADO = "deshabilitado"
 DESCONOCIDO = "desconocido"
+OCULTO_SIN_STOCK = "oculto_sin_stock"
 
 VISIBILIDADES_NAVEGABLES = {"2", "3", "4"}
 
@@ -58,6 +59,10 @@ class Ficha:
     attribute_set_id: int | None = None
     type_id: str | None = None
     categorias: tuple[int, ...] = ()
+    # Stock por producto y config por store view. Ambos None por defecto para
+    # que un llamador que no los provea obtenga el comportamiento de siempre.
+    is_in_stock: bool | None = None
+    muestra_sin_stock: bool | None = None
 
     def valor(self, code: str) -> str | None:
         """El valor de un campo, o `None` si está vacío.
@@ -82,7 +87,21 @@ class Ficha:
             return DESHABILITADO
         if visibility not in VISIBILIDADES_NAVEGABLES:
             return NO_NAVEGABLE
+        # Publicado por status+visibility. Solo lo oculta un sin-stock EXPLÍCITO
+        # con una config de ocultar EXPLÍCITA: cualquier None deja PUBLICADO.
+        if self.is_in_stock is False and self.muestra_sin_stock is False:
+            return OCULTO_SIN_STOCK
         return PUBLICADO
+
+    @property
+    def prioridad_vitrina(self) -> str | None:
+        """Prioridad de un producto ya publicado: 'pleno' o 'sin_stock'. None si
+        no es publicado (los ocultos no se listan)."""
+        if self.estado != PUBLICADO:
+            return None
+        if self.is_in_stock is False and self.muestra_sin_stock is True:
+            return "sin_stock"
+        return "pleno"
 
 
 @dataclass(frozen=True)
