@@ -62,6 +62,7 @@ def score_run(session: Session, run: FindingRun) -> CatalogScore:
     # proyecto existe para no cometer, y la primera versión de esta función lo
     # cometía.
     fichas = fichas_de(session, run.tenant_id, run.store_view_magento_id)
+    prioridad_por_sku = {f.sku: f.prioridad_vitrina for f in fichas}
     publicados = [f.sku for f in fichas if f.estado == PUBLICADO]
     por_sku = _hallazgos_por_sku(session, run)
     notas = [nota_de_producto(sku, por_sku.get(sku, [])) for sku in publicados]
@@ -75,6 +76,7 @@ def score_run(session: Session, run: FindingRun) -> CatalogScore:
             "grado": n.grado,
             "critico": n.critico,
             "deducciones": n.deducciones,
+            "prioridad_vitrina": prioridad_por_sku.get(n.sku),
             "run_id": run.id,
         }
         for n in notas
@@ -89,6 +91,7 @@ def score_run(session: Session, run: FindingRun) -> CatalogScore:
                     "grado": stmt.excluded.grado,
                     "critico": stmt.excluded.critico,
                     "deducciones": stmt.excluded.deducciones,
+                    "prioridad_vitrina": stmt.excluded.prioridad_vitrina,
                     "run_id": stmt.excluded.run_id,
                     "updated_at": stmt.excluded.updated_at,
                 },
