@@ -84,3 +84,55 @@ def test_los_detectores_especiales_siguen_corriendo(db_session):
     # sin_categoria es un detector especial: B (y A) no tienen categoría
     assert db_session.query(Finding).filter(
         Finding.run_id == run.id, Finding.code == "sin_categoria").count() >= 1
+
+
+def test_dos_reglas_mismo_atributo_distinto_set_fusionan_cobertura(db_session):
+    """Dos reglas de obligatoriedad sobre el mismo atributo en attribute_sets
+    distintos producen el mismo código `regla:obligatoriedad:color`. La
+    cobertura debe FUSIONARSE en una sola fila (evaluados sumados sobre scopes
+    disjuntos), no chocar contra el único (run_id, detector) ni escribir dos
+    filas. Bug detectado con datos reales de Renovapadel."""
+    from skudo.findings.models import DetectorCoverage
+
+    t = Tenant(code="acme", name="Acme", base_url="http://x.test", token_env_var="X")
+    db_session.add(t); db_session.flush()
+    db_session.add(Attribute(tenant_id=t.id, code="color", label="color",
+                             frontend_input="select", declared_scope="global",
+                             is_filterable=True, is_required=False,
+                             attribute_set_ids=[4, 9]))
+    # set 4: A (con color) y B (sin) · set 9: C (con) y D (sin)
+    for sku, sid, attrs in [
+        ("A", 4, {"status": "1", "visibility": "4", "color": "rojo"}),
+        ("B", 4, {"status": "1", "visibility": "4"}),
+        ("C", 9, {"status": "1", "visibility": "4", "color": "azul"}),
+        ("D", 9, {"status": "1", "visibility": "4"}),
+    ]:
+        db_session.add(ProductRecord(tenant_id=t.id, sku=sku, store_view_magento_id=1,
+                                     attributes=attrs, attribute_set_id=sid,
+                                     type_id="simple", sync_generation=1,
+                                     scope_provenance={}, content_hash=sku))
+    db_session.flush()
+
+    r4 = _regla_aceptada(db_session, t, scope_key="4")
+    r9 = _regla_aceptada(db_session, t, scope_key="9")
+    snap = RulesetSnapshot(tenant_id=t.id, store_view_magento_id=1, version=1,
+                           rule_ids=[r4.id, r9.id])
+    db_session.add(snap); db_session.flush()
+
+    run = detect_store_view(db_session, t.id, 1)
+
+    # una sola fila de cobertura para el código, con evaluados fusionados (2 en
+    # cada set = 4) y los totales cuadran con los 4 productos.
+    cubs = db_session.query(DetectorCoverage).filter(
+        DetectorCoverage.run_id == run.id,
+        DetectorCoverage.detector == "regla:obligatoriedad:color").all()
+    assert len(cubs) == 1
+    c = cubs[0]
+    assert c.evaluados == 4
+    assert c.evaluados + c.no_aplica + c.no_evaluado == 4
+
+    # los dos hallazgos (B y D), cada uno atribuido a su regla de scope.
+    hs = db_session.query(Finding).filter(
+        Finding.run_id == run.id, Finding.code == "regla:obligatoriedad:color").all()
+    assert {h.subject_key for h in hs} == {"B", "D"}
+    assert {h.rule_id for h in hs} == {r4.id, r9.id}

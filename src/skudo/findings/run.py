@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from skudo.findings.catalog import CANDIDATO, MEDIA, Ficha, Resultado, evaluar
+from skudo.findings.catalog import CANDIDATO, MEDIA, Cobertura, Ficha, Resultado, evaluar
 from skudo.findings.models import DetectorCoverage, Finding, FindingRun
 from skudo.findings.rules_eval import ReglaEvaluable, evaluar_regla
 from skudo.mirror.models import ProductCategoryAssignment, ProductRecord
@@ -61,7 +61,11 @@ def _escribir_resultado(
     lugar que escribe `DetectorCoverage`/`Finding`: detectores y reglas pasan
     por acá para que la atribución no se escriba dos veces distinto.
     """
-    c = resultado.cobertura
+    _escribir_cobertura(session, run, resultado.cobertura)
+    _escribir_hallazgos(session, run, resultado.hallazgos, rule_id, version)
+
+
+def _escribir_cobertura(session: Session, run: FindingRun, c: Cobertura) -> None:
     session.add(
         DetectorCoverage(
             run_id=run.id,
@@ -72,7 +76,10 @@ def _escribir_resultado(
             motivo_no_aplica=c.motivo_no_aplica[:512],
         )
     )
-    for h in resultado.hallazgos:
+
+
+def _escribir_hallazgos(session, run, hallazgos, rule_id, version) -> None:
+    for h in hallazgos:
         session.add(
             Finding(
                 run_id=run.id,
@@ -86,6 +93,27 @@ def _escribir_resultado(
                 ruleset_version=version,
             )
         )
+
+
+def _fusionar_cobertura(cubs: list[Cobertura], total: int) -> Cobertura:
+    """Fusiona en UNA las coberturas de varias reglas que comparten código.
+
+    Dos reglas del mismo kind+attribute con distinto scope (ej.
+    `obligatoriedad:color` en el set 4 y en el 9) producen el mismo código y
+    chocarían contra el único (run_id, detector). Como los scopes son
+    disjuntos, `evaluados` es la SUMA (ningún producto lo evalúan dos reglas).
+    El resto del universo se reparte: `no_evaluado` es lo que ninguna pudo
+    ubicar (acotado a lo que queda) y `no_aplica` es el resto, de modo que los
+    tres cierran en `total`. Esto es exacto cuando todo producto tiene set
+    (el caso real); si no, el acote evita una cuenta negativa.
+    """
+    if len(cubs) == 1:
+        return cubs[0]
+    evaluados = sum(c.evaluados for c in cubs)
+    no_evaluado = min(sum(c.no_evaluado for c in cubs), max(total - evaluados, 0))
+    no_aplica = max(total - evaluados - no_evaluado, 0)
+    return Cobertura(cubs[0].detector, evaluados, no_aplica, no_evaluado,
+                     cubs[0].motivo_no_aplica)
 
 
 def _severidad_base(r: Rule) -> str:
@@ -188,13 +216,23 @@ def detect_store_view(
         else {}
     )
     sets = sets_by_code(session, tenant_id)
+    # Los hallazgos se escriben por regla (atribución exacta por rule_id); la
+    # cobertura se acumula por código y se escribe fusionada al final, porque
+    # dos reglas del mismo kind+attribute con distinto scope comparten código.
+    cobertura_por_codigo: dict[str, list[Cobertura]] = {}
     for regla in reglas:
         fichas_regla = fichas
         if regla.scope_kind == "category":
             skus = por_categoria.get(int(regla.scope_key), set())
             fichas_regla = [f for f in fichas if f.sku in skus]
         resultado = evaluar_regla(regla, fichas_regla, sets)
-        _escribir_resultado(session, run, resultado, rule_id=regla.id, version=version)
+        _escribir_hallazgos(session, run, resultado.hallazgos, regla.id, version)
+        cobertura_por_codigo.setdefault(
+            resultado.cobertura.detector, []
+        ).append(resultado.cobertura)
+
+    for cubs in cobertura_por_codigo.values():
+        _escribir_cobertura(session, run, _fusionar_cobertura(cubs, len(fichas)))
 
     run.finished_at = datetime.now(UTC)
     session.flush()
