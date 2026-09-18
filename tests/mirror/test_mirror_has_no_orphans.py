@@ -215,6 +215,7 @@ ROOT_TABLES = {
     "sync_watermark",
     "full_sync_checkpoint",
     "sync_pass",
+    "store_setting",
     # `platform_user` es raíz en un sentido más fuerte todavía: no referencia
     # ni al tenant. Un usuario de la plataforma está POR ENCIMA de los tenants,
     # no dentro de uno. Cuando S7 traiga los roles por tenant, la tabla de

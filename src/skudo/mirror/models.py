@@ -341,6 +341,10 @@ class ProductSignal(Base):
     salable_qty: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     physical_qty: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     uses_msi: Mapped[bool] = mapped_column(Boolean)
+    # El flag con que Magento decide OCULTAR (no el qty): puede haber qty 0 con
+    # is_in_stock=1 (backorders). NULL = no hay fila de stock / no se sincronizó;
+    # NUNCA se lee como "sin stock" (ver Global Constraints).
+    is_in_stock: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     margin: Mapped[float | None] = mapped_column(Numeric(9, 4), nullable=True)
     search_demand: Mapped[int | None] = mapped_column(Integer, nullable=True)
     observed_at: Mapped[datetime] = mapped_column(
@@ -439,5 +443,28 @@ class SyncPass(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class StoreSetting(Base):
+    """Configuración de una store view del Magento del tenant, clave/valor.
+
+    Genérica a propósito: hoy guarda `show_out_of_stock`, y mañana otra config
+    de tienda entra sin una migración nueva. El valor es texto ('true'/'false'
+    para banderas) porque una config de Magento no tiene un tipo uniforme.
+    """
+
+    __tablename__ = "store_setting"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "store_view_magento_id", "key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    store_view_magento_id: Mapped[int] = mapped_column(Integer, index=True)
+    key: Mapped[str] = mapped_column(String(128))
+    value: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

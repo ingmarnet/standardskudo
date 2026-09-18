@@ -48,6 +48,11 @@ class ProductScore(Base):
     # De dónde sale el número. Es lo que Semrush no publica y acá es la razón
     # de ser de la columna: un catálogo que saca C puede preguntar por qué.
     deducciones: Mapped[list] = mapped_column(JSON)
+    # Prioridad de vitrina: 'pleno' (con stock) o 'sin_stock' (sin stock pero
+    # visible). NULL si no se pudo determinar (sin datos de stock). No entra en
+    # el puntaje; ordena el panel. Los ocultos por falta de stock ni siquiera
+    # llegan acá: no son PUBLICADO, así que no se puntúan.
+    prioridad_vitrina: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     run_id: Mapped[int] = mapped_column(ForeignKey("finding_run.id"), index=True)
     updated_at: Mapped[datetime] = mapped_column(
