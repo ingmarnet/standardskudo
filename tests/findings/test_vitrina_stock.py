@@ -29,17 +29,28 @@ def test_sin_stock_pero_visible_es_publicado_con_prioridad_menor():
 
 
 def test_ignorancia_stock_desconocido_se_comporta_como_hoy():
-    # is_in_stock None: como si la feature no existiera -> publicado y pleno.
+    # is_in_stock None: sigue publicado y se sigue puntuando (ignorancia no
+    # oculta), pero la prioridad de vitrina declara el desconocido en vez de
+    # afirmar "pleno" (spec §6): no hay datos de stock para este producto.
     f = _f(is_in_stock=None, muestra_sin_stock=False)
     assert f.estado == PUBLICADO
-    assert f.prioridad_vitrina == "pleno"
+    assert f.prioridad_vitrina == "desconocido"
 
 
 def test_ignorancia_config_desconocida_no_oculta():
     # sin stock explícito pero config desconocida: gana la ignorancia -> publicado.
     f = _f(is_in_stock=False, muestra_sin_stock=None)
     assert f.estado == PUBLICADO
-    assert f.prioridad_vitrina == "pleno"
+    assert f.prioridad_vitrina == "sin_stock"
+
+
+def test_con_stock_true_es_pleno_y_desconocido_no_se_confunde_con_pleno():
+    # Bloquea la distinción: is_in_stock=True es 'pleno' (veredicto conocido),
+    # is_in_stock=None es 'desconocido' (sin datos) -- nunca el mismo valor.
+    conocido = _f(is_in_stock=True, muestra_sin_stock=False)
+    desconocido = _f(is_in_stock=None, muestra_sin_stock=False)
+    assert conocido.prioridad_vitrina == "pleno"
+    assert desconocido.prioridad_vitrina == "desconocido"
 
 
 def test_no_navegable_no_se_toca_por_stock():

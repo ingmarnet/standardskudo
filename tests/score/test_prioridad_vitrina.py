@@ -19,7 +19,10 @@ def test_prioridad_se_persiste_y_oculto_no_se_puntua(db_session):
     db_session.add(StoreSetting(tenant_id=t.id, store_view_magento_id=1,
                                 key="show_out_of_stock", value="false"))  # oculta sin stock
     _prod(db_session, t, "con", is_in_stock=True)     # pleno
-    _prod(db_session, t, "vis", is_in_stock=None)     # desconocido -> pleno (ignorancia)
+    _prod(db_session, t, "vis", is_in_stock=None)     # desconocido: se sigue
+                                                       # puntuando (ignorancia
+                                                       # no oculta), pero no se
+                                                       # declara "pleno"
     _prod(db_session, t, "ocu", is_in_stock=False)    # oculto: no debe puntuarse
     db_session.flush()
 
@@ -29,5 +32,8 @@ def test_prioridad_se_persiste_y_oculto_no_se_puntua(db_session):
     por_sku = {p.sku: p for p in db_session.query(ProductScore).filter_by(
         tenant_id=t.id, store_view_magento_id=1)}
     assert por_sku["con"].prioridad_vitrina == "pleno"
-    assert por_sku["vis"].prioridad_vitrina == "pleno"
+    # is_in_stock=None sigue puntuado (la ignorancia no oculta), pero la
+    # prioridad de vitrina no puede afirmar "pleno" sin datos de stock
+    # (spec §6): se declara "desconocido", no se confunde con un veredicto.
+    assert por_sku["vis"].prioridad_vitrina == "desconocido"
     assert "ocu" not in por_sku  # oculto por falta de stock: no se puntúa

@@ -95,13 +95,21 @@ class Ficha:
 
     @property
     def prioridad_vitrina(self) -> str | None:
-        """Prioridad de un producto ya publicado: 'pleno' o 'sin_stock'. None si
-        no es publicado (los ocultos no se listan)."""
+        """Prioridad de un producto ya publicado: 'pleno', 'sin_stock' o
+        'desconocido'. None si no es publicado (los ocultos no se listan).
+
+        `is_in_stock is None` es stock no sincronizado, no stock pleno: la
+        realidad de hoy (sin datos de stock cargados) no puede pintarse como
+        "con stock" para todo el catálogo. Confundir un desconocido con un
+        veredicto es exactamente lo que el spec §6 prohíbe.
+        """
         if self.estado != PUBLICADO:
             return None
-        if self.is_in_stock is False and self.muestra_sin_stock is True:
+        if self.is_in_stock is True:
+            return "pleno"
+        if self.is_in_stock is False:
             return "sin_stock"
-        return "pleno"
+        return "desconocido"
 
 
 @dataclass(frozen=True)
