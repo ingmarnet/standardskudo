@@ -508,6 +508,67 @@ body {
 }
 
 /* --- Curación de reglas --- */
+.section-intro {
+  color: var(--ink-secondary);
+  font-size: 14px;
+  line-height: 1.5;
+  max-width: 70ch;
+  margin: -12px 0 16px;
+}
+.ayuda-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+.ayuda-panel > summary {
+  cursor: pointer;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.ayuda-panel > summary::-webkit-details-marker { display: none; }
+.ayuda-panel > summary::before {
+  content: '▸';
+  color: var(--accent);
+  transition: transform .15s;
+}
+.ayuda-panel[open] > summary::before { transform: rotate(90deg); }
+.ayuda-panel > summary:hover { color: var(--accent); }
+.ayuda-cuerpo {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink-secondary);
+  max-width: 78ch;
+}
+.ayuda-cuerpo p { margin: 12px 0; }
+.ayuda-cuerpo strong { color: var(--ink); }
+.ayuda-cuerpo h4 {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.ayuda-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.ayuda-lista li { display: flex; align-items: baseline; gap: 10px; }
+.ayuda-lista li .severity-badge { flex-shrink: 0; }
+.ayuda-nota {
+  background: var(--accent-light);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
 .rules-summary {
   display: flex;
   gap: 8px;
@@ -1325,6 +1386,75 @@ async function crearSnapshot() {
   }
 }
 
+// Explicaciones en lenguaje llano para que la sección se entienda sola.
+const TIPO_INFO = {
+  obligatoriedad: { label: 'Obligatorio', desc: 'El atributo debería estar cargado en todos los productos de este grupo.' },
+  rango: { label: 'Rango', desc: 'El valor numérico debería caer entre un mínimo y un máximo razonables.' },
+  formato: { label: 'Formato', desc: 'Sospecha de un valor mal escrito (por ejemplo una coma en vez de punto).' },
+};
+const ESTADO_INFO = {
+  borrador: 'Propuesta de Skudo. Todavía no afecta la nota: vos decidís si la aceptás.',
+  aceptada: 'Activa: penaliza a los productos que no la cumplen y baja su nota.',
+  aviso: 'Activa pero sin penalizar: solo informa, no toca la nota.',
+  rechazada: 'Descartada: no se usa ni se vuelve a proponer.',
+};
+const ORIGEN_INFO = {
+  inferida: 'Skudo la propuso mirando tu propio catálogo (qué cargás casi siempre).',
+  piso_externo: 'Requisito mínimo de Google Shopping para poder publicar y que se encuentre el producto.',
+  curada: 'Creada o ajustada a mano.',
+};
+
+function tipoLabel(kind) { return (TIPO_INFO[kind] || {}).label || kind || '—'; }
+
+function reglasAyuda(canCurate) {
+  const abierto = (() => { try { return localStorage.getItem('skudo_reglas_ayuda') !== 'cerrado'; } catch { return true; } })();
+  const d = el('details', { class: 'ayuda-panel' });
+  if (abierto) d.setAttribute('open', '');
+  d.addEventListener('toggle', () => {
+    try { localStorage.setItem('skudo_reglas_ayuda', d.open ? 'abierto' : 'cerrado'); } catch {}
+  });
+  d.append(el('summary', null, '¿Qué es esto y cómo se usa?'));
+
+  const cuerpo = el('div', { class: 'ayuda-cuerpo' });
+  cuerpo.innerHTML = `
+    <p><strong>Una regla es una expectativa de calidad sobre tus productos</strong>, que Skudo
+    aprende mirando tu propio catálogo. Por ejemplo: «en el calzado, el <em>color</em> debería
+    estar cargado» o «el <em>precio</em> debería estar entre tal y tal valor». Cuando un producto
+    no cumple una regla activa, aparece en <strong>Hallazgos</strong> y baja la nota de salud.</p>
+
+    <h4>Los estados de una regla</h4>
+    <ul class="ayuda-lista">
+      <li><span class="severity-badge rule-status-borrador">borrador</span> ${ESTADO_INFO.borrador}</li>
+      <li><span class="severity-badge rule-status-aceptada">aceptada</span> ${ESTADO_INFO.aceptada}</li>
+      <li><span class="severity-badge rule-status-aviso">aviso</span> ${ESTADO_INFO.aviso}</li>
+      <li><span class="severity-badge rule-status-rechazada">rechazada</span> ${ESTADO_INFO.rechazada}</li>
+    </ul>
+
+    <h4>De dónde salen</h4>
+    <ul class="ayuda-lista">
+      <li><span class="severity-badge origin-inferida">inferida</span> ${ORIGEN_INFO.inferida}</li>
+      <li><span class="severity-badge origin-piso_externo">piso externo</span> ${ORIGEN_INFO.piso_externo}</li>
+    </ul>
+    ${canCurate ? `
+    <h4>Qué podés hacer</h4>
+    <ul class="ayuda-lista">
+      <li><strong>Aceptar</strong>: la regla empieza a puntuar (pasa a «aceptada»).</li>
+      <li><strong>Acotar</strong>: la dejás informando sin penalizar (pasa a «aviso»).</li>
+      <li><strong>Rechazar</strong>: la descartás (te pide un motivo).</li>
+      <li><strong>Reactivar</strong>: volvés a puntuar una regla que estaba en «aviso».</li>
+    </ul>
+    <p class="ayuda-nota">Después de aceptar o rechazar reglas, tocá <strong>«Crear snapshot»</strong>
+    (arriba a la derecha) y volvé a evaluar: un snapshot es una «foto» de las reglas activas contra
+    la que Skudo mide, para que dos mediciones sean comparables.</p>
+    ` : `
+    <p class="ayuda-nota">Tu rol es de solo lectura: podés ver las reglas pero no curarlas. La
+    curación (aceptar, acotar, rechazar) la hace un rol aprobador o administrador.</p>
+    `}
+  `;
+  d.append(cuerpo);
+  return d;
+}
+
 async function renderRules() {
   const main = document.getElementById('main-content');
   main.innerHTML = '';
@@ -1338,7 +1468,9 @@ async function renderRules() {
   if (canCurate) {
     header.append(el('button', { class: 'btn-snapshot', onclick: crearSnapshot }, 'Crear snapshot'));
   }
-  main.append(header, renderLoading());
+  main.append(header, el('p', { class: 'section-intro' },
+    'Las reglas son las expectativas de calidad con que Skudo mide tu catálogo. Acá revisás las que propone y decidís cuáles valen.'),
+    reglasAyuda(canCurate), renderLoading());
 
   try {
     const rules = await API.get(`/api/tenants/${state.tenant.code}/rules?store=${state.store}`);
@@ -1367,14 +1499,14 @@ async function renderRules() {
     const card = el('div', { class: 'card' });
     const table = el('table', { class: 'findings-table' });
     const headRow = el('tr', null,
-      el('th', null, 'Atributo'),
-      el('th', null, 'Kind'),
-      el('th', null, 'Scope'),
-      el('th', null, 'Origen'),
-      el('th', null, 'Confianza'),
-      el('th', null, 'Evidencia'),
-      el('th', null, 'Marcados'),
-      el('th', null, 'Estado'),
+      el('th', { title: 'El campo del producto sobre el que mira la regla.' }, 'Atributo'),
+      el('th', { title: 'Qué controla: Obligatorio (debe estar cargado), Rango (valor entre min y max) o Formato (valor mal escrito).' }, 'Tipo'),
+      el('th', { title: 'A qué grupo de productos aplica (por ejemplo, un attribute set).' }, 'Alcance'),
+      el('th', { title: 'De dónde salió: inferida de tu catálogo o piso mínimo de Google.' }, 'Origen'),
+      el('th', { title: 'Qué tan seguro está Skudo de la regla, según tu catálogo.' }, 'Confianza'),
+      el('th', { title: 'Cuántos productos miró Skudo para proponer la regla.' }, 'Evidencia'),
+      el('th', { title: 'Cuántos productos NO cumplen la regla en la última medición.' }, 'Productos marcados'),
+      el('th', { title: 'En qué punto del ciclo está la regla.' }, 'Estado'),
     );
     if (canCurate) headRow.append(el('th', null, 'Acciones'));
     table.append(el('thead', null, headRow));
@@ -1385,15 +1517,15 @@ async function renderRules() {
       const pct = Math.round((r.confidence || 0) * 100);
 
       const estadoCell = el('td', null,
-        el('span', { class: `severity-badge rule-status-${r.status}` }, r.status),
-        r.ambiguo ? el('div', { class: 'rule-draft-note' }, 'ambigua') : null,
+        el('span', { class: `severity-badge rule-status-${r.status}`, title: ESTADO_INFO[r.status] || '' }, r.status),
+        r.ambiguo ? el('div', { class: 'rule-draft-note', title: 'Confianza media: Skudo no está del todo seguro, conviene revisarla antes de aceptar.' }, 'ambigua') : null,
       );
 
       const cells = [
         el('td', { style: { fontWeight: '500' } }, r.attribute || '—'),
-        el('td', null, r.kind || '—'),
+        el('td', { title: (TIPO_INFO[r.kind] || {}).desc || '' }, tipoLabel(r.kind)),
         el('td', { style: { color: 'var(--ink-secondary)', fontSize: '12px' } }, r.scope ? r.scope.replace(':', ' · ') : '—'),
-        el('td', null, el('span', { class: `severity-badge origin-${r.origin}` }, (r.origin || '—').replace('_', ' '))),
+        el('td', null, el('span', { class: `severity-badge origin-${r.origin}`, title: ORIGEN_INFO[r.origin] || '' }, (r.origin || '—').replace('_', ' '))),
         el('td', null,
           el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
             el('div', { class: 'impact-bar' }, el('div', { class: 'impact-bar-fill', style: { width: `${pct}%`, background: 'var(--accent)' } })),
