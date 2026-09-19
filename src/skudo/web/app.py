@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from skudo.auth.users import authenticate
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
-from skudo.mirror.models import Attribute, ProductRecord, Tenant
+from skudo.mirror.models import Attribute, AttributeSet, ProductRecord, Tenant
 from skudo.rules import curation
 from skudo.rules.models import Rule
 from skudo.rules.transitions import TransicionInvalida
@@ -421,6 +421,67 @@ def rule_options(
         )
     )
     return {"atributos": atributos, "sets": sets}
+
+
+@app.get("/api/tenants/{tenant_code}/rules/set-info")
+def rule_set_info(
+    tenant_code: str,
+    store: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    """Identifica cada attribute set en uso. El nombre real de Magento aún no se
+    sincroniza (tabla `attribute_set` vacía hasta que el módulo lo traiga), así
+    que mientras tanto se da una HUELLA: cantidad de productos y los atributos
+    más presentes —sin los de sistema—. El nombre se usa apenas exista."""
+    from skudo.rules.inference import _es_atributo_de_sistema
+
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+
+    nombres = {
+        mid: name
+        for mid, name in db.execute(
+            select(AttributeSet.magento_id, AttributeSet.name).where(
+                AttributeSet.tenant_id == tenant.id
+            )
+        ).all()
+    }
+
+    # Una pasada acotada sobre el espejo: conteo por set y frecuencia de cada
+    # atributo distintivo. Se limita el escaneo para que sea barato por request.
+    conteo: dict[int, int] = {}
+    frec: dict[int, dict[str, int]] = {}
+    filas = db.execute(
+        select(ProductRecord.attribute_set_id, ProductRecord.attributes)
+        .where(
+            ProductRecord.tenant_id == tenant.id,
+            ProductRecord.store_view_magento_id == store,
+            ProductRecord.attribute_set_id.is_not(None),
+        )
+        .order_by(ProductRecord.sku)
+        .limit(4000)
+    ).all()
+    for sid, attrs in filas:
+        conteo[sid] = conteo.get(sid, 0) + 1
+        f = frec.setdefault(sid, {})
+        for code, val in (attrs or {}).items():
+            if _es_atributo_de_sistema(code):
+                continue
+            if val is None or str(val).strip() == "":
+                continue
+            f[code] = f.get(code, 0) + 1
+
+    info = {}
+    for sid, n in conteo.items():
+        top = sorted(frec.get(sid, {}).items(), key=lambda kv: (-kv[1], kv[0]))[:6]
+        info[str(sid)] = {
+            "name": nombres.get(sid),
+            "productos": n,
+            "atributos": [code for code, _ in top],
+        }
+    return info
 
 
 @app.post("/api/tenants/{tenant_code}/rules")

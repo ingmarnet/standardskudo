@@ -1498,7 +1498,33 @@ async function crearRegla(form) {
   }
 }
 
-function construirFormNuevaRegla() {
+// Identifica un attribute set: nombre real de Magento si está sincronizado; si
+// no, una huella (N productos · atributos más presentes) para reconocerlo.
+function etiquetaSet(sid, setInfo) {
+  const info = (setInfo || {})[String(sid)] || {};
+  const partes = [];
+  if (info.productos != null) partes.push(`${info.productos} producto${info.productos === 1 ? '' : 's'}`);
+  if (info.atributos && info.atributos.length) partes.push(info.atributos.join(', '));
+  const titulo = partes.join(' · ') || `attribute set ${sid}`;
+  const corto = info.name ? info.name : `Set ${sid}${info.productos != null ? ` (${info.productos})` : ''}`;
+  return { corto, titulo };
+}
+
+function alcanceCelda(scope, setInfo) {
+  const base = { style: { color: 'var(--ink-secondary)', fontSize: '12px' } };
+  if (!scope) return el('td', base, '—');
+  const i = scope.indexOf(':');
+  const kind = i >= 0 ? scope.slice(0, i) : scope;
+  const key = i >= 0 ? scope.slice(i + 1) : '';
+  if (kind === 'attribute_set') {
+    const { corto, titulo } = etiquetaSet(key, setInfo);
+    return el('td', { ...base, title: titulo }, corto);
+  }
+  if (kind === 'global') return el('td', base, 'Global');
+  return el('td', base, scope.replace(':', ' · '));
+}
+
+function construirFormNuevaRegla(setInfo) {
   const datalist = el('datalist', { id: 'skudo-attrs' });
   const attribute = el('input', { name: 'attribute', list: 'skudo-attrs', autocomplete: 'off',
     placeholder: 'ej. color, ean_13, peso… (elegí o escribí)' });
@@ -1517,6 +1543,11 @@ function construirFormNuevaRegla() {
   const alcance = el('select', { name: 'alcance' },
     el('option', { value: 'global:' }, 'Global (toda la tienda)'),
   );
+  for (const sid of Object.keys(setInfo || {}).sort((a, b) => Number(a) - Number(b))) {
+    const { corto, titulo } = etiquetaSet(sid, setInfo);
+    alcance.append(el('option', { value: `attribute_set:${sid}`, title: titulo },
+      (setInfo[sid] && setInfo[sid].name) ? corto : `${corto} — ${titulo}`));
+  }
 
   const form = el('form', { class: 'nueva-regla-form',
     onsubmit: (e) => { e.preventDefault(); crearRegla(form); } },
@@ -1534,7 +1565,8 @@ function construirFormNuevaRegla() {
   );
   form.hidden = true;
 
-  // Poblá los desplegables con los atributos y sets reales (una vez).
+  // Poblá el datalist de atributos reales (una vez). Los sets ya vienen en el
+  // desplegable desde set-info; el atributo igual se puede escribir a mano.
   let cargado = false;
   form._mostrar = async () => {
     form.hidden = !form.hidden;
@@ -1543,7 +1575,6 @@ function construirFormNuevaRegla() {
     try {
       const op = await API.get(`/api/tenants/${state.tenant.code}/rules/opciones?store=${state.store}`);
       for (const a of (op.atributos || [])) datalist.append(el('option', { value: a.code }, a.label || a.code));
-      for (const s of (op.sets || [])) alcance.append(el('option', { value: `attribute_set:${s}` }, `Attribute set ${s}`));
     } catch { /* el atributo se puede escribir a mano igual */ }
   };
   return form;
@@ -1608,7 +1639,10 @@ async function renderRules() {
 
   const canCurate = puedeCurar();
   const header = el('div', { class: 'main-header' }, el('h1', null, `Reglas · ${state.tenant.name || state.tenant.code}`));
-  const formNueva = canCurate ? construirFormNuevaRegla() : null;
+  // Identificación de los attribute sets (nombre real si existe, si no huella).
+  let setInfo = {};
+  try { setInfo = await API.get(`/api/tenants/${state.tenant.code}/rules/set-info?store=${state.store}`); } catch { setInfo = {}; }
+  const formNueva = canCurate ? construirFormNuevaRegla(setInfo) : null;
   if (canCurate) {
     header.append(
       el('button', { class: 'btn-nueva', onclick: () => formNueva._mostrar() }, '+ Nueva regla'),
@@ -1673,7 +1707,7 @@ async function renderRules() {
       const cells = [
         el('td', { style: { fontWeight: '500' } }, r.attribute || '—'),
         el('td', { title: (TIPO_INFO[r.kind] || {}).desc || '' }, tipoLabel(r.kind)),
-        el('td', { style: { color: 'var(--ink-secondary)', fontSize: '12px' } }, r.scope ? r.scope.replace(':', ' · ') : '—'),
+        alcanceCelda(r.scope, setInfo),
         el('td', null, el('span', { class: `severity-badge origin-${r.origin}`, title: ORIGEN_INFO[r.origin] || '' }, (r.origin || '—').replace('_', ' '))),
         el('td', null,
           el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
