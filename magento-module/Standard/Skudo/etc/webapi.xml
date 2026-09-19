@@ -29,6 +29,10 @@
         <service class="Standard\Skudo\Api\AttributeReaderInterface" method="getPage"/>
         <resources><resource ref="Standard_Skudo::read"/></resources>
     </route>
+    <route url="/V1/skudo/attribute-sets" method="GET">
+        <service class="Standard\Skudo\Api\AttributeSetReaderInterface" method="getSets"/>
+        <resources><resource ref="Standard_Skudo::read"/></resources>
+    </route>
     <route url="/V1/skudo/categories" method="GET">
         <service class="Standard\Skudo\Api\CategoryReaderInterface" method="getPage"/>
         <resources><resource ref="Standard_Skudo::read"/></resources>

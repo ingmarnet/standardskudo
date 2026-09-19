@@ -43,6 +43,7 @@ from skudo.exit_codes import (
 )
 from skudo.findings.models import FindingRun
 from skudo.findings.run import detect_store_view, findings_report
+from skudo.ingest.attribute_set_sync import sync_attribute_sets
 from skudo.ingest.attribute_sync import sync_attributes
 from skudo.ingest.category_sync import sync_categories
 from skudo.ingest.delta_sync import delta_sync
@@ -174,6 +175,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     tenant_command("delta-sync", "aplica los cambios pendientes de la cola", stores=True)
     tenant_command("attributes", "espeja atributos, opciones y etiquetas", sweeps=True)
+    tenant_command("attribute-sets", "espeja los nombres de los attribute sets")
     tenant_command(
         "categories", "espeja categorías y su estado por tienda",
         stores=True, sweeps=True,
@@ -796,6 +798,9 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
                             session, source, sweep_anyway=args.sweep_anyway
                         ).model_dump()
                     )
+                    return EXIT_OK
+                if args.command == "attribute-sets":
+                    _report({"attribute_sets": sync_attribute_sets(session, source)})
                     return EXIT_OK
                 if args.command == "categories":
                     _report(

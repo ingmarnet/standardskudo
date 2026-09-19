@@ -19,6 +19,7 @@ use Magento\Framework\Webapi\ServiceOutputProcessor;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
 use Standard\Skudo\Api\AttributeReaderInterface;
+use Standard\Skudo\Api\AttributeSetReaderInterface;
 use Standard\Skudo\Api\CategoryReaderInterface;
 use Standard\Skudo\Api\ChecksumReaderInterface;
 use Standard\Skudo\Api\DeltaReaderInterface;
@@ -92,6 +93,7 @@ class ServiceOutputEnvelopeTest extends TestCase
             'GET /signals' => [SignalReaderInterface::class, 'getSignals', 'signals'],
             'GET /checksums' => [ChecksumReaderInterface::class, 'getChecksums', 'checksums'],
             'GET /attributes' => [AttributeReaderInterface::class, 'getPage', 'attributes'],
+            'GET /attribute-sets' => [AttributeSetReaderInterface::class, 'getSets', 'attribute_sets'],
             'GET /categories' => [CategoryReaderInterface::class, 'getPage', 'categories'],
         ];
     }
@@ -110,6 +112,7 @@ class ServiceOutputEnvelopeTest extends TestCase
             'signals' => $this->signalReader()->getSignals(1, 90),
             'checksums' => $this->checksumReader()->getChecksums(1),
             'attributes' => $this->attributeReader()->getPage(10),
+            'attribute_sets' => $this->attributeSetReader()->getSets(),
             'categories' => $this->categoryReader()->getPage(10),
         };
     }
@@ -364,6 +367,13 @@ class ServiceOutputEnvelopeTest extends TestCase
         $resource = $this->resourceReturning($this->emptyConnection());
 
         return new AttributeReader($resource, new Cursor(), new EntityTypeResolver($resource));
+    }
+
+    private function attributeSetReader(): \Standard\Skudo\Model\AttributeSetReader
+    {
+        $resource = $this->resourceReturning($this->emptyConnection());
+
+        return new \Standard\Skudo\Model\AttributeSetReader($resource, new EntityTypeResolver($resource));
     }
 
     private function categoryReader(): CategoryReader

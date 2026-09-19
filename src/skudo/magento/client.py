@@ -248,6 +248,14 @@ class MagentoClient:
                 return
             cursor = next_cursor
 
+    def get_attribute_sets(self) -> list[dict]:
+        """Los attribute sets del catálogo (`{magento_id, name}`), en una sola
+        lectura: son pocos (unos pocos por tenant, cientos en el más grande) y
+        no llevan paginación. Alimenta el nombre del set en el espejo."""
+        response = self._client.get("/attribute-sets")
+        raise_for_status(response)
+        return unwrap(response).get("items", [])
+
     def iter_attributes(self, limit: int = 500) -> Iterator[dict]:
         """Recorre los atributos (con sus opciones y etiquetas) página a página.
 
