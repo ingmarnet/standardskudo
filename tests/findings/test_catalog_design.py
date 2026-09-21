@@ -30,6 +30,13 @@ def _attr(session, t, code, *, filterable, sets):
         attribute_set_ids=sets))
 
 
+def _attr_input(session, t, code, frontend_input):
+    session.add(Attribute(
+        tenant_id=t.id, code=code, label=code.title(), frontend_input=frontend_input,
+        declared_scope="global", is_filterable=False, is_required=False,
+        attribute_set_ids=[4]))
+
+
 def _prod(session, t, sku, sid):
     session.add(ProductRecord(
         tenant_id=t.id, sku=sku, store_view_magento_id=1, attributes={},
@@ -154,3 +161,24 @@ def test_filtro_perdido_ignora_baja_cobertura(db_session):
                                      coverage=0.40))  # cobertura pobre
     db_session.flush()
     assert filtros_perdidos(db_session, t.id, run) == []
+
+
+def test_filtro_perdido_excluye_texto_seo_y_fisicos(db_session):
+    # name/meta/weight tienen buena cobertura pero NO son navegación por facetas:
+    # su frontend_input no es select/multiselect. Calibración con datos reales.
+    t = _tenant(db_session)
+    _attr_input(db_session, t, "name", "text")
+    _attr_input(db_session, t, "meta_title", "text")
+    _attr_input(db_session, t, "weight", "weight")
+    _attr_input(db_session, t, "material", "select")  # este sí
+    run, part = _perfil(db_session, t)
+    for code in ("name", "meta_title", "weight", "material"):
+        db_session.add(AttributeCoverage(partition_id=part.id, attribute_code=code,
+                                         presente=99, vacio=1, no_aplica=0, desconocido=0,
+                                         coverage=0.99))
+        db_session.add(ValueStats(partition_id=part.id, attribute_code=code, kind="texto",
+                                  n_present=99, mode_share=0.3, distinct_values=20, top_values=[]))
+    db_session.flush()
+
+    res = filtros_perdidos(db_session, t.id, run)
+    assert [r["attribute"] for r in res] == ["material"]

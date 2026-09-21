@@ -33,6 +33,12 @@ MODE_SHARE_INUTIL = 0.95
 # El spec exige "una decena de candidatos ordenados por impacto", no un volcado
 # de mil filas.
 TOPE_CANDIDATOS = 25
+# Solo un atributo de valores DISCRETOS puede ser un filtro de navegación por
+# facetas. Calibrado contra datos reales (2026-09-21): sin esto, `filtro
+# perdido` proponía `name`, `meta_title`, `meta_description` y `weight` —texto
+# libre, SEO y magnitudes físicas— como candidatos a filtrable, que es basura.
+# Magento arma la navegación por capas sobre select/multiselect.
+FILTRABLE_INPUTS = frozenset({"select", "multiselect"})
 
 
 def sets_muertos(session: Session, tenant_id: int) -> list[dict]:
@@ -73,12 +79,12 @@ def sets_muertos(session: Session, tenant_id: int) -> list[dict]:
     return [{"magento_id": sid, "name": nombres.get(sid)} for sid in muertos]
 
 
-def _filtrabilidad(session: Session, tenant_id: int) -> dict[str, bool]:
-    """`{attribute_code: is_filterable}` para el tenant."""
+def _atributos(session: Session, tenant_id: int) -> dict[str, dict]:
+    """`{attribute_code: {is_filterable, frontend_input}}` para el tenant."""
     return {
-        code: bool(is_f)
-        for code, is_f in session.execute(
-            select(Attribute.code, Attribute.is_filterable).where(
+        code: {"is_filterable": bool(is_f), "frontend_input": fi}
+        for code, is_f, fi in session.execute(
+            select(Attribute.code, Attribute.is_filterable, Attribute.frontend_input).where(
                 Attribute.tenant_id == tenant_id
             )
         )
@@ -100,7 +106,7 @@ def filtros_inutiles(
 ) -> list[dict]:
     """Atributos FILTRABLES con un único valor efectivo: un filtro de una sola
     opción, que no discrimina. Del perfil (`ValueStats.mode_share`)."""
-    filtrable = _filtrabilidad(session, tenant_id)
+    attrs = _atributos(session, tenant_id)
     filas = session.execute(
         select(ValueStats, ProfilePartition.attribute_set_id)
         .join(ProfilePartition, ValueStats.partition_id == ProfilePartition.id)
@@ -110,7 +116,8 @@ def filtros_inutiles(
     out = []
     for vs, set_id in filas:
         code = vs.attribute_code
-        if _es_atributo_de_sistema(code) or not filtrable.get(code):
+        info = attrs.get(code)
+        if _es_atributo_de_sistema(code) or not info or not info["is_filterable"]:
             continue
         if vs.n_present < MIN_EVIDENCIA:
             continue
@@ -137,7 +144,7 @@ def filtros_perdidos(
     productos que ya existen y no se pueden encontrar al filtrar. CANDIDATO —
     sin señal de demanda (no disponible en el tenant piloto), es una propuesta
     a revisar, no un veredicto. Del perfil (`AttributeCoverage`)."""
-    filtrable = _filtrabilidad(session, tenant_id)
+    attrs = _atributos(session, tenant_id)
 
     # Poder discriminante por (partición, atributo): un atributo constante no
     # sería un filtro útil aunque esté 100 % cargado.
@@ -161,8 +168,13 @@ def filtros_perdidos(
     out = []
     for cov, set_id in filas:
         code = cov.attribute_code
-        if _es_atributo_de_sistema(code) or filtrable.get(code):
-            continue  # ya filtrable, o de sistema
+        info = attrs.get(code)
+        if _es_atributo_de_sistema(code) or not info or info["is_filterable"]:
+            continue  # ya filtrable, o de sistema, o desconocido
+        # Solo valores discretos pueden ser un filtro: name/meta/weight (texto,
+        # SEO, físico) tienen buena cobertura pero no son navegación por facetas.
+        if info["frontend_input"] not in FILTRABLE_INPUTS:
+            continue
         if cov.coverage is None or cov.coverage < UMBRAL_COBERTURA_PERDIDO:
             continue
         if cov.presente < MIN_EVIDENCIA:
