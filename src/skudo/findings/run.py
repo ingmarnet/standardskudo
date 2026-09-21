@@ -7,8 +7,14 @@ from sqlalchemy.orm import Session
 
 from skudo.findings.catalog import CANDIDATO, MEDIA, Cobertura, Ficha, Resultado, evaluar
 from skudo.findings.models import DetectorCoverage, Finding, FindingRun
+from skudo.findings.filter_blind import evaluar_filtro_ciego
 from skudo.findings.rules_eval import ReglaEvaluable, evaluar_regla
-from skudo.mirror.models import ProductCategoryAssignment, ProductRecord, ProductSignal
+from skudo.mirror.models import (
+    Attribute,
+    ProductCategoryAssignment,
+    ProductRecord,
+    ProductSignal,
+)
 from skudo.mirror.store_settings import muestra_sin_stock
 from skudo.profile.states import sets_by_code
 from skudo.rules.models import Rule, RulesetSnapshot
@@ -246,6 +252,18 @@ def detect_store_view(
 
     for cubs in cobertura_por_codigo.values():
         _escribir_cobertura(session, run, _fusionar_cobertura(cubs, len(fichas)))
+
+    # 3) filter-blind: todo atributo FILTRABLE vacío donde aplica. Universal
+    # (no depende del snapshot), reusa `sets` y la misma máquina de estados.
+    filtrables = session.scalars(
+        select(Attribute.code).where(
+            Attribute.tenant_id == tenant_id,
+            Attribute.is_filterable.is_(True),
+        )
+    ).all()
+    for resultado in evaluar_filtro_ciego(fichas, filtrables, sets):
+        _escribir_hallazgos(session, run, resultado.hallazgos, None, None)
+        _escribir_cobertura(session, run, resultado.cobertura)
 
     run.finished_at = datetime.now(UTC)
     session.flush()

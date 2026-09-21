@@ -906,6 +906,20 @@ const LABELS = {
   variantes_por_talle: 'Variantes por talle',
 };
 
+// Los códigos dinámicos (filtro_ciego:<attr>, regla:<kind>:<attr>) no están en
+// LABELS: se arman legibles a partir de sus partes.
+function etiquetaCodigo(code) {
+  if (LABELS[code]) return LABELS[code];
+  if (!code) return '—';
+  if (code.startsWith('filtro_ciego:')) return `Filtro vacío: ${code.slice('filtro_ciego:'.length)}`;
+  if (code.startsWith('regla:')) {
+    const [, kind, ...rest] = code.split(':');
+    const tipo = { obligatoriedad: 'Obligatorio', rango: 'Rango', formato: 'Formato' }[kind] || kind;
+    return `${tipo}: ${rest.join(':')}`;
+  }
+  return code;
+}
+
 const state = { tenant: null, store: null, view: 'tenants' };
 
 // --- Render functions ---
@@ -1348,7 +1362,7 @@ async function renderFindings() {
       );
 
       tbody.append(el('tr', null,
-        el('td', { style: { fontWeight: '500' } }, LABELS[h.code] || h.code),
+        el('td', { style: { fontWeight: '500' } }, etiquetaCodigo(h.code)),
         origenCell,
         el('td', null, el('span', { class: `severity-badge ${sevClass(h.severidad)}` }, h.severidad)),
         el('td', null, String(h.hallazgos)),
@@ -1813,7 +1827,7 @@ async function renderProducts() {
         el('td', null, vitrinaBadge(p)),
         el('td', null, p.critico ? el('span', { style: { color: 'var(--critical)', fontWeight: '500' } }, 'Sí') : '—'),
         el('td', { style: { fontSize: '12px', color: 'var(--ink-secondary)' } },
-          (p.deducciones || []).map(d => `${LABELS[d.code] || d.code} (−${d.resta})`).join(', ') || '—'
+          (p.deducciones || []).map(d => `${etiquetaCodigo(d.code)} (−${d.resta})`).join(', ') || '—'
         ),
       ));
     }
