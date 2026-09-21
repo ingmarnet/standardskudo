@@ -484,6 +484,42 @@ def rule_set_info(
     return info
 
 
+@app.get("/api/tenants/{tenant_code}/catalog-design")
+def catalog_design(
+    tenant_code: str,
+    store: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    """Eje 11 — diseño del catálogo: sets muertos + filtros mal puestos. Es
+    análisis de CONFIGURACIÓN (no de producto): no toca la nota. Los filtros
+    salen del último perfil terminado; sin perfil, sólo los sets muertos."""
+    from skudo.findings import catalog_design as cd
+    from skudo.profile.models import ProfileRun
+
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+
+    perfil = db.scalars(
+        select(ProfileRun)
+        .where(
+            ProfileRun.tenant_id == tenant.id,
+            ProfileRun.store_view_magento_id == store,
+            ProfileRun.finished_at.is_not(None),
+        )
+        .order_by(ProfileRun.id.desc())
+        .limit(1)
+    ).first()
+
+    return {
+        "sets_muertos": cd.sets_muertos(db, tenant.id),
+        "filtros_inutiles": cd.filtros_inutiles(db, tenant.id, perfil) if perfil else [],
+        "filtros_perdidos": cd.filtros_perdidos(db, tenant.id, perfil) if perfil else [],
+        "perfil": perfil.id if perfil else None,
+    }
+
+
 @app.post("/api/tenants/{tenant_code}/rules")
 def create_rule(
     tenant_code: str,

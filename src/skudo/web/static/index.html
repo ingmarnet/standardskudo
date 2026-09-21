@@ -835,6 +835,10 @@ body {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
         Productos
       </a>
+      <a data-view="catalog-design" id="nav-catalog-design" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="18" cy="18" r="3"/></svg>
+        Diseño del catálogo
+      </a>
     </nav>
     <div class="sidebar-footer">
       <div class="user-info" id="user-email"></div>
@@ -1030,6 +1034,7 @@ function selectTenant(t) {
   document.getElementById('nav-findings').hidden = false;
   document.getElementById('nav-rules').hidden = false;
   document.getElementById('nav-products').hidden = false;
+  document.getElementById('nav-catalog-design').hidden = false;
   navigate('dashboard');
 }
 
@@ -1846,6 +1851,91 @@ async function renderProducts() {
   render(await load());
 }
 
+async function renderCatalogDesign() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '';
+  if (!state.tenant || state.store == null) {
+    main.append(el('div', { class: 'empty-state' }, el('p', null, 'Selecciona un tenant primero.')));
+    return;
+  }
+  main.append(
+    el('div', { class: 'main-header' }, el('h1', null, `Diseño del catálogo · ${state.tenant.name || state.tenant.code}`)),
+    el('p', { class: 'section-intro' },
+      'Problemas de configuración del catálogo, no de productos: no afectan la nota, pero son de alto apalancamiento — activar un filtro hace encontrable lo que ya existe, y limpiar un set muerto ordena el catálogo.'),
+    renderLoading(),
+  );
+  try {
+    const [data, setInfo] = await Promise.all([
+      API.get(`/api/tenants/${state.tenant.code}/catalog-design?store=${state.store}`),
+      API.get(`/api/tenants/${state.tenant.code}/rules/set-info?store=${state.store}`).catch(() => ({})),
+    ]);
+    main.querySelector('.loading')?.remove();
+
+    const setCell = (sid) => {
+      const { corto, titulo } = etiquetaSet(sid, setInfo);
+      return el('td', { title: titulo, style: { color: 'var(--ink-secondary)', fontSize: '12px' } }, corto);
+    };
+    const tabla = (headers, rows) => {
+      const t = el('table', { class: 'findings-table' });
+      t.append(el('thead', null, el('tr', null, ...headers.map(h => el('th', null, h)))));
+      const tb = el('tbody');
+      rows.forEach(r => tb.append(el('tr', null, ...r)));
+      t.append(tb);
+      return el('div', { class: 'card' }, t);
+    };
+    const seccion = (titulo, intro, contenido) => {
+      const s = el('div', { style: { marginBottom: '28px' } });
+      s.append(el('h2', { style: { fontSize: '1.05rem', margin: '0 0 4px' } }, titulo));
+      s.append(el('p', { class: 'section-intro' }, intro));
+      s.append(contenido);
+      return s;
+    };
+    const vacio = (msg) => el('div', { class: 'empty-state' }, el('p', null, msg));
+
+    // Sets muertos
+    const sm = data.sets_muertos || [];
+    main.append(seccion(
+      `Sets muertos (${sm.length})`,
+      'Attribute sets definidos sin un solo producto. Ensucian la curación, el admin y las estadísticas.',
+      sm.length ? tabla(['Attribute set'], sm.map(s => [
+        el('td', null, s.name ? s.name : `Set ${s.magento_id}`),
+      ])) : vacio('No hay sets muertos. Bien.'),
+    ));
+
+    // Filtro perdido
+    const fp = data.filtros_perdidos || [];
+    main.append(seccion(
+      `Filtros perdidos (${fp.length})`,
+      'Atributos con buen dato y cobertura que NO están marcados como filtrables: productos que existen pero no se encuentran al filtrar. Candidatos a revisar (sin señal de demanda todavía).',
+      !data.perfil ? vacio('Necesita un perfil. Corré el perfilador para esta store view.')
+        : (fp.length ? tabla(['Atributo', 'Set', 'Cobertura', 'Productos'], fp.map(f => [
+            el('td', { style: { fontWeight: '500' } }, f.attribute),
+            setCell(f.attribute_set_id),
+            el('td', null, `${Math.round((f.coverage || 0) * 100)}%`),
+            el('td', null, String(f.presente)),
+          ])) : vacio('Ningún candidato de filtro perdido.')),
+    ));
+
+    // Filtro inútil
+    const fi = data.filtros_inutiles || [];
+    main.append(seccion(
+      `Filtros inútiles (${fi.length})`,
+      'Atributos filtrables con un único valor efectivo: ofrecen un filtro de una sola opción, que no discrimina nada.',
+      !data.perfil ? vacio('Necesita un perfil. Corré el perfilador para esta store view.')
+        : (fi.length ? tabla(['Atributo', 'Set', 'Valor dominante', 'Concentración', 'Productos'], fi.map(f => [
+            el('td', { style: { fontWeight: '500' } }, f.attribute),
+            setCell(f.attribute_set_id),
+            el('td', null, f.valor_dominante || '—'),
+            el('td', null, f.mode_share != null ? `${Math.round(f.mode_share * 100)}%` : '—'),
+            el('td', null, String(f.n_present)),
+          ])) : vacio('Ningún filtro inútil.')),
+    ));
+  } catch (e) {
+    main.innerHTML = '';
+    main.append(el('div', { class: 'empty-state' }, el('p', null, `Error: ${e.message}`)));
+  }
+}
+
 // --- Navigation ---
 
 function navigate(view) {
@@ -1859,6 +1949,7 @@ function navigate(view) {
     case 'findings': renderFindings(); break;
     case 'rules': renderRules(); break;
     case 'products': renderProducts(); break;
+    case 'catalog-design': renderCatalogDesign(); break;
   }
 }
 
