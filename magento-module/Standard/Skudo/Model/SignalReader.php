@@ -148,6 +148,9 @@ class SignalReader implements SignalReaderInterface
                 'revenue' => $revenue,
                 'salable_qty' => null,
                 'physical_qty' => null,
+                // null = todavía no se supo; attachInventory() lo baja a un
+                // bool sólo cuando hay fila en cataloginventory_stock_item.
+                'is_in_stock' => null,
                 'uses_msi' => $usesMsi,
                 'margin' => null,
                 // Ruling 2: el valor por defecto de "todavía no se supo" es
@@ -268,14 +271,24 @@ class SignalReader implements SignalReaderInterface
         // stock existiendo (A2). Con la población ya recortada, un NULL acá
         // significa lo único que debe significar: no hay fila de stock.
         $physical = $connection->select()
-            ->from(['si' => $stockItem], ['qty' => 'si.qty'])
+            ->from(['si' => $stockItem], ['qty' => 'si.qty', 'is_in_stock' => 'si.is_in_stock'])
             ->join(['e' => $entity], 'e.entity_id = si.product_id', ['sku' => 'e.sku'])
             ->where('e.sku IN (?)', array_keys($rows));
 
         foreach ($connection->fetchAll($physical) as $row) {
             $sku = (string) $row['sku'];
-            if (isset($rows[$sku]) && $row['qty'] !== null) {
+            if (!isset($rows[$sku])) {
+                continue;
+            }
+            if ($row['qty'] !== null) {
                 $rows[$sku]['physical_qty'] = (float) $row['qty'];
+            }
+            // is_in_stock es el flag con que Magento OCULTA (no el qty: puede
+            // haber qty 0 con is_in_stock=1 por backorder). Es lo que decide la
+            // visibilidad; null si no hay fila de stock (población ya recortada
+            // arriba, así que un null acá significa "no hay registro").
+            if ($row['is_in_stock'] !== null) {
+                $rows[$sku]['is_in_stock'] = (bool) ((int) $row['is_in_stock']);
             }
         }
 

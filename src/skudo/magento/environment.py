@@ -25,6 +25,10 @@ class StoreView(BaseModel):
     is_active: bool
     locale: str
     currency: str
+    # Si Magento muestra los productos sin stock en esta store view. None = el
+    # probe no lo informó (payload viejo); se trata como desconocido y no oculta
+    # a nadie (ver skudo.mirror.store_settings.muestra_sin_stock).
+    show_out_of_stock: bool | None = None
 
 
 class EnvironmentProfile(BaseModel):

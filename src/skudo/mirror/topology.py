@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from skudo.magento.environment import EnvironmentProfile
 from skudo.mirror.models import EnvironmentSnapshot, StoreGroup, StoreView, Website
+from skudo.mirror.store_settings import set_store_setting
 
 
 def sync_topology(session: Session, tenant_id: int, profile: EnvironmentProfile) -> None:
@@ -63,6 +64,18 @@ def sync_topology(session: Session, tenant_id: int, profile: EnvironmentProfile)
             for v in profile.store_views
         ],
     )
+
+    # Config de tienda que el motor de calidad usa: `show_out_of_stock` decide,
+    # con is_in_stock, si un producto sin stock es visible u oculto. Sólo se
+    # escribe cuando el probe la informó; si es None (payload viejo), no se
+    # toca — la ignorancia no oculta a nadie.
+    for v in profile.store_views:
+        if v.show_out_of_stock is not None:
+            set_store_setting(
+                session, tenant_id, v.id, "show_out_of_stock",
+                "true" if v.show_out_of_stock else "false",
+            )
+
     session.flush()
 
 

@@ -187,6 +187,53 @@ class SignalReaderTest extends TestCase
     }
 
     /**
+     * `is_in_stock` es el flag con que Magento OCULTA, no el qty: puede haber
+     * qty 0 con is_in_stock 1 (backorder). El motor de calidad usa el flag para
+     * decidir visibilidad, así que se emite aparte de physical_qty.
+     */
+    public function testIsInStockComesFromTheFlagNotTheQuantity(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
+                ],
+                'cataloginventory_stock_item' => [
+                    ['sku' => 'SKU1', 'qty' => '0.0000', 'is_in_stock' => '1'],
+                ],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+
+        $this->assertTrue($item['is_in_stock']);
+        $this->assertSame(0.0, $item['physical_qty']);
+    }
+
+    /**
+     * Sin fila de stock, `is_in_stock` es NULL —no `false`—: "no hay registro"
+     * y "está marcado sin stock" son hechos distintos, el par que este producto
+     * existe para no confundir.
+     */
+    public function testIsInStockStaysNullWhenThereIsNoStockItemRow(): void
+    {
+        $reader = $this->makeReader(
+            usesMsi: false,
+            fixtures: [
+                'sales_order_item' => [
+                    ['sku' => 'SKU1', 'units_sold' => '5', 'revenue' => '100.0000', 'revenue_missing' => '0'],
+                ],
+                'cataloginventory_stock_item' => [],
+            ],
+        );
+
+        $item = $this->onlyItem($this->payloadOf($reader->getSignals(storeId: 1)));
+
+        $this->assertNull($item['is_in_stock']);
+    }
+
+    /**
      * A1: la población de `/signals` es la de `/products`, no la de
      * `sales_order_item`.
      *

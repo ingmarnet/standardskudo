@@ -86,3 +86,29 @@ def test_topology_is_isolated_per_tenant(db_session, profile):
 
     assert codes_of(a.id) == ["br", "py"]
     assert codes_of(b.id) == ["otro_br", "otro_py"]
+
+
+def test_sync_escribe_show_out_of_stock_en_store_setting(db_session, tenant, profile):
+    """Si el probe informó show_out_of_stock, queda en store_setting y
+    muestra_sin_stock lo refleja (lo que el motor de stock usa)."""
+    from skudo.mirror.store_settings import muestra_sin_stock
+
+    # el probe dice: py (1) oculta sin stock, br (3) los muestra
+    for v in profile.store_views:
+        v.show_out_of_stock = (v.id == 3)
+    sync_topology(db_session, tenant.id, profile)
+
+    assert muestra_sin_stock(db_session, tenant.id, 1) is False
+    assert muestra_sin_stock(db_session, tenant.id, 3) is True
+
+
+def test_sync_sin_show_out_of_stock_no_escribe_config(db_session, tenant, profile):
+    """Payload viejo (None): no se toca store_setting; queda desconocido y no
+    oculta a nadie."""
+    from skudo.mirror.store_settings import muestra_sin_stock
+
+    for v in profile.store_views:
+        v.show_out_of_stock = None
+    sync_topology(db_session, tenant.id, profile)
+
+    assert muestra_sin_stock(db_session, tenant.id, 1) is None

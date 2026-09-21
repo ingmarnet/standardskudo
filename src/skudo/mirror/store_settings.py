@@ -1,6 +1,7 @@
-"""Lectura de configuración de tienda del espejo."""
+"""Lectura y escritura de configuración de tienda del espejo."""
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from skudo.mirror.models import StoreSetting
@@ -30,3 +31,22 @@ def muestra_sin_stock(session: Session, tenant_id: int, store_view_magento_id: i
     if v in _FALSOS:
         return False
     return None
+
+
+def set_store_setting(
+    session: Session, tenant_id: int, store_view_magento_id: int, key: str, value: str
+) -> None:
+    """Upsert de una config de tienda por `(tenant, store view, key)`."""
+    stmt = insert(StoreSetting).values(
+        tenant_id=tenant_id,
+        store_view_magento_id=store_view_magento_id,
+        key=key,
+        value=value,
+    )
+    session.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["tenant_id", "store_view_magento_id", "key"],
+            set_={"value": stmt.excluded.value},
+        )
+    )
+    session.flush()

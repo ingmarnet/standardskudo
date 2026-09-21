@@ -68,8 +68,8 @@ interface SignalReaderInterface
      * @param int $days Ventana de la agregación de ventas y de search_query.
      * @return mixed[] [{"items": list<array{sku: string, units_sold: int,
      *     revenue: float|null, salable_qty: float|null,
-     *     physical_qty: float|null, uses_msi: bool, margin: float|null,
-     *     search_demand: int|null}>}]
+     *     physical_qty: float|null, is_in_stock: bool|null, uses_msi: bool,
+     *     margin: float|null, search_demand: int|null}>}]
      */
     public function getSignals(int $storeId, int $days = 90): array;
 }

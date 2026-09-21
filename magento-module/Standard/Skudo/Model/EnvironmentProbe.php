@@ -135,6 +135,13 @@ class EnvironmentProbe implements EnvironmentProbeInterface
                 'is_active' => (bool) $store->isActive(),
                 'locale' => (string) $store->getConfig('general/locale/code'),
                 'currency' => (string) $store->getCurrentCurrencyCode(),
+                // Si Magento muestra los productos sin stock en esta store view.
+                // Decide, con is_in_stock, si un producto sin stock es visible
+                // (cuenta con menor prioridad) u oculto (no penaliza). Es
+                // config por store, no de la instancia, por eso vive acá.
+                'show_out_of_stock' => (bool) $store->getConfig(
+                    'cataloginventory/options/show_out_of_stock'
+                ),
             ];
         }
         return $out;
