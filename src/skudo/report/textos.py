@@ -332,6 +332,17 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un meta title o description está duplicado en decenas de productos",
     ),
+    "alt_text": Texto(
+        titulo="{n} productos con alt text ausente o de relleno",
+        significa=(
+            "La imagen tiene texto alternativo ausente o igual al nombre del "
+            "archivo — lo que Magento auto-rellena al subir sin editarlo. Un alt "
+            "de relleno no describe la imagen ni para el lector de pantalla ni "
+            "para el buscador."
+        ),
+        accion="Escribir un alt text que describa el producto de la foto.",
+        singular="Un producto tiene alt text ausente o igual al archivo",
+    ),
 }
 
 

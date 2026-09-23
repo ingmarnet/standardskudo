@@ -1388,6 +1388,50 @@ def meta_duplicado(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 7: alt text. La imagen existe pero su texto alternativo falta o es el
+# nombre del archivo — lo que Magento auto-rellena al subir sin editarlo. Un
+# alt de relleno no describe nada: ni para el lector de pantalla ni para el
+# buscador. Solo mira productos CON imagen: sin imagen ya es `sin_imagen`.
+def alt_text(fichas: Sequence[Ficha]) -> Resultado:
+    """Imagen con alt text ausente o igual al nombre del archivo. Un hallazgo por producto."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        imagen = f.valor("image")
+        if imagen in (None, "no_selection"):
+            continue
+        etiqueta = f.valor("image_label")
+        if not etiqueta:
+            hallazgos.append(
+                Hallazgo(
+                    "alt_text", 7, BAJA, "producto", f.sku,
+                    {"tipo": "ausente", "imagen": imagen,
+                     "lectura": f"{f.sku} tiene imagen sin alt text"},
+                )
+            )
+            continue
+        nombre = imagen.rsplit("/", 1)[-1]
+        raiz = nombre.rsplit(".", 1)[0] if "." in nombre else nombre
+        if etiqueta.strip().lower() in (nombre.lower(), raiz.lower()):
+            hallazgos.append(
+                Hallazgo(
+                    "alt_text", 7, BAJA, "producto", f.sku,
+                    {"tipo": "igual_al_archivo", "imagen": imagen, "etiqueta": etiqueta,
+                     "lectura": f"el alt text de {f.sku} es el nombre del archivo"},
+                )
+            )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "alt_text",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y productos deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1414,6 +1458,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     descripcion_corta_copia_larga,
     texto_duplicado,
     meta_duplicado,
+    alt_text,
 )
 
 

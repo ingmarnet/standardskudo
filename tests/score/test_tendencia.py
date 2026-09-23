@@ -14,8 +14,8 @@ from skudo.score.trend import comparar_ultima, ultimas_dos
 def _producto_completo(session, tenant, store, sku, name):
     escribir(session, tenant, store, sku,
              {"name": name, "status": "1", "visibility": "4",
-              "price": "500000", "image": "/a.jpg", "description": "d",
-              "short_description": "s", "meta_title": "m"})
+              "price": "500000", "image": "/a.jpg", "image_label": "Paleta",
+              "description": "d", "short_description": "s", "meta_title": "m"})
     set_product_categories(session, tenant.id, sku, [7])
 
 
