@@ -1432,6 +1432,104 @@ def alt_text(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 9: url_key (spec §6.1). Magento normaliza la url_key a minúsculas,
+# separada por guiones y ASCII: cualquier otra cosa es una url que el sistema
+# no habría escrito, y dos productos con la misma url_key compiten por una sola
+# URL. La canónica es `^[a-z0-9-]+$`; el sufijo `.html` no vive acá, lo agrega
+# el render. El «ausente» y el «duplicado» son dos defectos distintos del
+# «basura», así que van en detectores separados.
+_URL_KEY_CANONICO = re.compile(r"^[a-z0-9-]+$")
+_URL_KEY_MAYUSCULAS = re.compile(r"[A-Z]")
+_URL_KEY_ESPACIOS = re.compile(r"\s")
+
+
+def _basura_en_url_key(url: str) -> list[str]:
+    """Los tipos de basura que trae la url_key (vacío si es canónica)."""
+    if _URL_KEY_CANONICO.match(url):
+        return []
+    motivos = []
+    if _URL_KEY_MAYUSCULAS.search(url):
+        motivos.append("mayusculas")
+    if _URL_KEY_ESPACIOS.search(url):
+        motivos.append("espacios")
+    if not url.isascii():
+        motivos.append("no_ascii")
+    if not motivos:
+        motivos.append("simbolos")  # `_`, `.`, `/`: todo lo demás
+    return motivos
+
+
+def url_key_ausente(fichas):
+    return _carencia(fichas, code="url_key_ausente", axis=9, severity=BAJA, campo="url_key")
+
+
+def url_key_basura(fichas: Sequence[Ficha]) -> Resultado:
+    """url_key con mayúsculas, espacios, no-ASCII o símbolos. Un hallazgo por producto."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        url = f.valor("url_key")
+        if not url:
+            continue  # lo mira el vecino url_key_ausente
+        motivos = _basura_en_url_key(url)
+        if motivos:
+            hallazgos.append(
+                Hallazgo(
+                    "url_key_basura", 9, BAJA, "producto", f.sku,
+                    {
+                        "motivo": motivos,
+                        "url_key": url,
+                        "lectura": "url_key con " + ", ".join(motivos),
+                    },
+                )
+            )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "url_key_basura", len(evaluables), no_aplica, no_evaluado,
+            "variantes no navegables y productos deshabilitados",
+        ),
+    )
+
+
+# Dos productos con la misma url_key en una store view comparten una URL: uno
+# tapa al otro. Como `meta_duplicado`, arranca bajo y se calibra con el catálogo.
+UMBRAL_URL_KEY_DUPLICADA = 10
+
+
+def url_key_duplicada(fichas: Sequence[Ficha]) -> Resultado:
+    """url_key idéntica en muchos productos. Un hallazgo por grupo."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    por_key: dict[str, list[str]] = defaultdict(list)
+    for f in evaluables:
+        url = f.valor("url_key")
+        if url:
+            por_key[url].append(f.sku)
+
+    hallazgos: list[Hallazgo] = []
+    for url, skus in sorted(por_key.items()):
+        if len(skus) < UMBRAL_URL_KEY_DUPLICADA:
+            continue
+        hallazgos.append(
+            Hallazgo(
+                "url_key_duplicada", 9, CANDIDATO, "grupo", url[:120],
+                {
+                    "productos": len(skus),
+                    "skus": sorted(skus)[:MAX_SKUS_POR_GRUPO],
+                    "truncado": len(skus) > MAX_SKUS_POR_GRUPO,
+                    "lectura": f"{len(skus)} productos comparten la url_key «{url}»",
+                },
+            )
+        )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "url_key_duplicada", len(evaluables), no_aplica, no_evaluado,
+            "variantes no navegables y productos deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1459,6 +1557,9 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     texto_duplicado,
     meta_duplicado,
     alt_text,
+    url_key_ausente,
+    url_key_basura,
+    url_key_duplicada,
 )
 
 

@@ -11,12 +11,14 @@ def sembrar(session, tenant):
     # Publicado y sin foto: debería bajar la nota y marcarse como no publicable.
     escribir(session, tenant, 1, "sin-foto",
              {"name": "Paleta Nox", "status": "1", "visibility": "4", "price": "500000",
-              "description": "d", "short_description": "s", "meta_title": "m"})
+              "description": "d", "short_description": "s", "meta_title": "m",
+              "url_key": "pala-nox"})
     # Publicado y completo.
     escribir(session, tenant, 1, "completo",
              {"name": "Paleta Bullpadel", "status": "1", "visibility": "4",
               "price": "600000", "image": "/a.jpg", "image_label": "Paleta Bullpadel",
-              "description": "d", "short_description": "s", "meta_title": "m"})
+              "description": "d", "short_description": "s", "meta_title": "m",
+              "url_key": "pala-bullpadel"})
     # Variante no navegable: el detector no la mira, y la nota tampoco debe.
     escribir(session, tenant, 1, "variante",
              {"name": "Paleta Nox T2", "status": "1", "visibility": "1"})
@@ -78,7 +80,8 @@ def test_un_hallazgo_de_grupo_baja_la_nota_de_cada_miembro(db_session):
         escribir(db_session, tenant, 1, f"talle{i}",
                  {"name": base.format(t), "status": "1", "visibility": "4",
                   "price": "9", "image": "/a.jpg", "image_label": "Calzado",
-                  "description": "d", "short_description": "s", "meta_title": "m"})
+                  "description": "d", "short_description": "s", "meta_title": "m",
+                  "url_key": "calzado-asics"})
         set_product_categories(db_session, tenant.id, f"talle{i}", [7])
     score_run(db_session, detect_store_view(db_session, tenant.id, 1))
 

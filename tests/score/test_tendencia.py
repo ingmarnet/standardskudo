@@ -15,7 +15,8 @@ def _producto_completo(session, tenant, store, sku, name):
     escribir(session, tenant, store, sku,
              {"name": name, "status": "1", "visibility": "4",
               "price": "500000", "image": "/a.jpg", "image_label": "Paleta",
-              "description": "d", "short_description": "s", "meta_title": "m"})
+              "description": "d", "short_description": "s", "meta_title": "m",
+              "url_key": "pala-nox"})
     set_product_categories(session, tenant.id, sku, [7])
 
 
@@ -23,7 +24,8 @@ def _producto_sin_imagen(session, tenant, store, sku, name):
     escribir(session, tenant, store, sku,
              {"name": name, "status": "1", "visibility": "4",
               "price": "500000", "description": "d",
-              "short_description": "s", "meta_title": "m"})
+              "short_description": "s", "meta_title": "m",
+              "url_key": "pala-nox"})
     set_product_categories(session, tenant.id, sku, [7])
 
 

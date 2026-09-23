@@ -353,6 +353,36 @@ TEXTOS: dict[str, Texto] = {
         accion="Traducir el nombre a la store view, salvo que sea una marca universal.",
         singular="Un producto tiene el nombre sin traducir",
     ),
+    "url_key_ausente": Texto(
+        titulo="{n} productos publicados sin url key",
+        significa=(
+            "Sin url key, Magento arma la URL del producto a partir del nombre "
+            "cuando se guarda; una url key vacía en el espejo es un producto que "
+            "nunca se guardó del todo o se importó saltándose esa generación."
+        ),
+        accion="Guardar el producto para que se genere la url key, o definirla a mano.",
+        singular="Un producto publicado no tiene url key",
+    ),
+    "url_key_basura": Texto(
+        titulo="{n} productos con basura en la url key",
+        significa=(
+            "La url key trae mayúsculas, espacios, caracteres no ASCII o "
+            "símbolos que Magento no habría escrito: es una URL rota o fea que "
+            "no se comparte ni indexa como corresponde."
+        ),
+        accion="Reescribir la url key en minúsculas, separada por guiones y sin acentos.",
+        singular="Un producto tiene basura en la url key",
+    ),
+    "url_key_duplicada": Texto(
+        titulo="{n} url keys compartidas en masa",
+        significa=(
+            "Dos productos con la misma url key comparten una sola URL: uno tapa "
+            "al otro en el buscador y en el sitemap. Es la firma de una carga "
+            "que heredó una url key por defecto."
+        ),
+        accion="Dar a cada producto su url key única, o revisar el origen de la carga.",
+        singular="Una url key está duplicada en decenas de productos",
+    ),
 }
 
 
