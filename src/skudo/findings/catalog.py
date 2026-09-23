@@ -846,6 +846,45 @@ def nombre_es_codigo(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 3: valores basura (spec §6.1). Un atributo que no está vacío sino que trae
+# un comodín de carga —«N/A», «-», «SIN DATO», «.», «xx»—: el dato no existe pero
+# el front mostrará el comodín como si fuera un valor. `0` no es basura por sí
+# mismo (puede ser válido), así que no entra acá. Solo los tokens del spec;
+# ampliar cuando el catálogo real muestre más comodines.
+_VALORES_BASURA = frozenset({"n/a", "-", ".", "xx", "sin dato", "sindato"})
+
+
+def campos_basura(fichas: Sequence[Ficha]) -> Resultado:
+    """Atributos cuyo valor es un comodín de carga. Un hallazgo por (producto,
+    atributo): dos campos basura son dos causas, no una contada dos veces."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        for codigo, valor in f.attributes.items():
+            v = normalizar_nombre(str(valor))
+            if v in _VALORES_BASURA:
+                hallazgos.append(
+                    Hallazgo(
+                        "campos_basura", 3, BAJA, "producto", f.sku,
+                        {
+                            "atributo": codigo,
+                            "valor": str(valor),
+                            "lectura": f"el atributo {codigo} trae el comodín «{valor}»",
+                        },
+                    )
+                )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "campos_basura",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -861,6 +900,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     nombre_fuera_de_plantilla,
     nombre_con_basura,
     nombre_es_codigo,
+    campos_basura,
 )
 
 

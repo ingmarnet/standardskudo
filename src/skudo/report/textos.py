@@ -191,6 +191,20 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un producto muestra el código interno como nombre",
     ),
+    "campos_basura": Texto(
+        titulo="{n} campos traen un comodín de carga en vez de un valor",
+        significa=(
+            "Un atributo que no está vacío pero dice «N/A», «-», «SIN DATO», "
+            "«.» o «xx». No es un dato: es el hueco que dejó la carga. Se ve en "
+            "el listado como si fuera un valor real y ensucia los filtros."
+        ),
+        accion=(
+            "Reemplazar el comodín por el valor real o, si no existe, vaciar el "
+            "campo. Un cero no es un comodín: es un valor y se queda."
+        ),
+        unidad="campos",
+        singular="Un campo trae un comodín de carga en vez de un valor",
+    ),
 }
 
 
