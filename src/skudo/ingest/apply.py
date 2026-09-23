@@ -139,6 +139,7 @@ def apply_items(
                 attribute_set_id=item.get("attribute_set_id"),
                 type_id=item.get("type_id"),
                 website_ids=item["website_ids"],
+                parent_skus=item.get("parent_skus"),
                 sync_generation=sync_generation,
             )
         )

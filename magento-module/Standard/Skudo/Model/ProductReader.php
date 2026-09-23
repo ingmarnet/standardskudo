@@ -130,6 +130,7 @@ class ProductReader implements ProductReaderInterface
         $stores = $this->eavValues($keyColumn, $keys, $storeId);
         $websites = $this->websiteIds($keys, $keyColumn);
         $categories = $this->categoryIds(array_column($rows, 'sku'));
+        $parents = $this->parentSkus(array_column($rows, 'sku'));
 
         $items = [];
         foreach ($rows as $row) {
@@ -157,6 +158,7 @@ class ProductReader implements ProductReaderInterface
                 'store_values' => (object) ($stores[$key] ?? []),
                 'website_ids' => $websites[$key] ?? [],
                 'category_ids' => $categories[(string) $row['sku']] ?? [],
+                'parent_skus' => $parents[(string) $row['sku']] ?? [],
                 'updated_at' => (string) $row['updated_at'],
             ];
         }
@@ -248,6 +250,39 @@ class ProductReader implements ProductReaderInterface
         $out = [];
         foreach ($connection->fetchAll($select) as $row) {
             $out[(string) $row['sku']][] = (int) $row['category_id'];
+        }
+        return $out;
+    }
+
+    /**
+     * El/los SKU(s) del configurable del que cada producto es variante.
+     *
+     * `catalog_product_super_link` guarda `product_id` (la variante) y
+     * `parent_id` (el configurable), ambos como entity_id —igual que
+     * `catalog_category_product` y `catalog_product_website`, que también
+     * referencian la entidad y no la versión—. El join a `catalog_product_entity`
+     * por entity_id deja que Magento acote la versión aplicada; el segundo alias
+     * (`p`) resuelve el SKU del padre, porque el espejo se mapea por SKU y no
+     * por entity_id.
+     *
+     * @param string[] $skus
+     * @return array<string, string[]>
+     */
+    private function parentSkus(array $skus): array
+    {
+        $connection = $this->resource->getConnection();
+        $link = $this->resource->getTableName('catalog_product_super_link');
+        $entity = $this->resource->getTableName('catalog_product_entity');
+
+        $select = $connection->select()
+            ->from(['l' => $link], ['parent_id' => 'l.parent_id'])
+            ->join(['e' => $entity], 'e.entity_id = l.product_id', ['sku' => 'e.sku'])
+            ->join(['p' => $entity], 'p.entity_id = l.parent_id', ['parent_sku' => 'p.sku'])
+            ->where('e.sku IN (?)', $skus);
+
+        $out = [];
+        foreach ($connection->fetchAll($select) as $row) {
+            $out[(string) $row['sku']][] = (string) $row['parent_sku'];
         }
         return $out;
     }

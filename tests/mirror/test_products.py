@@ -140,6 +140,28 @@ def test_website_ids_is_null_when_not_supplied(db_session, tenant):
     assert row.website_ids is None
 
 
+def test_parent_skus_survive_the_round_trip(db_session, tenant):
+    """Sin esta columna, `configurable_sin_hijos` (Eje 1) no tiene contra qué
+    comparar: el link configurable→variante es el dato que el detector lee."""
+    identity = ProductIdentity(sku="VAR-T1")
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "N"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC), parent_skus=["PALETA-CONFIG"])
+
+    row = get_record(db_session, tenant.id, "VAR-T1", 1)
+    assert row.parent_skus == ["PALETA-CONFIG"]
+
+
+def test_parent_skus_is_null_when_not_supplied(db_session, tenant):
+    """Ausencia declarada, no una lista vacía con aspecto confiable: el espejo
+    no informó el link, y NULL lo dice sin fingir que el producto no tiene padre."""
+    identity = ProductIdentity(sku="SKU1")
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "N"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC))
+
+    row = get_record(db_session, tenant.id, "SKU1", 1)
+    assert row.parent_skus is None
+
+
 def test_the_same_product_has_one_record_per_store_view(db_session, tenant):
     identity = ProductIdentity(sku="SKU1", mpn=None, model=None, gtin=None)
     for store_id, name in ((1, "Aire Acondicionado"), (3, "Ar Condicionado")):

@@ -204,6 +204,13 @@ class ProductRecord(Base):
     # confiable: NULL dice "desconocido".
     website_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
+    # SKUs de los configurables de los que este producto es variante. Nullable
+    # por la misma razón que `website_ids`: una fila que ningún camino de sync
+    # tocó todavía no debe fingir una lista vacía con aspecto confiable. Es el
+    # dato que falta para el detector `configurable_sin_hijos` (Eje 1): un
+    # configurable cuyo SKU no aparece como padre de ninguna variante.
+    parent_skus: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     # Sello de la última pasada completa que tocó esta fila. Al terminar la
     # pasada de una store view, lo que no lleve el sello de esa pasada es una

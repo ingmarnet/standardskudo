@@ -244,6 +244,19 @@ TEXTOS: dict[str, Texto] = {
         accion="Corregir el signo o vaciar el campo contra el dato real.",
         singular="Un valor negativo en un campo que no puede serlo",
     ),
+    "configurable_sin_hijos": Texto(
+        titulo="{n} productos configurables sin variantes",
+        significa=(
+            "Un configurable no se vende a sí mismo: se venden sus variantes. "
+            "Sin ninguna variante que lo reclame como padre, el producto se "
+            "muestra pero no hay qué agregar al carrito."
+        ),
+        accion=(
+            "Crear las variantes que le correspondan y vincularlas al "
+            "configurable, o despublicarlo si todavía no está listo."
+        ),
+        singular="Un producto configurable no tiene variantes",
+    ),
 }
 
 

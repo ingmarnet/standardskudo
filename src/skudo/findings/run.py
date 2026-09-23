@@ -45,6 +45,7 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
             ProductRecord.attributes,
             ProductRecord.attribute_set_id,
             ProductRecord.type_id,
+            ProductRecord.parent_skus,
         )
         .where(
             ProductRecord.tenant_id == tenant_id,
@@ -61,8 +62,9 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
             categorias=tuple(sorted(categorias.get(sku, ()))),
             is_in_stock=stock_por_sku.get(sku),
             muestra_sin_stock=muestra,
+            parent_skus=tuple(parents or ()),
         )
-        for sku, attrs, set_id, type_id in filas
+        for sku, attrs, set_id, type_id, parents in filas
     ]
 
 

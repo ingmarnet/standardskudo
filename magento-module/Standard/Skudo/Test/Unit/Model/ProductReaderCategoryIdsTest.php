@@ -17,7 +17,8 @@ use Standard\Skudo\Test\Unit\WebApi\UnwrapsWebApiEnvelope;
  * un join de verdad en pruebas: el `FakeSelect::join()` de
  * `ProductReaderTest` es un no-op, así que ahí las subconsultas EAV/website/
  * categoría nunca se evalúan. Este archivo trae un doble que SÍ resuelve el
- * join contra filas de fixture.
+ * join contra filas de fixture. `parentSkus()` (el link configurable→variante)
+ * es la segunda consulta con join real y se cubre acá con el mismo doble.
  *
  * Historia, porque explica por qué el archivo se llama así: se creó para el
  * hallazgo L1, "categoryIds() no aplica el filtro de versión vigente", con la
@@ -57,6 +58,18 @@ class ProductReaderCategoryIdsTest extends TestCase
         ['category_id' => 603, 'product_id' => 77096],
     ];
 
+    /** `catalog_product_super_link`: product_id = variante, parent_id = configurable. */
+    private const SUPER_LINKS = [
+        ['product_id' => 77096, 'parent_id' => 88001],
+    ];
+
+    /** El configurable padre de NGO-T2092, con su propia fila de entidad. */
+    private const PARENT_ROWS = [
+        ['row_id' => 10, 'entity_id' => 88001, 'sku' => 'PARENT-CONFIG', 'attribute_set_id' => 4,
+         'type_id' => 'configurable', 'updated_at' => '2026-01-01 00:00:00',
+         'created_in' => self::NOW - 2000, 'updated_in' => self::NOW + 1000],
+    ];
+
     /**
      * Sin columnas de versionado (Community, o Commerce sin Staging) el
      * comportamiento no cambia: una fila de entidad, una categoría. Si el
@@ -74,6 +87,26 @@ class ProductReaderCategoryIdsTest extends TestCase
         $items = $this->payloadOf($reader->getBySku(1, ['NGO-T2092']))['items'];
 
         $this->assertSame([603], $items[0]['category_ids']);
+    }
+
+    /**
+     * `parentSkus()` resuelve el SKU del configurable de cada variante: el
+     * join trae el SKU del hijo (alias `e`) y el del padre (alias `p`), y el
+     * espejo se mapea por SKU. Sin esta consulta, `configurable_sin_hijos`
+     * no tendría contra qué comparar.
+     */
+    public function testParentSkusResolveTheConfigurableForEachChild(): void
+    {
+        $selects = [];
+        $reader = $this->makeReader(
+            hasVersioning: true,
+            versionRows: [...self::VERSION_ROWS, ...self::PARENT_ROWS],
+            selects: $selects,
+        );
+
+        $items = $this->payloadOf($reader->getBySku(1, ['NGO-T2092']))['items'];
+
+        $this->assertSame(['PARENT-CONFIG'], $items[0]['parent_skus']);
     }
 
     /**
@@ -136,6 +169,7 @@ class ProductReaderCategoryIdsTest extends TestCase
                 $versionRows
             ),
             'catalog_category_product' => $this->joinLinksToEntities($versionRows),
+            'catalog_product_super_link' => $this->joinSuperLinks($versionRows),
             default => [],
         };
 
@@ -175,6 +209,33 @@ class ProductReaderCategoryIdsTest extends TestCase
                 if ((int) $entity['entity_id'] === (int) $link['product_id']) {
                     $rows[] = ['l' => $link, 'e' => $entity];
                 }
+            }
+        }
+        return $rows;
+    }
+
+    /**
+     * El join real de `parentSkus()`: dos alias de `catalog_product_entity`
+     * (`e` = variante, `p` = configurable) unidos por los dos entity_id de
+     * `catalog_product_super_link`.
+     *
+     * @param mixed[] $versionRows
+     * @return mixed[]
+     */
+    private function joinSuperLinks(array $versionRows): array
+    {
+        $rows = [];
+        foreach (self::SUPER_LINKS as $link) {
+            $child = $parent = null;
+            foreach ($versionRows as $entity) {
+                if ((int) $entity['entity_id'] === (int) $link['product_id']) {
+                    $child = $entity;
+                } elseif ((int) $entity['entity_id'] === (int) $link['parent_id']) {
+                    $parent = $entity;
+                }
+            }
+            if ($child !== null && $parent !== null) {
+                $rows[] = ['l' => $link, 'e' => $child, 'p' => $parent];
             }
         }
         return $rows;

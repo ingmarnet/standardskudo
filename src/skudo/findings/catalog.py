@@ -66,6 +66,10 @@ class Ficha:
     # que un llamador que no los provea obtenga el comportamiento de siempre.
     is_in_stock: bool | None = None
     muestra_sin_stock: bool | None = None
+    # SKUs de los configurables de los que este producto es variante. Tupla
+    # vacía por defecto: un llamador que no conoce el link (o un espejo sin él
+    # todavía) no fabrica un padre.
+    parent_skus: tuple[str, ...] = ()
 
     def valor(self, code: str) -> str | None:
         """El valor de un campo, o `None` si está vacío.
@@ -1058,6 +1062,44 @@ def valores_negativos(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 1: configurable sin hijos. Un configurable sin ninguna variante que lo
+# reclame como padre no se puede comprar: el padre no se vende, se venden sus
+# hijos, y si no los tiene no hay qué agregar al carrito. Es el tercer caso de
+# "error de tipología" del spec §6.1 (los otros dos —"debería ser variante y
+# está suelto"— ya son `variantes_por_talle`/`variantes_sueltas`). Necesita el
+# link padre-hijo que trae `parent_skus`: por eso no existía hasta que el espejo
+# lo espejó.
+def configurable_sin_hijos(fichas: Sequence[Ficha]) -> Resultado:
+    """Configurables sin variantes que los reclamen como padre. Un hallazgo por producto."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    # Un hijo puede no estar publicado (o no navegar) y aun así existir: lo que
+    # importa acá es si el configurable tiene ALGUNA variante cargada, no si
+    # esa variante está en vitrina. Por eso el conjunto de padres se arma sobre
+    # TODAS las fichas, no solo las evaluables.
+    skus_que_son_padre = {
+        padre for f in fichas for padre in f.parent_skus
+    }
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        if f.type_id == "configurable" and f.sku not in skus_que_son_padre:
+            hallazgos.append(
+                Hallazgo(
+                    "configurable_sin_hijos", 1, MEDIA, "producto", f.sku,
+                    {"lectura": f"el configurable {f.sku} no tiene variantes que lo reclamen como padre"},
+                )
+            )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "configurable_sin_hijos",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1077,6 +1119,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     marca_inconsistente,
     gtin_invalido,
     valores_negativos,
+    configurable_sin_hijos,
 )
 
 
