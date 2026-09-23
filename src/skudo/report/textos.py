@@ -283,6 +283,16 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un atributo mezcla dos o más unidades",
     ),
+    "descripcion_corta_copia_larga": Texto(
+        titulo="{n} productos con la descripción corta copiada de la larga",
+        significa=(
+            "La descripción corta debe resumir la larga para el grid y el "
+            "comparador. Copiada literal, duplica contenido y excede el espacio "
+            "donde se muestra sin aportar nada."
+        ),
+        accion="Escribir un resumen breve, o dejarla vacía si no hay nada que resumir.",
+        singular="La descripción corta es una copia literal de la larga",
+    ),
 }
 
 

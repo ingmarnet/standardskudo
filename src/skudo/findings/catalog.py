@@ -1218,6 +1218,35 @@ def unidades_mezcladas(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 6: la descripción corta es una copia literal de la larga. El spec §6.1 lo
+# lista junto a la ausencia: una corta que repite la larga no resume nada,
+# duplica contenido y excede el espacio del grid/comparador donde se muestra.
+# Igualdad literal, sin normalizar: un resumen no es la larga con dos comas menos.
+def descripcion_corta_copia_larga(fichas: Sequence[Ficha]) -> Resultado:
+    """Productos cuya descripción corta es idéntica a la larga. Un hallazgo por producto."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        corta = f.valor("short_description")
+        if corta is not None and corta == f.valor("description"):
+            hallazgos.append(
+                Hallazgo(
+                    "descripcion_corta_copia_larga", 6, BAJA, "producto", f.sku,
+                    {"lectura": f"la descripción corta de {f.sku} es una copia literal de la larga"},
+                )
+            )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "descripcion_corta_copia_larga",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y productos deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1240,6 +1269,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     configurable_sin_hijos,
     variantes_sin_atributos_de_variacion,
     unidades_mezcladas,
+    descripcion_corta_copia_larga,
 )
 
 
