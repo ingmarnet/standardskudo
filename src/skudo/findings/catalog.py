@@ -747,6 +747,68 @@ def nombre_fuera_de_plantilla(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 1: basura en el nombre (spec §6.1). «El nombre dice algo que no es un
+# nombre»: una etiqueta HTML, un SKU interno, signos repetidos. Todo objetivable
+# con un regex, así que no es candidato: es defecto real de baja severidad.
+_HTML = re.compile(r"<[^>]*>|&[a-zA-Z]+;")
+_ESPACIOS_DOBLES = re.compile(r" {2,}")
+_CARACTER_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_PUNTUACION = re.compile(r"[!?¡¿*#]{2,}")
+_DIGITO = re.compile(r"\d")
+
+
+def _basura_en_nombre(nombre: str, sku: str) -> list[str]:
+    """Los tipos de basura que trae el nombre. `sku` es el código interno."""
+    motivos = []
+    if _HTML.search(nombre):
+        motivos.append("html")
+    if _ESPACIOS_DOBLES.search(nombre):
+        motivos.append("espacios")
+    if _CARACTER_CONTROL.search(nombre):
+        motivos.append("control")
+    if _PUNTUACION.search(nombre):
+        motivos.append("puntuacion")
+    # Un SKU es un código (lleva dígito), no una palabra: "Nox" es marca, no
+    # código. Y si el nombre ES el sku, es el detector vecino («el nombre es un
+    # código»), no un SKU embebido.
+    s = normalizar_nombre(sku) if sku else ""
+    n = normalizar_nombre(nombre)
+    if s and len(s) >= 4 and _DIGITO.search(s) and s in n and s != n:
+        motivos.append("sku")
+    return motivos
+
+
+def nombre_con_basura(fichas: Sequence[Ficha]) -> Resultado:
+    """Nombre con basura: HTML, dobles espacios, caracteres de control, signos
+    repetidos o el SKU interno embebido. No corrige, solo señala."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        nombre = f.valor("name") or ""
+        motivos = _basura_en_nombre(nombre, f.sku)
+        if motivos:
+            hallazgos.append(
+                Hallazgo(
+                    "nombre_con_basura", 1, BAJA, "producto", f.sku,
+                    {
+                        "motivo": motivos,
+                        "nombre": nombre,
+                        "lectura": "basura en el nombre: " + ", ".join(motivos),
+                    },
+                )
+            )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "nombre_con_basura",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -760,6 +822,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     nombre_en_mayusculas,
     sospecha_conversion,
     nombre_fuera_de_plantilla,
+    nombre_con_basura,
 )
 
 

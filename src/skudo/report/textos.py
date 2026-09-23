@@ -168,6 +168,16 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un producto tiene un nombre fuera de la plantilla de su tipo",
     ),
+    "nombre_con_basura": Texto(
+        titulo="{n} productos con basura en el nombre",
+        significa=(
+            "El nombre trae HTML, dobles espacios, caracteres de control, signos "
+            "repetidos o el código interno embebido. Se ve roto en el listado y el "
+            "buscador no lo lee como texto."
+        ),
+        accion="Limpiar el nombre: es un reemplazo directo, no una decisión de catálogo.",
+        singular="Un producto tiene basura en el nombre",
+    ),
 }
 
 
