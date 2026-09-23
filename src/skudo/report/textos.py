@@ -343,6 +343,16 @@ TEXTOS: dict[str, Texto] = {
         accion="Escribir un alt text que describa el producto de la foto.",
         singular="Un producto tiene alt text ausente o igual al archivo",
     ),
+    "nombre_sin_traducir": Texto(
+        titulo="{n} nombres sin traducir para la store view",
+        significa=(
+            "El producto repite el nombre de la store view fuente (la del "
+            "idioma original) en vez de traducirlo al de esta tienda. El "
+            "comprador local lo lee en otro idioma."
+        ),
+        accion="Traducir el nombre a la store view, salvo que sea una marca universal.",
+        singular="Un producto tiene el nombre sin traducir",
+    ),
 }
 
 

@@ -9,6 +9,7 @@ from skudo.findings.catalog import CANDIDATO, MEDIA, Cobertura, Ficha, Resultado
 from skudo.findings.models import DetectorCoverage, Finding, FindingRun
 from skudo.findings.filter_blind import evaluar_filtro_ciego
 from skudo.findings.rules_eval import ReglaEvaluable, evaluar_regla
+from skudo.findings.traduccion import evaluar_nombre_sin_traducir
 from skudo.mirror.models import (
     Attribute,
     ProductCategoryAssignment,
@@ -230,6 +231,13 @@ def detect_store_view(
 
     # 1) detectores especiales
     for resultado in evaluar(fichas):
+        _escribir_resultado(session, run, resultado, rule_id=None, version=None)
+
+    # 1b) nombre sin traducir: pares de store view. No es un detector de fichas:
+    # necesita las store views hermanas y sus locales, así que corre acá.
+    for resultado in evaluar_nombre_sin_traducir(
+        session, tenant_id, store_view_magento_id, fichas
+    ):
         _escribir_resultado(session, run, resultado, rule_id=None, version=None)
 
     # 2) motor de reglas, sobre el snapshot resuelto arriba
