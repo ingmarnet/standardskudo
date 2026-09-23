@@ -960,6 +960,65 @@ def marca_inconsistente(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 1: GTIN inválido (spec §6.1). «Formato y dígito de control se validan solo
+# si hay valor»: sin GTIN cargado no hay hallazgo —la exigencia de que exista es
+# una regla con aplicabilidad (`fabricante_asigna_gtin`), no este detector—. Un
+# GTIN con formato roto o dígito de control que no cuadra es un dato mal cargado,
+# no un candidato: el algoritmo GS1 decide.
+ATRIBUTOS_GTIN = ("gtin", "ean", "upc", "ean13", "barcode")
+LARGOS_GTIN = frozenset({8, 12, 13, 14})
+
+
+def _digito_control_gtin(cuerpo: str) -> int:
+    """Dígito de control GS1: pesos 3 y 1 alternados desde el último dígito."""
+    total = 0
+    for i, c in enumerate(reversed(cuerpo)):
+        total += int(c) * (3 if i % 2 == 0 else 1)
+    return (10 - (total % 10)) % 10
+
+
+def gtin_invalido(fichas: Sequence[Ficha]) -> Resultado:
+    """GTIN con formato inválido o dígito de control que no cuadra."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    codigo = next(
+        (c for c in ATRIBUTOS_GTIN if any(f.valor(c) for f in evaluables)), None
+    )
+    hallazgos: list[Hallazgo] = []
+    if codigo:
+        for f in evaluables:
+            v = f.valor(codigo)
+            if not v:
+                continue  # sin valor: no se evalúa (spec, «solo si hay valor»)
+            g = v.strip()
+            if not g.isdigit() or len(g) not in LARGOS_GTIN:
+                motivo = "formato"
+            elif _digito_control_gtin(g[:-1]) != int(g[-1]):
+                motivo = "dígito de control"
+            else:
+                continue
+            hallazgos.append(
+                Hallazgo(
+                    "gtin_invalido", 1, MEDIA, "producto", f.sku,
+                    {
+                        "atributo": codigo,
+                        "gtin": g,
+                        "motivo": motivo,
+                        "lectura": f"el GTIN «{g}» tiene {motivo} inválido",
+                    },
+                )
+            )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "gtin_invalido",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -977,6 +1036,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     nombre_es_codigo,
     campos_basura,
     marca_inconsistente,
+    gtin_invalido,
 )
 
 

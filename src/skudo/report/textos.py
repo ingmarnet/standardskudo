@@ -220,6 +220,20 @@ TEXTOS: dict[str, Texto] = {
         unidad="grafías",
         singular="Una grafía distinta de una marca ya existente",
     ),
+    "gtin_invalido": Texto(
+        titulo="{n} productos con un GTIN mal cargado",
+        significa=(
+            "El GTIN tiene un formato que no corresponde (no son solo dígitos, o "
+            "su largo no es 8, 12, 13 o 14) o su dígito de control no cuadra con "
+            "el resto. Un GTIN mal cargado no identifica al producto en Google "
+            "Shopping ni en los marketplaces."
+        ),
+        accion=(
+            "Corregir contra la ficha o el envase del producto. El dígito de "
+            "control se calcula: no es un dato que haya que adivinar."
+        ),
+        singular="Un producto tiene un GTIN mal cargado",
+    ),
 }
 
 
