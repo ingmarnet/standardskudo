@@ -1247,6 +1247,53 @@ def descripcion_corta_copia_larga(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Cuántos productos comparten una descripción para marcarla como texto
+# duplicado en masa. El spec dice «cientos»: acá se arranca bajo para que el
+# detector muestre algo contra Renovapadel real y se suba con la calibración.
+# La severidad es CANDIDATO, así que nunca se presenta como veredicto.
+UMBRAL_TEXTO_DUPLICADO = 20
+
+
+# Eje 5: texto duplicado en masa. Una misma descripción pegada en decenas de
+# productos diluye el contenido, no distingue el producto de sus hermanos y es
+# la firma del copy-paste de carga. Complementa a `nombres_repetidos` (que mira
+# el nombre) y a `campos_basura` (que mira comodines sueltos, no texto real).
+def texto_duplicado(fichas: Sequence[Ficha]) -> Resultado:
+    """Una descripción idéntica compartida por muchos productos. Un hallazgo por grupo."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    por_texto: dict[str, list[Ficha]] = defaultdict(list)
+    for f in evaluables:
+        texto = f.valor("description")
+        if texto:
+            por_texto[texto].append(f)
+
+    hallazgos: list[Hallazgo] = []
+    for texto, grupo in sorted(por_texto.items()):
+        if len(grupo) < UMBRAL_TEXTO_DUPLICADO:
+            continue
+        hallazgos.append(
+            Hallazgo(
+                "texto_duplicado", 5, CANDIDATO, "grupo", texto[:120],
+                {
+                    "productos": len(grupo),
+                    "skus": sorted(g.sku for g in grupo)[:MAX_SKUS_POR_GRUPO],
+                    "truncado": len(grupo) > MAX_SKUS_POR_GRUPO,
+                    "lectura": f"{len(grupo)} productos comparten la misma descripción",
+                },
+            )
+        )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "texto_duplicado",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y productos deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1270,6 +1317,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     variantes_sin_atributos_de_variacion,
     unidades_mezcladas,
     descripcion_corta_copia_larga,
+    texto_duplicado,
 )
 
 

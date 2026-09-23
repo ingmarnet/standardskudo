@@ -293,6 +293,19 @@ TEXTOS: dict[str, Texto] = {
         accion="Escribir un resumen breve, o dejarla vacía si no hay nada que resumir.",
         singular="La descripción corta es una copia literal de la larga",
     ),
+    "texto_duplicado": Texto(
+        titulo="{n} descripciones compartidas en masa",
+        significa=(
+            "La misma descripción pegada en decenas de productos no distingue "
+            "el producto de sus hermanos y es la firma del copy-paste de carga. "
+            "Diluye el contenido para el buscador y para el comprador."
+        ),
+        accion=(
+            "Reescribir una descripción propia por producto, o bajar el umbral "
+            "si el catálogo comparte texto legítimo entre variantes."
+        ),
+        singular="Una descripción está duplicada en decenas de productos",
+    ),
 }
 
 
