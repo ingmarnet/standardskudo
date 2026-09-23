@@ -83,6 +83,7 @@ def upsert_record(
     type_id: str | None = None,
     website_ids: list[int] | None = None,
     parent_skus: list[str] | None = None,
+    variation_attributes: list[str] | None = None,
     sync_generation: int | None = None,
 ) -> None:
     """Escribe UNA fila del espejo. Conveniencia de los tests, no del producto.
@@ -115,6 +116,7 @@ def upsert_record(
                 type_id=type_id,
                 website_ids=website_ids,
                 parent_skus=parent_skus,
+                variation_attributes=variation_attributes,
                 sync_generation=sync_generation,
             )
         ],

@@ -46,6 +46,7 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
             ProductRecord.attribute_set_id,
             ProductRecord.type_id,
             ProductRecord.parent_skus,
+            ProductRecord.variation_attributes,
         )
         .where(
             ProductRecord.tenant_id == tenant_id,
@@ -63,8 +64,9 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
             is_in_stock=stock_por_sku.get(sku),
             muestra_sin_stock=muestra,
             parent_skus=tuple(parents or ()),
+            variation_attributes=tuple(ejes or ()),
         )
-        for sku, attrs, set_id, type_id, parents in filas
+        for sku, attrs, set_id, type_id, parents, ejes in filas
     ]
 
 

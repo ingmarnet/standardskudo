@@ -257,6 +257,19 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un producto configurable no tiene variantes",
     ),
+    "variantes_sin_atributos_de_variacion": Texto(
+        titulo="{n} configurables con variantes que no comparten el eje de variación",
+        significa=(
+            "Un configurable varía por un conjunto de atributos (color, talle…). "
+            "Si una de sus variantes no informa el valor de uno de esos ejes, "
+            "queda un hueco en el selector y esa variante no se puede elegir."
+        ),
+        accion=(
+            "Completar el valor del atributo que falta en cada variante, o "
+            "quitar ese eje de la configuración si no aplica al producto."
+        ),
+        singular="Un configurable tiene variantes que no comparten un eje de variación",
+    ),
 }
 
 

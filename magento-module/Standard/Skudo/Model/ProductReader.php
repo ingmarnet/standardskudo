@@ -131,6 +131,7 @@ class ProductReader implements ProductReaderInterface
         $websites = $this->websiteIds($keys, $keyColumn);
         $categories = $this->categoryIds(array_column($rows, 'sku'));
         $parents = $this->parentSkus(array_column($rows, 'sku'));
+        $variations = $this->variationAttributes(array_column($rows, 'sku'));
 
         $items = [];
         foreach ($rows as $row) {
@@ -159,6 +160,7 @@ class ProductReader implements ProductReaderInterface
                 'website_ids' => $websites[$key] ?? [],
                 'category_ids' => $categories[(string) $row['sku']] ?? [],
                 'parent_skus' => $parents[(string) $row['sku']] ?? [],
+                'variation_attributes' => $variations[(string) $row['sku']] ?? [],
                 'updated_at' => (string) $row['updated_at'],
             ];
         }
@@ -283,6 +285,39 @@ class ProductReader implements ProductReaderInterface
         $out = [];
         foreach ($connection->fetchAll($select) as $row) {
             $out[(string) $row['sku']][] = (string) $row['parent_sku'];
+        }
+        return $out;
+    }
+
+    /**
+     * Los ejes de variación (códigos de atributo) de cada configurable.
+     *
+     * `catalog_product_super_attribute` guarda `product_id` (el configurable) y
+     * `attribute_id` (el atributo por el que varía, p. ej. `color` o `talle`).
+     * Igual que `parentSkus()`, referencia el entity_id del configurable y se
+     * une a `catalog_product_entity` para resolver el SKU y a `eav_attribute`
+     * para resolver el código, porque el espejo se mapea por SKU y los detectores
+     * leen atributos por código.
+     *
+     * @param string[] $skus
+     * @return array<string, string[]>
+     */
+    private function variationAttributes(array $skus): array
+    {
+        $connection = $this->resource->getConnection();
+        $superAttribute = $this->resource->getTableName('catalog_product_super_attribute');
+        $entity = $this->resource->getTableName('catalog_product_entity');
+        $attribute = $this->resource->getTableName('eav_attribute');
+
+        $select = $connection->select()
+            ->from(['s' => $superAttribute], ['attribute_id' => 's.attribute_id'])
+            ->join(['e' => $entity], 'e.entity_id = s.product_id', ['sku' => 'e.sku'])
+            ->join(['a' => $attribute], 'a.attribute_id = s.attribute_id', ['attribute_code' => 'a.attribute_code'])
+            ->where('e.sku IN (?)', $skus);
+
+        $out = [];
+        foreach ($connection->fetchAll($select) as $row) {
+            $out[(string) $row['sku']][] = (string) $row['attribute_code'];
         }
         return $out;
     }

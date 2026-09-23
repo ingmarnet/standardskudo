@@ -70,6 +70,10 @@ class Ficha:
     # vacía por defecto: un llamador que no conoce el link (o un espejo sin él
     # todavía) no fabrica un padre.
     parent_skus: tuple[str, ...] = ()
+    # Ejes de variación del configurable (códigos de atributo, p. ej. `color`).
+    # Solo los lleva el propio configurable; las variantes los heredan vía
+    # `parent_skus`. Tupla vacía por defecto por la misma razón que `parent_skus`.
+    variation_attributes: tuple[str, ...] = ()
 
     def valor(self, code: str) -> str | None:
         """El valor de un campo, o `None` si está vacío.
@@ -1100,6 +1104,56 @@ def configurable_sin_hijos(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 1: variantes que no comparten atributos de variación. Un configurable
+# varía por UN conjunto de ejes (declarados en `catalog_product_super_attribute`
+# y traídos por `variation_attributes`): si una variante no informa el valor de
+# uno de esos ejes, el selector del configurable queda con un hueco y esa
+# variante no se puede elegir. Es el cuarto caso de "error de tipología" del
+# spec §6.1, y el segundo que necesita el espejo enriquecido (el primero fue
+# `configurable_sin_hijos`).
+def variantes_sin_atributos_de_variacion(fichas: Sequence[Ficha]) -> Resultado:
+    """Configurables cuyas variantes no informan todos los ejes de variación. Un hallazgo por eje."""
+    # Solo se evalúa el configurable publicado CON ejes declarados: sin ejes no
+    # hay qué comparar (un configurable sin ejes es otra rareza, no ésta).
+    evaluables, no_aplica, no_evaluado = _particionar(
+        fichas,
+        lambda f: _publicado(f) and f.type_id == "configurable" and bool(f.variation_attributes),
+    )
+    hijos_por_padre: dict[str, list[Ficha]] = {}
+    for f in fichas:
+        for padre in f.parent_skus:
+            hijos_por_padre.setdefault(padre, []).append(f)
+
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        hijos = hijos_por_padre.get(f.sku, [])
+        for eje in f.variation_attributes:
+            faltantes = sorted(h.sku for h in hijos if h.valor(eje) is None)
+            if faltantes:
+                hallazgos.append(
+                    Hallazgo(
+                        "variantes_sin_atributos_de_variacion", 1, MEDIA, "grupo", f.sku,
+                        {
+                            "atributo": eje,
+                            "lectura": f"el configurable {f.sku} varía por {eje} pero "
+                            f"{len(faltantes)} variante(s) no lo informan",
+                            "skus": faltantes[:MAX_SKUS_POR_GRUPO],
+                            "truncado": len(faltantes) > MAX_SKUS_POR_GRUPO,
+                        },
+                    )
+                )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "variantes_sin_atributos_de_variacion",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "configurables sin ejes de variación declarados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1120,6 +1174,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     gtin_invalido,
     valores_negativos,
     configurable_sin_hijos,
+    variantes_sin_atributos_de_variacion,
 )
 
 

@@ -162,6 +162,29 @@ def test_parent_skus_is_null_when_not_supplied(db_session, tenant):
     assert row.parent_skus is None
 
 
+def test_variation_attributes_survive_the_round_trip(db_session, tenant):
+    """Sin esta columna, `variantes_sin_atributos_de_variacion` (Eje 1) no
+    tiene contra qué comparar: los ejes de variación del configurable son el
+    dato que el detector lee."""
+    identity = ProductIdentity(sku="PALETA-CONFIG")
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "N"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC), variation_attributes=["color", "talle"])
+
+    row = get_record(db_session, tenant.id, "PALETA-CONFIG", 1)
+    assert row.variation_attributes == ["color", "talle"]
+
+
+def test_variation_attributes_is_null_when_not_supplied(db_session, tenant):
+    """Ausencia declarada, no una lista vacía con aspecto confiable: el espejo
+    no informó los ejes, y NULL lo dice sin fingir que el configurable no varía."""
+    identity = ProductIdentity(sku="SKU1")
+    upsert_record(db_session, tenant.id, 1, identity, {"name": "N"}, {"name": "global"},
+                  datetime(2026, 9, 1, tzinfo=UTC))
+
+    row = get_record(db_session, tenant.id, "SKU1", 1)
+    assert row.variation_attributes is None
+
+
 def test_the_same_product_has_one_record_per_store_view(db_session, tenant):
     identity = ProductIdentity(sku="SKU1", mpn=None, model=None, gtin=None)
     for store_id, name in ((1, "Aire Acondicionado"), (3, "Ar Condicionado")):

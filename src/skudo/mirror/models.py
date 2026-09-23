@@ -211,6 +211,13 @@ class ProductRecord(Base):
     # configurable cuyo SKU no aparece como padre de ninguna variante.
     parent_skus: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
+    # Ejes de variación del configurable (códigos de atributo, p. ej. `color`),
+    # desde `catalog_product_super_attribute`. Nullable por la misma razón que
+    # `parent_skus`. Es el dato que falta para el detector
+    # `variantes_sin_atributos_de_variacion` (Eje 1): un configurable cuyas
+    # variantes no informan todos los ejes por los que varía.
+    variation_attributes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     # Sello de la última pasada completa que tocó esta fila. Al terminar la
     # pasada de una store view, lo que no lleve el sello de esa pasada es una

@@ -121,7 +121,8 @@ def content_hash(
 # completa lo manda (ver `record_values`).
 UPDATABLE_COLUMNS = (
     "mpn", "model", "gtin", "variant_key", "attribute_set_id", "type_id",
-    "website_ids", "parent_skus", "attributes", "scope_provenance", "content_hash",
+    "website_ids", "parent_skus", "variation_attributes", "attributes",
+    "scope_provenance", "content_hash",
     "magento_updated_at", "mirrored_at",
 )
 
@@ -141,6 +142,7 @@ def record_values(
     type_id: str | None = None,
     website_ids: list[int] | None = None,
     parent_skus: list[str] | None = None,
+    variation_attributes: list[str] | None = None,
     sync_generation: int | None = None,
 ) -> dict:
     """La fila del espejo, como diccionario de valores.
@@ -175,6 +177,7 @@ def record_values(
         "type_id": type_id,
         "website_ids": website_ids,
         "parent_skus": parent_skus,
+        "variation_attributes": variation_attributes,
         "attributes": effective,
         "scope_provenance": provenance,
         "content_hash": content_hash(identity, effective, store_view_magento_id),

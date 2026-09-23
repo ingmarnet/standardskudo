@@ -70,6 +70,16 @@ class ProductReaderCategoryIdsTest extends TestCase
          'created_in' => self::NOW - 2000, 'updated_in' => self::NOW + 1000],
     ];
 
+    /** `catalog_product_super_attribute`: product_id = configurable, attribute_id = eje. */
+    private const SUPER_ATTRIBUTES = [
+        ['product_id' => 88001, 'attribute_id' => 22],
+    ];
+
+    /** `eav_attribute`: attribute_id => código del eje de variación. */
+    private const ATTRIBUTES = [
+        22 => 'color',
+    ];
+
     /**
      * Sin columnas de versionado (Community, o Commerce sin Staging) el
      * comportamiento no cambia: una fila de entidad, una categoría. Si el
@@ -107,6 +117,26 @@ class ProductReaderCategoryIdsTest extends TestCase
         $items = $this->payloadOf($reader->getBySku(1, ['NGO-T2092']))['items'];
 
         $this->assertSame(['PARENT-CONFIG'], $items[0]['parent_skus']);
+    }
+
+    /**
+     * `variationAttributes()` resuelve el código de cada eje de variación del
+     * configurable: el join trae el SKU del configurable (alias `e`) y el
+     * código del atributo (alias `a`). Sin esta consulta,
+     * `variantes_sin_atributos_de_variacion` no tiene contra qué comparar.
+     */
+    public function testVariationAttributesResolveTheAxesForTheConfigurable(): void
+    {
+        $selects = [];
+        $reader = $this->makeReader(
+            hasVersioning: true,
+            versionRows: [...self::VERSION_ROWS, ...self::PARENT_ROWS],
+            selects: $selects,
+        );
+
+        $items = $this->payloadOf($reader->getBySku(1, ['PARENT-CONFIG']))['items'];
+
+        $this->assertSame(['color'], $items[0]['variation_attributes']);
     }
 
     /**
@@ -170,6 +200,7 @@ class ProductReaderCategoryIdsTest extends TestCase
             ),
             'catalog_category_product' => $this->joinLinksToEntities($versionRows),
             'catalog_product_super_link' => $this->joinSuperLinks($versionRows),
+            'catalog_product_super_attribute' => $this->joinSuperAttributes($versionRows),
             default => [],
         };
 
@@ -237,6 +268,39 @@ class ProductReaderCategoryIdsTest extends TestCase
             if ($child !== null && $parent !== null) {
                 $rows[] = ['l' => $link, 'e' => $child, 'p' => $parent];
             }
+        }
+        return $rows;
+    }
+
+    /**
+     * El join real de `variationAttributes()`: `catalog_product_super_attribute`
+     * (`s`) se une a la entidad del configurable (`e`) y al código del atributo
+     * (`a`), de forma análoga a `joinSuperLinks`.
+     *
+     * @param mixed[] $versionRows
+     * @return mixed[]
+     */
+    private function joinSuperAttributes(array $versionRows): array
+    {
+        $rows = [];
+        foreach (self::SUPER_ATTRIBUTES as $link) {
+            $entity = null;
+            foreach ($versionRows as $candidate) {
+                if ((int) $candidate['entity_id'] === (int) $link['product_id']) {
+                    $entity = $candidate;
+                }
+            }
+            if ($entity === null) {
+                continue;
+            }
+            $rows[] = [
+                's' => $link,
+                'e' => $entity,
+                'a' => [
+                    'attribute_id' => $link['attribute_id'],
+                    'attribute_code' => self::ATTRIBUTES[$link['attribute_id']],
+                ],
+            ];
         }
         return $rows;
     }
