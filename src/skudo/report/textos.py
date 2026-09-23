@@ -178,6 +178,19 @@ TEXTOS: dict[str, Texto] = {
         accion="Limpiar el nombre: es un reemplazo directo, no una decisión de catálogo.",
         singular="Un producto tiene basura en el nombre",
     ),
+    "nombre_es_codigo": Texto(
+        titulo="{n} productos muestran el código interno como nombre",
+        significa=(
+            "En vez de un nombre humano, el producto se llama con su SKU. Quien "
+            "busca no encuentra, y el listado muestra una cadena que solo tiene "
+            "sentido para el que cargó el catálogo."
+        ),
+        accion=(
+            "Redactar el nombre desde los atributos que el producto ya tiene: no "
+            "falta el dato, falta usarlo en el nombre."
+        ),
+        singular="Un producto muestra el código interno como nombre",
+    ),
 }
 
 

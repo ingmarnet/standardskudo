@@ -809,6 +809,43 @@ def nombre_con_basura(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 1: el nombre es un código (spec §6.1). `INV-WIFI89283942` en el campo
+# nombre: el storefront muestra el código interno en vez de un nombre humano.
+# Determinista por construcción: solo marca nombre == sku. No intenta adivinar
+# si un nombre «parece» un código (eso FP con modelos legítimos como CBR600RR).
+def nombre_es_codigo(fichas: Sequence[Ficha]) -> Resultado:
+    """El nombre es el código interno, no un nombre. No corrige, solo señala."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        nombre = f.valor("name") or ""
+        n = normalizar_nombre(nombre)
+        s = normalizar_nombre(f.sku) if f.sku else ""
+        # Un código lleva dígito: «Paleta» como sku es una palabra, no un código.
+        # Y nombre == sku no es «sku embebido» (ese es el detector vecino).
+        if s and n and s == n and len(s) >= 4 and _DIGITO.search(s):
+            hallazgos.append(
+                Hallazgo(
+                    "nombre_es_codigo", 1, MEDIA, "producto", f.sku,
+                    {
+                        "nombre": nombre,
+                        "sku": f.sku,
+                        "lectura": "el nombre es el código interno " + f.sku,
+                    },
+                )
+            )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "nombre_es_codigo",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -823,6 +860,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sospecha_conversion,
     nombre_fuera_de_plantilla,
     nombre_con_basura,
+    nombre_es_codigo,
 )
 
 
