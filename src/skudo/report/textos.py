@@ -205,6 +205,21 @@ TEXTOS: dict[str, Texto] = {
         unidad="campos",
         singular="Un campo trae un comodín de carga en vez de un valor",
     ),
+    "marca_inconsistente": Texto(
+        titulo="{n} grafías distintas de una misma marca",
+        significa=(
+            "La misma marca aparece escrita de más de una forma —«Samsung» junto "
+            "a «Sansung»—. La tienda la agrupa como dos marcas distintas y el "
+            "comprador que filtra por una no ve los productos de la otra. Es un "
+            "candidato a revisar: decidir la grafía canónica es del dueño."
+        ),
+        accion=(
+            "Elegir una grafía por marca y unificar las demás con una regla, no "
+            "producto por producto."
+        ),
+        unidad="grafías",
+        singular="Una grafía distinta de una marca ya existente",
+    ),
 }
 
 

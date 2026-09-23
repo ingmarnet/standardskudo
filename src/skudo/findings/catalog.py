@@ -885,6 +885,81 @@ def campos_basura(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 1: marca inconsistente (spec §6.1). La misma marca escrita de dos formas
+# («Samsung» y «Sansung») en el atributo de marca: rompe el agrupado por marca en
+# la tienda y en los feeds. Sale candidato: decidir cuál grafía es la canónica es
+# una decisión del dueño, no del motor. Solo ataca texto libre — si la marca es
+# un select con `option_id`, la inconsistencia vive en las etiquetas de opción
+# (consolidación, Eje 3), no en el valor del producto.
+ATRIBUTOS_MARCA = ("manufacturer", "marca", "brand", "fabricante")
+# ponytail: umbral sin calibrar; más laxo que duplicado porque las marcas son
+# cortas (una errata en 7 letras da ratio ~0.86). Medir con el arnés de FP.
+UMBRAL_MARCA = 0.85
+MIN_LARGO_MARCA = 4
+
+
+def marca_inconsistente(fichas: Sequence[Ficha]) -> Resultado:
+    """La marca de un grupo de productos difiere en poco de una grafía más usada.
+
+    Un hallazgo por grafía minoritaria (no por producto): mil productos con la
+    marca «Sansung» son UNA causa, no mil."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    codigo = next(
+        (c for c in ATRIBUTOS_MARCA if any(f.valor(c) for f in evaluables)), None
+    )
+    por_marca: dict[str, list[Ficha]] = defaultdict(list)
+    cruda: dict[str, str] = {}
+    if codigo:
+        for f in evaluables:
+            v = f.valor(codigo)
+            if v:
+                k = normalizar_nombre(v)
+                por_marca[k].append(f)
+                cruda.setdefault(k, v)
+
+    # Grafías ordenadas por frecuencia: la más usada es la referencia. Una grafía
+    # solo se marca si hay otra estrictamente más frecuente y casi idéntica.
+    marcas = sorted(por_marca.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    hallazgos: list[Hallazgo] = []
+    for a, grupo_a in marcas:
+        if len(a) < MIN_LARGO_MARCA:
+            continue
+        for b, grupo_b in marcas:
+            if b == a or len(grupo_b) <= len(grupo_a):
+                continue
+            if SequenceMatcher(None, a, b).ratio() >= UMBRAL_MARCA:
+                skus = sorted(f.sku for f in grupo_a)
+                hallazgos.append(
+                    Hallazgo(
+                        "marca_inconsistente", 1, CANDIDATO, "grupo",
+                        cruda[a][:120],
+                        {
+                            "productos": len(skus),
+                            "skus": skus[:MAX_SKUS_POR_GRUPO],
+                            "truncado": len(skus) > MAX_SKUS_POR_GRUPO,
+                            "atributo": codigo,
+                            "marca": cruda[a],
+                            "candidata_a": cruda[b],
+                            "lectura": (
+                                f"la marca «{cruda[a]}» difiere en poco de «{cruda[b]}», "
+                                "la grafía más usada del catálogo"
+                            ),
+                        },
+                    )
+                )
+                break
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "marca_inconsistente",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -901,6 +976,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     nombre_con_basura,
     nombre_es_codigo,
     campos_basura,
+    marca_inconsistente,
 )
 
 
