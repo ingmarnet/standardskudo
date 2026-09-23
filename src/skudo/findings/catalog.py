@@ -19,6 +19,9 @@ import unicodedata
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
+
+from skudo.profile.distribution import parse_number, value_stats
 
 # --- Vocabulario -----------------------------------------------------------
 
@@ -451,16 +454,312 @@ def variantes_por_talle(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# El umbral de similitud para llamar «casi idénticos» a dos nombres. Es una
+# hipótesis hasta calibrarlo contra el catálogo real (spec §6.1: «la similitud
+# genera un candidato, nunca un veredicto»). 0.90 deja pasar «silla gamer roja»/
+# «silla gamer rojo» y rechaza «remera roja»/«remera azul» (ratio ~0.75).
+# ponytail: umbral fijo; calibrar con la muestra etiquetada del arnés de FP.
+UMBRAL_SIMILITUD = 0.90
+# Un nombre tan corto no identifica un producto, lo identifica la categoría:
+# «mesa» vs «mesas» no es un duplicado, es vocabulario. Mismo piso que el
+# `len(base) > 12` de las familias de talles.
+MIN_BASE = 12
+
+
+def duplicado(fichas: Sequence[Ficha]) -> Resultado:
+    """Candidatos a duplicado por nombre CASI idéntico, no por nombre igual.
+
+    Los nombres idénticos ya los marca `nombres_repetidos` y las familias de
+    talles `variantes_por_talle`. Éste mira lo que a ambos se les escapa: dos
+    registros cuyo nombre difiere en poco —una errata, un plural, «rojo» por
+    «roja»— que bien pueden ser el mismo producto. Sale `candidato` a propósito:
+    confirmar equivalencia exige revisar capacidad, color, revisión, región y
+    presentación.
+
+    Un producto cuyo nombre ya se repite exacto no se reconsidera acá: su
+    hallazgo (más fuerte, `variantes_sueltas`/`nombre_repetido`) ya existe, y
+    volver a marcarlo sería la misma causa contada dos veces.
+    """
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    por_nombre: dict[str, list[Ficha]] = defaultdict(list)
+    for f in evaluables:
+        nombre = f.valor("name")
+        if nombre:
+            por_nombre[normalizar_nombre(nombre)].append(f)
+
+    unicos = sorted(n for n, grupo in por_nombre.items() if len(grupo) == 1)
+
+    vecinos: dict[str, set[str]] = defaultdict(set)
+    # ponytail: O(n²) con quick_ratio de atajo; bloquear por primer token si N
+    # crece de ~10⁴ (hoy Renovapadel ~10³ nombres únicos).
+    for i, a in enumerate(unicos):
+        if len(a) < MIN_BASE:
+            continue
+        matcher = SequenceMatcher(None, a)
+        for b in unicos[i + 1 :]:
+            if len(b) < MIN_BASE:
+                continue
+            # Una diferencia que es sólo de talle no es un duplicado: es la
+            # familia de talles que `variantes_por_talle` ya mira.
+            if sin_talle(a)[0] == sin_talle(b)[0]:
+                continue
+            matcher.set_seq2(b)
+            if (
+                matcher.real_quick_ratio() >= UMBRAL_SIMILITUD
+                and matcher.quick_ratio() >= UMBRAL_SIMILITUD
+                and matcher.ratio() >= UMBRAL_SIMILITUD
+            ):
+                vecinos[a].add(b)
+                vecinos[b].add(a)
+
+    # Componentes conexas del grafo de similitud: un grupo, un hallazgo.
+    visitados: set[str] = set()
+    hallazgos: list[Hallazgo] = []
+    for nombre in unicos:
+        if nombre in visitados:
+            continue
+        componente: list[str] = []
+        pila = [nombre]
+        while pila:
+            n = pila.pop()
+            if n in visitados:
+                continue
+            visitados.add(n)
+            componente.append(n)
+            pila.extend(vecinos[n] - visitados)
+        if len(componente) < 2:
+            continue
+        skus = sorted(f.sku for n in componente for f in por_nombre[n])
+        hallazgos.append(
+            Hallazgo(
+                "duplicado",
+                1,
+                CANDIDATO,
+                "grupo",
+                min(componente, key=len)[:120],
+                {
+                    "productos": len(skus),
+                    "skus": skus[:MAX_SKUS_POR_GRUPO],
+                    "truncado": len(skus) > MAX_SKUS_POR_GRUPO,
+                    "nombres": sorted(componente)[:12],
+                    "lectura": "nombres casi idénticos; pueden ser el mismo producto "
+                               "o dos productos distintos",
+                },
+            )
+        )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "duplicado",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y productos deshabilitados",
+        ),
+    )
+
+
+# Eje 4: sospecha de conversión de unidad. Un factor ×10/×100/×1000 limpio
+# contra la distribución del tipo señala gramos por kilos o mm por cm; un
+# redondeo no es un factor limpio. La tolerancia es estrecha a propósito.
+FACTORES_CONVERSION = (10.0, 100.0, 1000.0)
+TOLERANCIA_CONVERSION = 0.05
+# Sin esta masa crítica la mediana no es una distribución, es una anécdota.
+MIN_PRODUCTOS_CONVERSION = 4
+# El precio NO es una magnitud física: una diferencia de ×10 en precio es un
+# cambio de categoría de producto, no una conversión de unidad (Eje 7, no 4).
+# ponytail: se excluye por NOMBRE porque las fichas no traen el frontend_input;
+# un tenant con códigos de precio propios exige pasar a evaluar con
+# frontend_input='price' (el patrón de filter_blind).
+CODIGOS_PRECIO = frozenset({"price", "special_price", "cost", "msrp", "map", "minimal_price"})
+
+
+def _factor_limpio(ratio: float) -> float | None:
+    """El factor (10/100/1000) si `ratio` es un múltiplo o submúltiplo limpio
+    de una conversión de unidad; `None` si no hay conversión evidente."""
+    if ratio <= 0:
+        return None
+    for factor in FACTORES_CONVERSION:
+        for r in (ratio, 1.0 / ratio):
+            if abs(r - factor) <= TOLERANCIA_CONVERSION * factor:
+                return factor
+    return None
+
+
+def sospecha_conversion(fichas: Sequence[Ficha]) -> Resultado:
+    """Sospecha de conversión de unidad (spec §6.1 eje 4).
+
+    «Un peso mal cargado no es un defecto de calidad: es un flete mal cotizado.»
+    Sale `candidato` a propósito: confirmar exige evidencia adicional (ficha del
+    fabricante, un campo hermano coherente), no limpiar el factor a ciegas.
+    """
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    por_set: dict[int | None, list[Ficha]] = defaultdict(list)
+    for f in evaluables:
+        por_set[f.attribute_set_id].append(f)
+
+    # La mediana por (set, atributo) es la base de comparación. Un atributo es
+    # magnitud sólo si el 80% de sus valores son numéricos (value_stats decide,
+    # porque Magento declara casi todo `text`) y hay masa crítica.
+    medianas: dict[tuple, float] = {}
+    for set_id, grupo in por_set.items():
+        codigos = sorted(
+            {c for f in grupo for c in f.attributes if c not in CODIGOS_PRECIO}
+        )
+        for codigo in codigos:
+            valores = [f.valor(codigo) for f in grupo if f.valor(codigo) is not None]
+            if len(valores) < MIN_PRODUCTOS_CONVERSION:
+                continue
+            stats = value_stats(valores, "text")
+            if stats.kind == "numerico" and stats.p50 not in (None, 0):
+                medianas[(set_id, codigo)] = stats.p50
+
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        for codigo in f.attributes:
+            mediana = medianas.get((f.attribute_set_id, codigo))
+            if mediana is None:
+                continue
+            texto = f.valor(codigo)
+            lectura = parse_number(texto)
+            if lectura.motivo != "leido":
+                continue
+            factor = _factor_limpio(lectura.valor / mediana)
+            if factor is not None:
+                hallazgos.append(
+                    Hallazgo(
+                        "sospecha_conversion", 4, CANDIDATO, "producto", f.sku,
+                        {
+                            "attribute": codigo,
+                            "valor": texto,
+                            "mediana": mediana,
+                            "factor": factor,
+                            "lectura": (
+                                f"«{texto}» es ~×{int(factor)} la mediana del tipo; "
+                                "posible conversión de unidad (gramos por kilos, "
+                                "milímetros por centímetros)"
+                            ),
+                        },
+                    )
+                )
+
+    # ponytail: la cobertura cuenta «publicado» como el resto de los candidato,
+    # aunque un publicado sin magnitud no pueda nunca disparar. Un tenant que no
+    # cargue magnitudes sobre-declara cobertura; el arreglo es excluir por
+    # frontend_input (el patrón de filter_blind), no más blocklists.
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "sospecha_conversion",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
+# Eje 1: el nombre no sigue la plantilla de su tipo (spec §6.2). La plantilla
+# es «qué atributos aparecen en los nombres bien formados»: si el valor de un
+# atributo está metido en ≥70% de los nombres que lo llevan, va en el nombre.
+UMBRAL_PLANTILLA = 0.70
+MIN_PRODUCTOS_PLANTILLA = 4
+# Valores más cortos (códigos, «si»/«no», el «1» de status) no son palabras que
+# una persona ponga en un nombre: excluirlos evita el falso positivo de que un
+# código corto coincida por casualidad con una sílaba del nombre.
+LARGO_MINIMO_VALOR = 4
+
+
+def nombre_fuera_de_plantilla(fichas: Sequence[Ficha]) -> Resultado:
+    """Nombre que omite un atributo que su tipo siempre mete en el nombre.
+
+    «Aire Acondicionado Inverter Wifi 18.000 BTU» es tipo + tecnología +
+    conectividad + capacidad. Un nombre que omite la capacidad de su tipo se
+    pierde en el buscador; se marca candidato, no veredicto. Solo se detecta el
+    *orden* de presencia, no el orden entre sí (eso es un parser, spec §6.3).
+    """
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    por_set: dict[int | None, list[Ficha]] = defaultdict(list)
+    for f in evaluables:
+        por_set[f.attribute_set_id].append(f)
+
+    plantillas: dict[int | None, list[str]] = {}
+    for set_id, grupo in por_set.items():
+        if len(grupo) < MIN_PRODUCTOS_PLANTILLA:
+            continue
+        codigos = sorted({c for f in grupo for c in f.attributes if c != "name"})
+        plantilla = []
+        for codigo in codigos:
+            con_valor = [
+                f for f in grupo
+                if (v := f.valor(codigo)) is not None and len(v) >= LARGO_MINIMO_VALOR
+            ]
+            if len(con_valor) < MIN_PRODUCTOS_PLANTILLA:
+                continue
+            en_nombre = sum(
+                1 for f in con_valor
+                if normalizar_nombre(f.valor(codigo))
+                in normalizar_nombre(f.valor("name") or "")
+            )
+            if en_nombre / len(con_valor) >= UMBRAL_PLANTILLA:
+                plantilla.append(codigo)
+        if plantilla:
+            plantillas[set_id] = plantilla
+
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        plantilla = plantillas.get(f.attribute_set_id)
+        if not plantilla:
+            continue
+        nombre = normalizar_nombre(f.valor("name") or "")
+        faltan = [
+            c for c in plantilla
+            if (v := f.valor(c)) is not None and len(v) >= LARGO_MINIMO_VALOR
+            and normalizar_nombre(v) not in nombre
+        ]
+        if faltan:
+            hallazgos.append(
+                Hallazgo(
+                    "nombre_fuera_de_plantilla", 1, CANDIDATO, "producto", f.sku,
+                    {
+                        "faltan": faltan,
+                        "plantilla": plantilla,
+                        "lectura": (
+                            "el nombre no incluye el valor de " + ", ".join(faltan)
+                            + ", que es parte de la plantilla de su tipo"
+                        ),
+                    },
+                )
+            )
+
+    # ponytail: misma cobertura «publicado» que el resto de los candidato. Un
+    # publicado en un set sin plantilla inferible (poco numeroso o sin atributos
+    # consistentes) no puede disparar pero cuenta como evaluado.
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "nombre_fuera_de_plantilla",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
     nombres_repetidos,
     variantes_por_talle,
+    duplicado,
     sin_descripcion,
     sin_descripcion_corta,
     sin_meta_title,
     sin_categoria,
     nombre_en_mayusculas,
+    sospecha_conversion,
+    nombre_fuera_de_plantilla,
 )
 
 

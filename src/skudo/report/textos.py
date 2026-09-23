@@ -107,6 +107,20 @@ TEXTOS: dict[str, Texto] = {
         unidad="grupos",
         singular="Un grupo de productos comparte el mismo nombre",
     ),
+    "duplicado": Texto(
+        titulo="{n} grupos de productos con nombres casi idénticos",
+        significa=(
+            "Difieren en poco —una errata, un plural, «rojo» por «roja»— y bien pueden "
+            "ser el mismo producto cargado dos veces. Se presentan como candidatos a "
+            "revisar, nunca como duplicados confirmados."
+        ),
+        accion=(
+            "Revisar cada grupo contra capacidad, color, revisión y presentación antes de "
+            "unificar: dos registros parecidos pueden ser dos productos distintos."
+        ),
+        unidad="grupos",
+        singular="Un grupo de productos tiene nombres casi idénticos",
+    ),
     "variantes_sueltas": Texto(
         titulo="{n} grupos de variantes publicadas por separado",
         significa="Varios productos idénticos en nombre que parecen variantes del mismo modelo.",
@@ -126,6 +140,33 @@ TEXTOS: dict[str, Texto] = {
             "catálogo, no producto por producto."
         ),
         singular="Un nombre está íntegramente en MAYÚSCULAS",
+    ),
+    "sospecha_conversion": Texto(
+        titulo="{n} productos con un valor fuera de escala para su tipo",
+        significa=(
+            "Un valor ×10, ×100 o ×1000 la mediana de sus pares suele ser una unidad "
+            "cargada mal: gramos por kilos, milímetros por centímetros. Es un candidato "
+            "a revisar, no una corrección automática."
+        ),
+        accion=(
+            "Confirmar contra la ficha del fabricante antes de tocar nada: un precio o una "
+            "presentación pueden ser legítimamente mayores."
+        ),
+        singular="Un producto tiene un valor fuera de escala para su tipo",
+    ),
+    "nombre_fuera_de_plantilla": Texto(
+        titulo="{n} productos cuyo nombre no sigue la plantilla de su tipo",
+        significa=(
+            "El nombre omite un atributo que los nombres bien formados de su tipo "
+            "siempre incluyen (la capacidad en un aire acondicionado, la marca en "
+            "una paleta). Se pierde en el buscador. Es un candidato a revisar, no "
+            "una corrección automática."
+        ),
+        accion=(
+            "Completar el nombre desde los atributos que el producto ya tiene cargados: "
+            "no falta el dato, falta meterlo en el nombre."
+        ),
+        singular="Un producto tiene un nombre fuera de la plantilla de su tipo",
     ),
 }
 
