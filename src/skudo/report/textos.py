@@ -283,6 +283,19 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un atributo mezcla dos o más unidades",
     ),
+    "unidades_ausentes": Texto(
+        titulo="{n} atributos con valores sin unidad",
+        significa=(
+            "Dentro del mismo atributo, unos valores llevan unidad y otros van "
+            "pelados: un peso con `500` al lado de `1 kg` es un peso sin unidad, "
+            "y quien cotiza un flete no sabe si son gramos o kilos."
+        ),
+        accion=(
+            "Completar la unidad en los valores que la omiten, o dividir el "
+            "atributo si mezcla magnitudes distintas."
+        ),
+        singular="Un atributo tiene valores con y sin unidad",
+    ),
     "descripcion_corta_copia_larga": Texto(
         titulo="{n} productos con la descripción corta copiada de la larga",
         significa=(

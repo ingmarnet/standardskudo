@@ -1218,6 +1218,54 @@ def unidades_mezcladas(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 3, la otra mitad de «unidades ausentes o mezcladas»: valores numéricos
+# sin unidad dentro de un atributo que en otras filas SÍ la lleva. Un `peso`
+# con `500` al lado de `1 kg` es un peso sin unidad; un atributo donde nada
+# lleva unidad (`talle` 40/42/44) es unitless por naturaleza y no se toca.
+def unidades_ausentes(fichas: Sequence[Ficha]) -> Resultado:
+    """Valores sin unidad en atributos que sí la usan. Un hallazgo por atributo."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    unidades_vistas: dict[str, set[str]] = defaultdict(set)
+    sin_unidad: dict[str, list[str]] = defaultdict(list)
+    for f in evaluables:
+        for codigo, valor in f.attributes.items():
+            m = UNIDAD_RE.match(str(valor))
+            if m and m.group("unidad").lower() in UNIDADES:
+                unidades_vistas[codigo].add(m.group("unidad").lower())
+            elif parse_number(valor).motivo != "no_numerico":
+                sin_unidad[codigo].append(f.sku)
+
+    hallazgos: list[Hallazgo] = []
+    for codigo, skus in sorted(sin_unidad.items()):
+        unidades = unidades_vistas.get(codigo)
+        if not unidades:
+            continue
+        hallazgos.append(
+            Hallazgo(
+                "unidades_ausentes", 3, BAJA, "atributo", codigo,
+                {
+                    "unidades": sorted(unidades),
+                    "skus": sorted(skus)[:MAX_SKUS_POR_GRUPO],
+                    "truncado": len(skus) > MAX_SKUS_POR_GRUPO,
+                    "lectura": (
+                        f"el atributo {codigo} usa {'/'.join(sorted(unidades))} "
+                        f"pero {len(skus)} valores van sin unidad"
+                    ),
+                },
+            )
+        )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "unidades_ausentes",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "productos no publicados",
+        ),
+    )
+
+
 # Eje 6: la descripción corta es una copia literal de la larga. El spec §6.1 lo
 # lista junto a la ausencia: una corta que repite la larga no resume nada,
 # duplica contenido y excede el espacio del grid/comparador donde se muestra.
@@ -1316,6 +1364,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     configurable_sin_hijos,
     variantes_sin_atributos_de_variacion,
     unidades_mezcladas,
+    unidades_ausentes,
     descripcion_corta_copia_larga,
     texto_duplicado,
 )

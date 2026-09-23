@@ -44,7 +44,7 @@ def test_la_pasada_guarda_hallazgos_y_cobertura(db_session):
     coberturas = db_session.scalars(
         select(DetectorCoverage).where(DetectorCoverage.run_id == run.id)
     ).all()
-    assert len(coberturas) == 23, "los veintitrés detectores declaran cobertura, siempre"
+    assert len(coberturas) == 24, "los veinticuatro detectores declaran cobertura, siempre"
     assert all(c.evaluados + c.no_aplica + c.no_evaluado == run.product_count
                for c in coberturas)
 
