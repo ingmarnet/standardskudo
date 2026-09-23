@@ -234,6 +234,16 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un producto tiene un GTIN mal cargado",
     ),
+    "valores_negativos": Texto(
+        titulo="{n} valores negativos en campos que no pueden serlo",
+        significa=(
+            "Un precio, un peso o una dimensión negativos no existen: rompen el "
+            "cálculo de envío y el checkout. Es un error de carga, no una "
+            "decisión de catálogo."
+        ),
+        accion="Corregir el signo o vaciar el campo contra el dato real.",
+        singular="Un valor negativo en un campo que no puede serlo",
+    ),
 }
 
 

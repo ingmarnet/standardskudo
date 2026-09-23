@@ -1019,6 +1019,45 @@ def gtin_invalido(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 4: valores negativos (spec §6.1). Un precio, peso o dimensión negativo es
+# aritméticamente imposible y rompe el cálculo de envío y el checkout. Solo se
+# marca el negativo limpio: el cero no entra acá —«0 no es basura» (Eje 3), y un
+# peso cero puede ser válido en un producto no físico—, y el cero en magnitudes
+# que se envían pide mapear atributo→magnitud y tipo, que es otra decisión.
+def valores_negativos(fichas: Sequence[Ficha]) -> Resultado:
+    """Valores numéricos negativos. Un hallazgo por (producto, atributo)."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    hallazgos: list[Hallazgo] = []
+    for f in evaluables:
+        for codigo, valor in f.attributes.items():
+            lectura = parse_number(valor)
+            if (
+                lectura.motivo == "leido"
+                and lectura.valor is not None
+                and lectura.valor < 0
+            ):
+                hallazgos.append(
+                    Hallazgo(
+                        "valores_negativos", 4, MEDIA, "producto", f.sku,
+                        {
+                            "atributo": codigo,
+                            "valor": str(valor),
+                            "lectura": f"el atributo {codigo} tiene un valor negativo: {valor}",
+                        },
+                    )
+                )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "valores_negativos",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1037,6 +1076,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     campos_basura,
     marca_inconsistente,
     gtin_invalido,
+    valores_negativos,
 )
 
 
