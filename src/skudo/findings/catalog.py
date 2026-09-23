@@ -1342,6 +1342,52 @@ def texto_duplicado(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 9: meta title y meta description duplicados. El mismo meta título en
+# decenas de productos es un aviso clásico de Search Console y la firma de una
+# carga sin SEO por producto. Igualdad literal; el «ausente» ya está en
+# `sin_meta_title`/reglas y las longitudes son orientaciones, no defecto.
+UMBRAL_META_DUPLICADO = 10
+ATRIBUTOS_META = ("meta_title", "meta_description")
+
+
+def meta_duplicado(fichas: Sequence[Ficha]) -> Resultado:
+    """Meta title o description idénticos en muchos productos. Un hallazgo por (atributo, valor)."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    por_valor: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for f in evaluables:
+        for codigo in ATRIBUTOS_META:
+            valor = f.valor(codigo)
+            if valor:
+                por_valor[(codigo, valor)].append(f.sku)
+
+    hallazgos: list[Hallazgo] = []
+    for (codigo, valor), skus in sorted(por_valor.items()):
+        if len(skus) < UMBRAL_META_DUPLICADO:
+            continue
+        hallazgos.append(
+            Hallazgo(
+                "meta_duplicado", 9, CANDIDATO, "grupo", f"{codigo}: {valor[:120]}",
+                {
+                    "atributo": codigo,
+                    "productos": len(skus),
+                    "skus": sorted(skus)[:MAX_SKUS_POR_GRUPO],
+                    "truncado": len(skus) > MAX_SKUS_POR_GRUPO,
+                    "lectura": f"{len(skus)} productos comparten el mismo {codigo}",
+                },
+            )
+        )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "meta_duplicado",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "variantes no navegables y productos deshabilitados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1367,6 +1413,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     unidades_ausentes,
     descripcion_corta_copia_larga,
     texto_duplicado,
+    meta_duplicado,
 )
 
 

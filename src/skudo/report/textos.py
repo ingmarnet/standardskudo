@@ -319,6 +319,19 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Una descripción está duplicada en decenas de productos",
     ),
+    "meta_duplicado": Texto(
+        titulo="{n} meta títulos o descripciones compartidos en masa",
+        significa=(
+            "El mismo meta title o meta description en decenas de productos "
+            "hace que compitan entre sí en el buscador y no describan a "
+            "ninguno. Es un aviso clásico de Search Console."
+        ),
+        accion=(
+            "Escribir un meta title y description únicos por producto, o bajar "
+            "el umbral si el catálogo templa estos campos a propósito."
+        ),
+        singular="Un meta title o description está duplicado en decenas de productos",
+    ),
 }
 
 
