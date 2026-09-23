@@ -270,6 +270,19 @@ TEXTOS: dict[str, Texto] = {
         ),
         singular="Un configurable tiene variantes que no comparten un eje de variación",
     ),
+    "unidades_mezcladas": Texto(
+        titulo="{n} atributos que mezclan unidades",
+        significa=(
+            "Un atributo que mezcla unidades (kilos y gramos, litros y "
+            "mililitros…) vuelve incomparables sus valores: rompe el orden y el "
+            "filtro, y en peso o dimensiones cotiza mal el envío."
+        ),
+        accion=(
+            "Unificar el atributo en una sola unidad canónica y recargar los "
+            "valores, o dividirlo en atributos distintos si son magnitudes distintas."
+        ),
+        singular="Un atributo mezcla dos o más unidades",
+    ),
 }
 
 

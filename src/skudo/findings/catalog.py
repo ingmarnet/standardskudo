@@ -52,6 +52,24 @@ OCULTO_SIN_STOCK = "oculto_sin_stock"
 
 VISIBILIDADES_NAVEGABLES = {"2", "3", "4"}
 
+# Unidad física pegada a un número, para el detector de unidades mezcladas.
+# Exige el número adelante: es lo que desambigua `l` (litro) de `L` (talle
+# Large), que no lleva número. El sufijo se valida contra UNIDADES abajo; un
+# sufijo fuera de la lista (p. ej. `x` de `40 x 20 x 30`, o `pack`) se ignora.
+UNIDAD_RE = re.compile(r"^\s*[+-]?\d[\d.,]*\s*(?P<unidad>[a-zA-Zµ°²³%]+)\s*$")
+
+# Sufijos de unidad que el detector reconoce. Sólo las magnitudes que de verdad
+# aparecen en un catálogo, en minúscula (el sufijo se normaliza): masa, volumen,
+# longitud, eléctrico, almacenamiento y porcentaje/escala.
+UNIDADES = {
+    "kg", "g", "gr", "mg", "lb", "oz",
+    "l", "ml", "cl", "dl", "cc", "gal",
+    "m", "mm", "cm", "km", "mt",
+    "w", "kw", "v", "hz", "kwh",
+    "gb", "mb", "kb", "tb",
+    "%", "°c", "°f",
+}
+
 
 @dataclass(frozen=True)
 class Ficha:
@@ -1154,6 +1172,52 @@ def variantes_sin_atributos_de_variacion(fichas: Sequence[Ficha]) -> Resultado:
     )
 
 
+# Eje 3: unidades mezcladas dentro del mismo atributo. Un atributo que mezcla
+# unidades (kg y g, l y ml, cm y mm) vuelve incomparables sus valores: rompe el
+# orden, el filtro facetado y, en magnitudes de envío, la cotización del flete.
+# Es complementario a `sospecha_conversion`: ése ve un número ×10/×100/×1000 (la
+# misma unidad, mal cargada), éste ve DOS unidades distintas conviviendo en el
+# mismo atributo — que `parse_number` descarta por llevar letras.
+def unidades_mezcladas(fichas: Sequence[Ficha]) -> Resultado:
+    """Atributos cuyos valores mezclan dos o más unidades. Un hallazgo por atributo."""
+    evaluables, no_aplica, no_evaluado = _particionar(fichas, _publicado)
+    por_atributo: dict[str, dict[str, list[str]]] = {}
+    for f in evaluables:
+        for codigo, valor in f.attributes.items():
+            m = UNIDAD_RE.match(str(valor))
+            if m:
+                unidad = m.group("unidad").lower()
+                if unidad in UNIDADES:
+                    por_atributo.setdefault(codigo, {}).setdefault(unidad, []).append(f.sku)
+
+    hallazgos: list[Hallazgo] = []
+    for codigo, por_unidad in sorted(por_atributo.items()):
+        if len(por_unidad) < 2:
+            continue
+        hallazgos.append(
+            Hallazgo(
+                "unidades_mezcladas", 3, BAJA, "atributo", codigo,
+                {
+                    "unidades": sorted(por_unidad),
+                    "conteos": {u: len(skus) for u, skus in por_unidad.items()},
+                    "ejemplos": {u: sorted(skus)[:3] for u, skus in por_unidad.items()},
+                    "lectura": f"el atributo {codigo} mezcla las unidades "
+                    f"{', '.join(sorted(por_unidad))}",
+                },
+            )
+        )
+    return Resultado(
+        hallazgos,
+        Cobertura(
+            "unidades_mezcladas",
+            len(evaluables),
+            no_aplica,
+            no_evaluado,
+            "productos no publicados",
+        ),
+    )
+
+
 DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     sin_imagen,
     sin_precio,
@@ -1175,6 +1239,7 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
     valores_negativos,
     configurable_sin_hijos,
     variantes_sin_atributos_de_variacion,
+    unidades_mezcladas,
 )
 
 
