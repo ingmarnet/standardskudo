@@ -245,6 +245,8 @@ FK_ENFORCED_TABLES = {
     "finding_run",
     "finding",
     "finding_coverage",
+    # `finding_label` (el arnés de FP) cuelga del hallazgo que etiqueta con FK.
+    "finding_label",
     # Las de nota: `catalog_score` y `product_score` referencian al tenant y a
     # la pasada que las produjo con claves foráneas reales.
     "product_score",

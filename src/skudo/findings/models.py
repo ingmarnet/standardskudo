@@ -75,3 +75,25 @@ class DetectorCoverage(Base):
     no_aplica: Mapped[int] = mapped_column(Integer)
     no_evaluado: Mapped[int] = mapped_column(Integer)
     motivo_no_aplica: Mapped[str] = mapped_column(String(512), default="")
+
+
+class FindingLabel(Base):
+    """La etiqueta humana sobre un hallazgo: el arnés de falsos positivos.
+
+    `verdadero`/`falso` deciden la tasa; `no_aplica` aparta un hallazgo que no
+    correspondía emitir (ni verdadero ni falso). Una sola etiqueta por hallazgo:
+    re-etiquetar sobrescribe, y `label`/`labeled_at` cuentan la decisión más
+    reciente.
+    """
+
+    __tablename__ = "finding_label"
+    __table_args__ = (UniqueConstraint("finding_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenant.id"), index=True)
+    finding_id: Mapped[int] = mapped_column(ForeignKey("finding.id"), index=True)
+    label: Mapped[str] = mapped_column(String(16))
+    labeled_by: Mapped[str] = mapped_column(String(320))
+    labeled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

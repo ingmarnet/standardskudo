@@ -272,6 +272,20 @@ def build_parser() -> argparse.ArgumentParser:
         stores=True,
     )
 
+    label = sub.add_parser(
+        "label",
+        help="etiqueta un hallazgo como verdadero/falso/no_aplica (arnés de FP)",
+    )
+    label.add_argument("finding_id", type=int)
+    label.add_argument("label", choices=["verdadero", "falso", "no_aplica"])
+    label.add_argument("--actor", required=True, help="email de quien etiqueta")
+
+    fp = sub.add_parser(
+        "fp",
+        help="mide la tasa de falsos positivos de reglas y detectores",
+    )
+    fp.add_argument("--tenant", required=True)
+
     ev = sub.add_parser(
         "evaluate",
         help="corre detectores + motor de reglas contra un snapshot y puntúa (S1c)",
@@ -672,6 +686,18 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
             if args.command == "rules":
                 return _rules(session, args)
 
+            if args.command == "label":
+                from skudo.findings.labels import etiquetar
+
+                try:
+                    etiquetar(session, args.finding_id, args.label, args.actor)
+                except ValueError as exc:
+                    print(str(exc), file=sys.stderr)
+                    return EXIT_USAGE
+                session.commit()
+                _report({"finding_id": args.finding_id, "label": args.label})
+                return EXIT_OK
+
             tenant = session.scalar(select(Tenant).where(Tenant.code == args.tenant))
             if tenant is None:
                 print(f"tenant desconocido: {args.tenant}", file=sys.stderr)
@@ -679,6 +705,14 @@ def main(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None
 
             if args.command == "status":
                 return _status(session, tenant)
+
+            if args.command == "fp":
+                from skudo.findings.labels import medir_fp
+
+                salida = medir_fp(session, tenant.id)
+                session.commit()
+                _report(salida)
+                return EXIT_OK
 
             # `profile` va ANTES de leer el token, con `status`, porque no habla
             # con Magento: lee el espejo. Exigirle el token inventaría una
