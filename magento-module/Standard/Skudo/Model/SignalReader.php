@@ -547,7 +547,7 @@ class SignalReader implements SignalReaderInterface
                 continue;
             }
             foreach ($rows as $sku => $_) {
-                if (str_contains($text, strtolower($sku))) {
+                if (str_contains($text, strtolower((string) $sku))) {
                     $rows[$sku]['search_demand'] += (int) $row['popularity'];
                 }
             }

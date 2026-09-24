@@ -789,6 +789,7 @@ body {
   .sidebar { display: none; }
   .main { max-width: 100vw; padding: 16px; }
 }
+.findings-table tbody tr:hover { background: #f9fafb; }
 </style>
 
 <!-- Login screen -->
@@ -933,6 +934,36 @@ const LABELS = {
 
 // Los códigos dinámicos (filtro_ciego:<attr>, regla:<kind>:<attr>) no están en
 // LABELS: se arman legibles a partir de sus partes.
+
+window.showFindingDetail = async function(findingCode, storeId) {
+  document.getElementById('finding-modal').style.display = 'flex';
+  document.getElementById('finding-modal-title').textContent = LABELS[findingCode] || findingCode;
+  document.getElementById('finding-modal-body').innerHTML = '<p>Cargando afectados...</p>';
+  try {
+    const data = await api.get(`/api/tenants/${tenantId}/findings/${findingCode}?store=${storeId}`);
+    if (!data.items || data.items.length === 0) {
+      document.getElementById('finding-modal-body').innerHTML = '<p>No se encontraron afectados con este código o la pasada caducó.</p>';
+      return;
+    }
+    
+    let html = '<table class="findings-table"><thead><tr><th>Afectado (SKU)</th><th>Severidad</th><th>Evidencia</th></tr></thead><tbody>';
+    for (const row of data.items) {
+      html += `<tr>
+        <td><strong>${row.subject_key}</strong></td>
+        <td><span class="severity-badge ${sevClass(row.severity)}">${row.severity}</span></td>
+        <td><pre style="margin:0; font-size:12px; white-space:pre-wrap; max-width:400px; overflow-x:auto;">${JSON.stringify(row.evidence, null, 2)}</pre></td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    if (data.items.length >= 1000) {
+      html += '<p style="font-size:12px; color:#666; margin-top:12px;">Se muestran solo los primeros 1000 registros.</p>';
+    }
+    document.getElementById('finding-modal-body').innerHTML = html;
+  } catch (e) {
+    document.getElementById('finding-modal-body').innerHTML = `<p style="color:var(--critical)">Error al cargar: ${e.message}</p>`;
+  }
+};
+
 function etiquetaCodigo(code) {
   if (LABELS[code]) return LABELS[code];
   if (!code) return '—';
@@ -1387,7 +1418,7 @@ async function renderFindings() {
         conf != null ? el('div', { class: 'rule-draft-note' }, `confianza regla: ${Math.round(conf * 100)}%`) : null,
       );
 
-      tbody.append(el('tr', null,
+      tbody.append(el('tr', { style: {cursor: 'pointer'}, onclick: () => showFindingDetail(h.code, storeId) },
         el('td', { style: { fontWeight: '500' } }, etiquetaCodigo(h.code)),
         origenCell,
         el('td', null, el('span', { class: `severity-badge ${sevClass(h.severidad)}` }, h.severidad)),
@@ -1846,7 +1877,7 @@ async function renderProducts() {
     )));
     const tbody = el('tbody');
     for (const p of data.productos) {
-      tbody.append(el('tr', null,
+      tbody.append(el('tr', { style: {cursor: 'pointer'}, onclick: () => showFindingDetail(h.code, storeId) },
         el('td', { style: { fontWeight: '500', fontFamily: 'var(--font-body)', fontSize: '13px' } }, p.sku),
         el('td', { style: { fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-display)', fontWeight: '700' } }, String(p.puntaje)),
         el('td', null, el('span', { class: `severity-badge ${gradeClass(p.grado)}`, title: gradoTitle(p.grado), style: { fontFamily: 'var(--font-display)' } }, p.grado)),

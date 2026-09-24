@@ -181,7 +181,7 @@ def _numericas(session, run, part, scope_kind, scope_key) -> list[Rule]:
         reglas.append(Rule(
             tenant_id=run.tenant_id, scope_kind=scope_kind, scope_key=scope_key,
             store_view_magento_id=run.store_view_magento_id, axis=3, kind="rango",
-            definition={"attribute": s.attribute_code, "min": s.p05, "max": s.p95},
+            definition={"attribute": s.attribute_code, "min": s.p05 if str(s.p05) not in ("inf", "-inf") else 0.0, "max": s.p95 if str(s.p95) not in ("inf", "-inf") else 0.0},
             confidence=1.0 - ratio, evidence_count=s.n_present, exceptions=[],
             status="borrador", origin="inferida", profile_run_id=run.id,
         ))

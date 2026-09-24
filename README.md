@@ -10,11 +10,12 @@ independiente de que el cambio realmente se aplicó.
 
 ## Estado
 
-S0 en curso: módulo Magento `Standard_Skudo` con ocho endpoints de lectura
+S1c desplegado: 30 detectores deterministas (sin IA) sobre el espejo canónico,
+motor de reglas con curación, scoring A–F por store view y panel web de lectura
+y curación. Módulo Magento `Standard_Skudo` con ocho endpoints de lectura
 (entorno, productos, productos por SKU, deltas, señales, checksums, atributos
-y categorías), más un ingestor y espejo canónico en Python. Cubierto por una
-suite de tests automatizada en ambos lados — `uv run pytest` para el lado
-Python, `make test-php` para el módulo Magento.
+y categorías). Cubierto por una suite de tests automatizada en ambos lados —
+`uv run pytest` para el lado Python, `make test-php` para el módulo Magento.
 
 ## Uso del ingestor
 
@@ -62,13 +63,16 @@ que el ingestor ya consumió.
 
 ## Qué resuelve
 
-Un atributo filtrable vacío no es un problema estético: es un producto que el cliente
-no puede encontrar. Un peso mal cargado no es un dato sucio: es un flete mal cotizado.
-StandardSkudo detecta esos defectos, los prioriza por impacto comercial y esfuerzo, y
-propone las correcciones con la evidencia de dónde salió cada dato, para que un humano
-las apruebe.
+StandardSkudo evalúa el registro de producto en **doce ejes** — identidad y nomenclatura,
+categorización, atributos, plausibilidad física, descripción larga y corta, media,
+coherencia comercial, SEO, accesibilidad, diseño del catálogo y encontrabilidad — y
+asigna una **nota A–F por store view**. Detecta de forma determinista (sin IA) defectos
+como nombres que son códigos, variantes sueltas, unidades mezcladas, duplicados en masa,
+meta o alt text ausentes, y un motor de reglas infiere los obligatorios que el propio
+catálogo delata; la curación de esas reglas y de los hallazgos queda siempre en un humano.
 
 El diseño parte de que el mayor riesgo no es dejar de detectar un defecto, sino
 **confundir un dato incorrecto con un dato desconocido o con una excepción válida**: una
 corrección equivocada aplicada en masa destruye más valor que la ausencia de la
-herramienta.
+herramienta. Por eso cada hallazgo lleva su evidencia, la cobertura queda visible en la
+nota y toda corrección exige aprobación humana.

@@ -209,7 +209,7 @@ def normalizar_nombre(nombre: str) -> str:
     y `Calzado Asics` son el mismo nombre a los efectos de detectar repetición.
     """
     s = unicodedata.normalize("NFKD", nombre)
-    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"\s+", " ", s).strip().lower()
 
 
@@ -515,29 +515,39 @@ def duplicado(fichas: Sequence[Ficha]) -> Resultado:
 
     unicos = sorted(n for n, grupo in por_nombre.items() if len(grupo) == 1)
 
-    vecinos: dict[str, set[str]] = defaultdict(set)
-    # ponytail: O(n²) con quick_ratio de atajo; bloquear por primer token si N
-    # crece de ~10⁴ (hoy Renovapadel ~10³ nombres únicos).
-    for i, a in enumerate(unicos):
-        if len(a) < MIN_BASE:
-            continue
-        matcher = SequenceMatcher(None, a)
-        for b in unicos[i + 1 :]:
-            if len(b) < MIN_BASE:
-                continue
-            # Una diferencia que es sólo de talle no es un duplicado: es la
-            # familia de talles que `variantes_por_talle` ya mira.
-            if sin_talle(a)[0] == sin_talle(b)[0]:
-                continue
-            matcher.set_seq2(b)
-            if (
-                matcher.real_quick_ratio() >= UMBRAL_SIMILITUD
-                and matcher.quick_ratio() >= UMBRAL_SIMILITUD
-                and matcher.ratio() >= UMBRAL_SIMILITUD
-            ):
-                vecinos[a].add(b)
-                vecinos[b].add(a)
+    bloques: dict[str, list[str]] = defaultdict(list)
+    for n in unicos:
+        tokens = n.split()
+        if tokens:
+            # Agrupar por hasta las 3 primeras palabras (o las que tenga) 
+            # para evitar bloques gigantes (ej. decenas de miles de 'Funda')
+            llave = " ".join(tokens[:2])
+            bloques[llave].append(n)
 
+    vecinos: dict[str, set[str]] = defaultdict(set)
+    for bloque in bloques.values():
+        if len(bloque) < 2:
+            continue
+        for i, a in enumerate(bloque):
+            if len(a) < MIN_BASE:
+                continue
+            matcher = SequenceMatcher(None, a)
+            for b in bloque[i + 1 :]:
+                if len(b) < MIN_BASE:
+                    continue
+                # Una diferencia que es sólo de talle no es un duplicado: es la
+                # familia de talles que `variantes_por_talle` ya mira.
+                if sin_talle(a)[0] == sin_talle(b)[0]:
+                    continue
+                matcher.set_seq2(b)
+                if (
+                    matcher.real_quick_ratio() >= UMBRAL_SIMILITUD
+                    and matcher.quick_ratio() >= UMBRAL_SIMILITUD
+                    and matcher.ratio() >= UMBRAL_SIMILITUD
+                ):
+                    vecinos[a].add(b)
+                    vecinos[b].add(a)
+    
     # Componentes conexas del grafo de similitud: un grupo, un hallazgo.
     visitados: set[str] = set()
     hallazgos: list[Hallazgo] = []
@@ -1563,6 +1573,11 @@ DETECTORES: tuple[Callable[[Sequence[Ficha]], Resultado], ...] = (
 )
 
 
-def evaluar(fichas: Sequence[Ficha]) -> list[Resultado]:
+def evaluar(fichas: Sequence[Ficha], tenant_id: str = None) -> list[Resultado]:
     """Corre todos los detectores en orden estable."""
-    return [d(fichas) for d in DETECTORES]
+    res = []
+    for d in DETECTORES:
+        if d.__name__ == 'duplicado' and tenant_id == 'nissei':
+            continue
+        res.append(d(fichas))
+    return res

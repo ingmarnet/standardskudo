@@ -199,6 +199,49 @@ def tenant_findings(
     return report
 
 
+
+
+@app.get("/api/tenants/{tenant_code}/findings/{finding_code}")
+def finding_details(
+    tenant_code: str,
+    finding_code: str,
+    store: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    from skudo.findings.models import Finding
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+
+    run = db.scalars(
+        select(FindingRun)
+        .where(
+            FindingRun.tenant_id == tenant.id,
+            FindingRun.store_view_magento_id == store,
+        )
+        .order_by(FindingRun.started_at.desc())
+        .limit(1)
+    ).first()
+    if not run:
+        return {"items": []}
+
+    filas = db.scalars(
+        select(Finding)
+        .where(Finding.run_id == run.id, Finding.code == finding_code)
+        .limit(1000)
+    ).all()
+    
+    return {
+        "items": [
+            {
+                "subject_key": f.subject_key,
+                "evidence": f.evidence,
+                "severity": f.severity
+            }
+            for f in filas
+        ]
+    }
 # --- Reglas activas por store view ------------------------------------------
 
 

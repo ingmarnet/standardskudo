@@ -27,6 +27,7 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
         select(
             ProductCategoryAssignment.sku, ProductCategoryAssignment.category_magento_id
         ).where(ProductCategoryAssignment.tenant_id == tenant_id)
+        .execution_options(yield_per=5000)
     ).all():
         categorias.setdefault(sku, []).append(cat)
 
@@ -36,6 +37,7 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
                 ProductSignal.tenant_id == tenant_id,
                 ProductSignal.store_view_magento_id == store_view_magento_id,
             )
+            .execution_options(yield_per=5000)
         ).all()
     )
     muestra = muestra_sin_stock(session, tenant_id, store_view_magento_id)
@@ -54,6 +56,7 @@ def fichas_de(session: Session, tenant_id: int, store_view_magento_id: int) -> l
             ProductRecord.store_view_magento_id == store_view_magento_id,
         )
         .order_by(ProductRecord.sku)  # el orden estable empieza acá
+        .execution_options(yield_per=5000)
     ).all()
     return [
         Ficha(
@@ -197,6 +200,7 @@ def _skus_por_categoria(session: Session, tenant_id: int) -> dict[int, set[str]]
         select(
             ProductCategoryAssignment.sku, ProductCategoryAssignment.category_magento_id
         ).where(ProductCategoryAssignment.tenant_id == tenant_id)
+        .execution_options(yield_per=5000)
     ).all():
         por_categoria.setdefault(cat, set()).add(sku)
     return por_categoria
@@ -230,7 +234,11 @@ def detect_store_view(
     session.flush()
 
     # 1) detectores especiales
-    for resultado in evaluar(fichas):
+    tenant_code = session.execute(
+        __import__("sqlalchemy").text("SELECT code FROM tenant WHERE id = :tid"), 
+        {"tid": tenant_id}
+    ).scalar()
+    for resultado in evaluar(fichas, tenant_id=tenant_code):
         _escribir_resultado(session, run, resultado, rule_id=None, version=None)
 
     # 1b) nombre sin traducir: pares de store view. No es un detector de fichas:

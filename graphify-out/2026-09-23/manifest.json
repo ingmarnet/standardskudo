@@ -1,0 +1,2090 @@
+{
+  ".claude/settings.json": {
+    "mtime": 1790095226.8831186,
+    "seen": 1790108705.759896,
+    "ast_hash": "3b541b9935fcf0831355da956f897645",
+    "semantic_hash": ""
+  },
+  ".claude/settings.local.json": {
+    "mtime": 1790073366.684393,
+    "seen": 1790108705.7598996,
+    "ast_hash": "eb8d3d7e67472f7b008f73042ee092a4",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/scripts/command-metadata.json": {
+    "mtime": 1789587580.5187774,
+    "seen": 1790108705.7599015,
+    "ast_hash": "86266801588636b11e00372754118529",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/scripts/impeccable": {
+    "mtime": 1789587580.5193582,
+    "seen": 1790108705.7599022,
+    "ast_hash": "955cbafd2f055911adc7f56cab0efc47",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/scripts/live-browser-dom.js": {
+    "mtime": 1789587580.5194314,
+    "seen": 1790108705.759903,
+    "ast_hash": "c5da6b95a6184ec6f76d5acbaea98c50",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/scripts/live-browser-ignores.js": {
+    "mtime": 1789587580.5194633,
+    "seen": 1790108705.7599034,
+    "ast_hash": "dd05503f92e1cf9b3feedbb19070f59e",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/scripts/live-browser-session.js": {
+    "mtime": 1789587580.5194986,
+    "seen": 1790108705.7599041,
+    "ast_hash": "80cb9fcfb1b1810473d830b13db73d40",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/scripts/live-browser.js": {
+    "mtime": 1789587580.519536,
+    "seen": 1790108705.7599049,
+    "ast_hash": "8c528987ab91769a29c08e6c38e5ce21",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/scripts/modern-screenshot.umd.js": {
+    "mtime": 1789587580.5198333,
+    "seen": 1790108705.7599053,
+    "ast_hash": "4fe5f9e490ab4f107afc707d7eafc819",
+    "semantic_hash": ""
+  },
+  "alembic/env.py": {
+    "mtime": 1789643213.9037707,
+    "seen": 1790108705.7599058,
+    "ast_hash": "50cc0d06bc75704b1ef572c134ee79f2",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0001_tenants_and_topology.py": {
+    "mtime": 1788968694.5453777,
+    "seen": 1790108705.7599063,
+    "ast_hash": "b92dd6ebdcaaad2273a143416de17dbc",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0002_attributes_and_options.py": {
+    "mtime": 1788969019.6896138,
+    "seen": 1790108705.759907,
+    "ast_hash": "84de1eb0a00f3f811cfbfe37e2657a98",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0003_product_records.py": {
+    "mtime": 1788969314.510816,
+    "seen": 1790108705.7599075,
+    "ast_hash": "8460dc745801001a0a58a4caa7017759",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0004_categories.py": {
+    "mtime": 1788969825.7397013,
+    "seen": 1790108705.7599082,
+    "ast_hash": "c5bc8f598ec98e8dff5b593a3132d953",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0005_sync_watermark.py": {
+    "mtime": 1788970377.6446147,
+    "seen": 1790108705.7599087,
+    "ast_hash": "ff89a43129429aa6da0a4385c34d3682",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0006_product_signals.py": {
+    "mtime": 1788970904.7253351,
+    "seen": 1790108705.7599092,
+    "ast_hash": "cd49e71be3f010194b56347220ca4b4e",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0007_product_classification.py": {
+    "mtime": 1788973119.3994777,
+    "seen": 1790108705.7599094,
+    "ast_hash": "e26e35367c80958e79e7aba134c36ecc",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0008_sync_generation_seal.py": {
+    "mtime": 1788973311.2289765,
+    "seen": 1790108705.7599099,
+    "ast_hash": "97e0a447d9857e8f4184ab6dabd644cc",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0009_unknown_commercial_signals.py": {
+    "mtime": 1788973468.0710192,
+    "seen": 1790108705.7599103,
+    "ast_hash": "6464ce04900ee57ea993458f950e96a0",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0010_unknown_source_timestamp.py": {
+    "mtime": 1788973594.802774,
+    "seen": 1790108705.7599106,
+    "ast_hash": "101cb3d45d92da5668c30fc2e7dc4244",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0011_product_website_ids.py": {
+    "mtime": 1789006018.042005,
+    "seen": 1790108705.759911,
+    "ast_hash": "d9a993792ee89c8c4dbda207cc04b244",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0012_last_delta_read_at.py": {
+    "mtime": 1789010270.4226868,
+    "seen": 1790108705.7599118,
+    "ast_hash": "982bcc9326a7c499b8ea6575f3f96a2c",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0013_full_sync_checkpoint.py": {
+    "mtime": 1789073314.0258079,
+    "seen": 1790108705.7599123,
+    "ast_hash": "624869bd606c13bb1d7c0f1f10a0a4b1",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0014_sync_pass_and_catalog_seals.py": {
+    "mtime": 1789079617.7577899,
+    "seen": 1790108705.7599127,
+    "ast_hash": "ab3d81e987db39d3feeeaf3b7018a529",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0015_profile_tables.py": {
+    "mtime": 1789179316.0993843,
+    "seen": 1790108705.7599132,
+    "ast_hash": "998e669ad98d5c4fdc4930fc62449e59",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0016_platform_user.py": {
+    "mtime": 1789565571.0537505,
+    "seen": 1790108705.7599137,
+    "ast_hash": "1566608bef251988aef99537d01dab0e",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0017_findings.py": {
+    "mtime": 1789584477.729804,
+    "seen": 1790108705.7599142,
+    "ast_hash": "18c5260cb30a36b184cd16a0deb26090",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0018_score.py": {
+    "mtime": 1789588045.684307,
+    "seen": 1790108705.7599146,
+    "ast_hash": "3076acb77c066659d266ca928b22fb05",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0019_rules_and_floor.py": {
+    "mtime": 1789643213.9037707,
+    "seen": 1790108705.759915,
+    "ast_hash": "6c4d4a076f348bde3af49eb20cd4ee8f",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0020_finding_rule_attribution.py": {
+    "mtime": 1789663153.3454711,
+    "seen": 1790108705.7599156,
+    "ast_hash": "f16f1f3c722c3e4fb9b21fbccc62d043",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0021_stock_y_visibilidad.py": {
+    "mtime": 1789745517.9114213,
+    "seen": 1790108705.759916,
+    "ast_hash": "3e5eb1a93cb395887bcb22d5da48808a",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0022_arnes_fp.py": {
+    "mtime": 1790096319.807837,
+    "seen": 1790108705.7599165,
+    "ast_hash": "f427e40287b54ed656b0239ba2f22c29",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/AttributeReaderInterface.php": {
+    "mtime": 1789009964.364568,
+    "seen": 1790108705.7599173,
+    "ast_hash": "bd9df540d402d85e6d434d9413b7403d",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/AttributeSetReaderInterface.php": {
+    "mtime": 1789812314.5855064,
+    "seen": 1790108705.7599177,
+    "ast_hash": "5c085b4de79de7cc92c2e530fb4c2f98",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/CategoryReaderInterface.php": {
+    "mtime": 1789009964.3646297,
+    "seen": 1790108705.7599187,
+    "ast_hash": "ecf88e261a73489015fdd9be37c35fde",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/ChecksumReaderInterface.php": {
+    "mtime": 1789073341.228361,
+    "seen": 1790108705.7599192,
+    "ast_hash": "56a95dac4c9e9d3aa92ba325591319d4",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/DeltaReaderInterface.php": {
+    "mtime": 1789009975.0872645,
+    "seen": 1790108705.75992,
+    "ast_hash": "76252ca981b77bdfaff525b8e998a711",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/EnvironmentProbeInterface.php": {
+    "mtime": 1789009964.3644245,
+    "seen": 1790108705.7599204,
+    "ast_hash": "d6d8835afde6bf9bff95f7faf6fad7b8",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/ProductReaderInterface.php": {
+    "mtime": 1789009975.0861387,
+    "seen": 1790108705.7599208,
+    "ast_hash": "97680f43c9874490312412338c1f8297",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Api/SignalReaderInterface.php": {
+    "mtime": 1790000713.0295546,
+    "seen": 1790108705.7599213,
+    "ast_hash": "abfbe9465aee3480bdbc93d51c63d2f5",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Console/Command/PruneChangeLog.php": {
+    "mtime": 1789074075.4108067,
+    "seen": 1790108705.759922,
+    "ast_hash": "19ac2074588d19888bc00cc37f88fbba",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Cron/PruneChangeLog.php": {
+    "mtime": 1789074075.4118068,
+    "seen": 1790108705.7599225,
+    "ast_hash": "639f9367a67c156c9a0fca0a7315e279",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/AttributeReader.php": {
+    "mtime": 1789028721.26054,
+    "seen": 1790108705.759923,
+    "ast_hash": "394e336286c583331cbdbed6d9dcb405",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/AttributeSetReader.php": {
+    "mtime": 1789812327.2116148,
+    "seen": 1790108705.7599242,
+    "ast_hash": "a23914214ffb2db05be1ce5a456f3a61",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/CategoryReader.php": {
+    "mtime": 1789028721.2608414,
+    "seen": 1790108705.7599244,
+    "ast_hash": "e254ae4d2f5338dbc50b7f664fae9dd8",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/ChangeLog.php": {
+    "mtime": 1789070613.0726743,
+    "seen": 1790108705.759925,
+    "ast_hash": "0d7f8b84afa4f072d7d3176005c554a3",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/ChangeLogRetention.php": {
+    "mtime": 1789074046.0786426,
+    "seen": 1790108705.7599254,
+    "ast_hash": "be296eb56883c100d3cecc2531a6727e",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/ChecksumReader.php": {
+    "mtime": 1789073341.228361,
+    "seen": 1790108705.7599258,
+    "ast_hash": "8221e6d40bd465e98d2ece0663c5f63b",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/ContentDigest.php": {
+    "mtime": 1789073341.228361,
+    "seen": 1790108705.759926,
+    "ast_hash": "91f8c8068567cf6e1f28f34c17b8d5d3",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/Cursor.php": {
+    "mtime": 1789028774.0342069,
+    "seen": 1790108705.7599266,
+    "ast_hash": "1d03e1fcfa5e6febb6e08eee30ded160",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/DeltaReadWatermark.php": {
+    "mtime": 1789074013.7104578,
+    "seen": 1790108705.759927,
+    "ast_hash": "cb15bab809739c1565c57c3d88a92148",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/DeltaReader.php": {
+    "mtime": 1789074236.677799,
+    "seen": 1790108705.7599273,
+    "ast_hash": "93845dbaa087e0bda4802b3752b5ce3d",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/EntityKeyResolver.php": {
+    "mtime": 1789004919.8313146,
+    "seen": 1790108705.7599277,
+    "ast_hash": "621587fe64e9f410343faa972ba75128",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/EntityTypeResolver.php": {
+    "mtime": 1789028703.4302325,
+    "seen": 1790108705.7599285,
+    "ast_hash": "5806b473ce186f3832f95ff48d54d34a",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/EnvironmentProbe.php": {
+    "mtime": 1790000722.7306046,
+    "seen": 1790108705.759929,
+    "ast_hash": "ba0d1999cf4b76390574182a4a7854bc",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/ProductReader.php": {
+    "mtime": 1790129114.6015027,
+    "seen": 1790129361.1412644,
+    "ast_hash": "3f25b9f6e9200b55a1958b2505d1135c",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/SignalReader.php": {
+    "mtime": 1790000705.7475185,
+    "seen": 1790108705.7599301,
+    "ast_hash": "294af0d5b35f6046470866dedd83f58b",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/SkuResolution.php": {
+    "mtime": 1789070566.540876,
+    "seen": 1790108705.7599308,
+    "ast_hash": "f7b3c08ee564509c58877cd1495de70d",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/SkuResolver.php": {
+    "mtime": 1789070581.397918,
+    "seen": 1790108705.7599313,
+    "ast_hash": "1d6b2ab7a5eae006fb523c534aadcde3",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/StoreViewGuard.php": {
+    "mtime": 1789028846.759717,
+    "seen": 1790108705.7599318,
+    "ast_hash": "8cf40c51d0c1ec1c96d4eb736aea6494",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/VersioningSchema.php": {
+    "mtime": 1789027725.2894306,
+    "seen": 1790108705.7599325,
+    "ast_hash": "150d096fb6c378ed4e561ac609099202",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Model/WebApiEnvelope.php": {
+    "mtime": 1789009873.0785263,
+    "seen": 1790108705.7599328,
+    "ast_hash": "76d7e67b3a8d89107d979c3ca9ee8ac5",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Observer/ProductBulkChanged.php": {
+    "mtime": 1789070674.6389756,
+    "seen": 1790108705.7599332,
+    "ast_hash": "dc969bd45e2a750822cbc6e739269f11",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Observer/ProductChanged.php": {
+    "mtime": 1789071715.3865335,
+    "seen": 1790108705.7599351,
+    "ast_hash": "66dfbcef1901b2cfb32a9030c74d1e2e",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Integration/PopulationMatchesMagentoTest.php": {
+    "mtime": 1789071679.0351524,
+    "seen": 1790108705.7599359,
+    "ast_hash": "6f9b294c15f67a3ce50541e44db2d008",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/EventWiringTest.php": {
+    "mtime": 1789070706.3870535,
+    "seen": 1790108705.7599363,
+    "ast_hash": "f715036494c4efa6139e360ca468b33f",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/AttributeReaderTest.php": {
+    "mtime": 1789028806.9929209,
+    "seen": 1790108705.7599368,
+    "ast_hash": "3ef6c88c7c125e9a573f94a97e59048a",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/AttributeSetReaderTest.php": {
+    "mtime": 1789812358.71488,
+    "seen": 1790108705.7599375,
+    "ast_hash": "e0836dc88f6d2e3e8e8dc697b65a8829",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/BuildsAPermissiveStoreViewGuard.php": {
+    "mtime": 1789028864.0632603,
+    "seen": 1790108705.759938,
+    "ast_hash": "10bc51aa5d12bc123c6a7c7738eb753a",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/CategoryReaderTest.php": {
+    "mtime": 1789028806.9932659,
+    "seen": 1790108705.7599387,
+    "ast_hash": "ece9cb34b3708e949fba9cb72ad862da",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/ChangeLogRetentionTest.php": {
+    "mtime": 1789074213.025904,
+    "seen": 1790108705.759939,
+    "ast_hash": "c9abf629109b6e85fd7050e7ec827678",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/ChangeLogTest.php": {
+    "mtime": 1789070613.0526743,
+    "seen": 1790108705.75994,
+    "ast_hash": "f4606f03d2240894dd0899ae7a2bdd74",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/ChecksumReaderTest.php": {
+    "mtime": 1789073341.228361,
+    "seen": 1790108705.7599401,
+    "ast_hash": "104be0db62d77c8ee2e8a21dc6a00227",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/ContentDigestTest.php": {
+    "mtime": 1789070924.1118913,
+    "seen": 1790108705.7599409,
+    "ast_hash": "8960630a9f1cba5c9193db6ae96ff4ce",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/CursorTest.php": {
+    "mtime": 1789028774.0344052,
+    "seen": 1790108705.759941,
+    "ast_hash": "2bac685f43be91f423ae1db1b9586b66",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/DeltaReadWatermarkTest.php": {
+    "mtime": 1789074177.1603534,
+    "seen": 1790108705.7599416,
+    "ast_hash": "78e165e1b8d7dd82ef6b5c9b2746fd71",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/DeltaReaderTest.php": {
+    "mtime": 1789074228.4761639,
+    "seen": 1790108705.7599418,
+    "ast_hash": "8a2899fe7aa97c6efd91b2ff190f957d",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/EntityKeyResolverTest.php": {
+    "mtime": 1789004892.188198,
+    "seen": 1790108705.7599423,
+    "ast_hash": "8e565b33926c8ded511b89f2717b9b0b",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/EntityTypeResolverTest.php": {
+    "mtime": 1789028933.508527,
+    "seen": 1790108705.7599428,
+    "ast_hash": "dba0ae372e1dbfd9bfc3c76a3438f9b6",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/EnvironmentProbeCountsTest.php": {
+    "mtime": 1789028968.8224716,
+    "seen": 1790108705.7599432,
+    "ast_hash": "73208909b342333a0c677eaa58bbeb41",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/EnvironmentProbeTest.php": {
+    "mtime": 1789028806.993406,
+    "seen": 1790108705.7599435,
+    "ast_hash": "b3a970b10ab00ad8190cabeb19a76e3f",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/NoOwnVersionFilterTest.php": {
+    "mtime": 1789074129.2874317,
+    "seen": 1790108705.759944,
+    "ast_hash": "930945d436ba455694f1dde4319f137b",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/ProductReaderCategoryIdsTest.php": {
+    "mtime": 1790129129.9565232,
+    "seen": 1790129361.1412861,
+    "ast_hash": "da7b7025c19e342a69f730cb5f917b5c",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/ProductReaderTest.php": {
+    "mtime": 1789028864.063583,
+    "seen": 1790108705.7599447,
+    "ast_hash": "6de5a4442c861aaa8c3910f082fab839",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/SignalReaderTest.php": {
+    "mtime": 1790000837.6223617,
+    "seen": 1790108705.7599452,
+    "ast_hash": "c130b0e3dcf4dbdf3eb4d67acb5e6ab0",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/SkuResolverTest.php": {
+    "mtime": 1789070532.7043352,
+    "seen": 1790108705.7599454,
+    "ast_hash": "6e750665b801769fd4a30216665f7c06",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/StoreViewGuardTest.php": {
+    "mtime": 1789028933.506527,
+    "seen": 1790108705.7599466,
+    "ast_hash": "4a49988fa8936467182320ab5b2daaeb",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/UnknownStoreViewIsRejectedTest.php": {
+    "mtime": 1789071033.5352933,
+    "seen": 1790108705.7599468,
+    "ast_hash": "5f97dc115a73ebdb1dea2bc70adf3b57",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Model/VersioningSchemaTest.php": {
+    "mtime": 1789027976.3870747,
+    "seen": 1790108705.7599473,
+    "ast_hash": "fe5954829818e590a5efd83673121e5a",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Observer/ProductBulkChangedTest.php": {
+    "mtime": 1789070674.639926,
+    "seen": 1790108705.7599475,
+    "ast_hash": "c2d9571cf221c79638f7de9b96c1dd26",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/Observer/ProductChangedTest.php": {
+    "mtime": 1788993156.6677594,
+    "seen": 1790108705.759948,
+    "ast_hash": "73db287e2161f9858ecd777efde8b80e",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/SmokeTest.php": {
+    "mtime": 1788985466.6997983,
+    "seen": 1790108705.7599483,
+    "ast_hash": "b8bfdb95d39b4ce53255d02f96d862de",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/WebApi/MapValuedFieldsAreJsonObjectsTest.php": {
+    "mtime": 1789074523.143019,
+    "seen": 1790108705.7599487,
+    "ast_hash": "f5f47a901d58fe6f8031f8188843753f",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/WebApi/ServiceOutputEnvelopeTest.php": {
+    "mtime": 1789812381.2977183,
+    "seen": 1790108705.759949,
+    "ast_hash": "8eae16faab9fbfbb994fb5f370b93715",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/Test/Unit/WebApi/UnwrapsWebApiEnvelope.php": {
+    "mtime": 1789009924.5238414,
+    "seen": 1790108705.7599497,
+    "ast_hash": "d702d412f665cc878a3ab09ff8ec1586",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/composer.json": {
+    "mtime": 1788985730.615728,
+    "seen": 1790108705.75995,
+    "ast_hash": "e6b61ddd238eb53dd244baacd207f5fa",
+    "semantic_hash": ""
+  },
+  "magento-module/Standard/Skudo/registration.php": {
+    "mtime": 1788985476.6957383,
+    "seen": 1790108705.7599502,
+    "ast_hash": "019c25b03f527cf71350c51d8a597c63",
+    "semantic_hash": ""
+  },
+  "magento-module/bootstrap.php": {
+    "mtime": 1788985475.5187454,
+    "seen": 1790108705.7599506,
+    "ast_hash": "09e94a542abe017ad0c59bf493068d86",
+    "semantic_hash": ""
+  },
+  "pyproject.toml": {
+    "mtime": 1789602388.5618489,
+    "seen": 1790108705.7599509,
+    "ast_hash": "b98da3e2ef5760e9434bf4f851492b7f",
+    "semantic_hash": ""
+  },
+  "src/skudo/__init__.py": {
+    "mtime": 1788967903.6972914,
+    "seen": 1790108705.7599514,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/acceptance/__init__.py": {
+    "mtime": 1788971572.4411159,
+    "seen": 1790108705.7599516,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/acceptance/s0.py": {
+    "mtime": 1789073551.832206,
+    "seen": 1790108705.759952,
+    "ast_hash": "2aa06b0882dd8144fe1e0c467d412d23",
+    "semantic_hash": ""
+  },
+  "src/skudo/auth/__init__.py": {
+    "mtime": 1789565545.0637882,
+    "seen": 1790108705.7599523,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/auth/models.py": {
+    "mtime": 1789565571.0507505,
+    "seen": 1790108705.7599525,
+    "ast_hash": "88a98e80f6b5680e26b3784fd6e91161",
+    "semantic_hash": ""
+  },
+  "src/skudo/auth/passwords.py": {
+    "mtime": 1789565545.062788,
+    "seen": 1790108705.7599533,
+    "ast_hash": "5d53c256226136f933fe47fe7241057e",
+    "semantic_hash": ""
+  },
+  "src/skudo/auth/users.py": {
+    "mtime": 1789565571.0517504,
+    "seen": 1790108705.7599535,
+    "ast_hash": "b78af30dd3cb0ce142ea1958b887a165",
+    "semantic_hash": ""
+  },
+  "src/skudo/cli.py": {
+    "mtime": 1790096327.1428034,
+    "seen": 1790108705.759954,
+    "ast_hash": "59027510cb0eb2297b8953cf2ba4303c",
+    "semantic_hash": ""
+  },
+  "src/skudo/config.py": {
+    "mtime": 1789073402.1847754,
+    "seen": 1790108705.7599542,
+    "ast_hash": "223d97895a2e2ba488d21048f9043e96",
+    "semantic_hash": ""
+  },
+  "src/skudo/exit_codes.py": {
+    "mtime": 1789073521.7879386,
+    "seen": 1790108705.7599547,
+    "ast_hash": "7b4642ba88b205b872d62868b1d18748",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/__init__.py": {
+    "mtime": 1789584431.7482095,
+    "seen": 1790108705.759955,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/catalog.py": {
+    "mtime": 1790162437.5309284,
+    "seen": 1790162871.8400655,
+    "ast_hash": "c3dd1437c8e695f2afd9e9fae1e9b8b3",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/catalog_design.py": {
+    "mtime": 1789999774.9842932,
+    "seen": 1790108705.7599556,
+    "ast_hash": "ee5c6121ab6be32bb111d6e187d61993",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/filter_blind.py": {
+    "mtime": 1789986133.3942223,
+    "seen": 1790108705.759956,
+    "ast_hash": "916fbdbe3fdf239a6d96966ffb6aa581",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/labels.py": {
+    "mtime": 1790096380.0436444,
+    "seen": 1790108705.7599566,
+    "ast_hash": "9dc9867a0489e3a77d25b785bc5dc005",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/models.py": {
+    "mtime": 1790096319.8448575,
+    "seen": 1790108705.7599568,
+    "ast_hash": "677ad1c5070dd5bba20b7fe9f82cd8a2",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/rules_eval.py": {
+    "mtime": 1789663153.3454711,
+    "seen": 1790108705.7599573,
+    "ast_hash": "fe4bde23e14da334acf8635513db47e1",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/run.py": {
+    "mtime": 1790163186.347601,
+    "seen": 1790163419.0838614,
+    "ast_hash": "43dfb7e5699e9d36530dd8dc45022679",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/__init__.py": {
+    "mtime": 1788970073.6785698,
+    "seen": 1790108705.7599578,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/apply.py": {
+    "mtime": 1790129142.9605403,
+    "seen": 1790129361.141309,
+    "ast_hash": "9bbd56d8d64513fdddf9209a096522ff",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/attribute_set_sync.py": {
+    "mtime": 1789812180.08427,
+    "seen": 1790108705.7599585,
+    "ast_hash": "235922fd593a5e44981fa93525edf034",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/attribute_sync.py": {
+    "mtime": 1789084469.532379,
+    "seen": 1790108705.759959,
+    "ast_hash": "be34a7339a8e911ad82536529e6e157d",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/category_sync.py": {
+    "mtime": 1789084157.0203276,
+    "seen": 1790108705.7599592,
+    "ast_hash": "568b1f8e265cd83c47c05167cc7b2f48",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/delta_sync.py": {
+    "mtime": 1789080438.0588274,
+    "seen": 1790108705.7599595,
+    "ast_hash": "0a6ec79b453e237fc8164ee91bdf8924",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/full_sync.py": {
+    "mtime": 1789084157.019897,
+    "seen": 1790108705.7599602,
+    "ast_hash": "e4deaf79740b4d0e178cfbc082c0b2e2",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/reconcile.py": {
+    "mtime": 1789071551.438947,
+    "seen": 1790108705.7599604,
+    "ast_hash": "14a28dfaba5f2907dff146ff09315a64",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/repair.py": {
+    "mtime": 1789081043.3241484,
+    "seen": 1790108705.759961,
+    "ast_hash": "e175717e7a9cd9c249db29f4fa9badea",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/signal_sync.py": {
+    "mtime": 1789080513.5750618,
+    "seen": 1790108705.7599611,
+    "ast_hash": "b4375f448594dc11108be15f6160ed60",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/source.py": {
+    "mtime": 1789007139.2937095,
+    "seen": 1790108705.7599616,
+    "ast_hash": "c2ac08edca629823b420eee30d9cd33a",
+    "semantic_hash": ""
+  },
+  "src/skudo/ingest/sweep.py": {
+    "mtime": 1789084308.084864,
+    "seen": 1790108705.759962,
+    "ast_hash": "82410a65e7ffb95668be7e11e392cbd5",
+    "semantic_hash": ""
+  },
+  "src/skudo/magento/__init__.py": {
+    "mtime": 1788968404.5695558,
+    "seen": 1790108705.7599623,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/magento/client.py": {
+    "mtime": 1789812163.5311062,
+    "seen": 1790108705.759963,
+    "ast_hash": "240ef930d7323b6c68b7b71eb45d8cd0",
+    "semantic_hash": ""
+  },
+  "src/skudo/magento/environment.py": {
+    "mtime": 1790000745.825733,
+    "seen": 1790108705.7599638,
+    "ast_hash": "bde134ad99011e44451535fa1b5f07db",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/__init__.py": {
+    "mtime": 1788968634.2002034,
+    "seen": 1790108705.7599645,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/attribute_sets.py": {
+    "mtime": 1789812173.8252084,
+    "seen": 1790108705.759965,
+    "ast_hash": "20cad27a2bbbdcc09839011d984f0520",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/attributes.py": {
+    "mtime": 1789084847.492666,
+    "seen": 1790108705.7599654,
+    "ast_hash": "d0e31c9953afd31559436cfce2e85822",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/categories.py": {
+    "mtime": 1789081043.3239467,
+    "seen": 1790108705.759966,
+    "ast_hash": "bcd7c21176aad97c7631a0dd67563378",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/models.py": {
+    "mtime": 1790129142.81554,
+    "seen": 1790129361.1413212,
+    "ast_hash": "a84b2ef4c98c13864c32007d06c19f1e",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/products.py": {
+    "mtime": 1790129142.9355402,
+    "seen": 1790129361.141322,
+    "ast_hash": "20d756054b9cb422ce6aa0df1282cc1a",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/signals.py": {
+    "mtime": 1789745783.8569608,
+    "seen": 1790108705.7599673,
+    "ast_hash": "d2cf516136c6ad5eb33e5cd9c8f51c46",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/store_settings.py": {
+    "mtime": 1790000757.1938007,
+    "seen": 1790108705.7599678,
+    "ast_hash": "5cea2158a354200b1cf7de8f8dde1524",
+    "semantic_hash": ""
+  },
+  "src/skudo/mirror/topology.py": {
+    "mtime": 1790000767.9178674,
+    "seen": 1790108705.7599683,
+    "ast_hash": "fca8c565c5bd7958fd8f26c510c10cc0",
+    "semantic_hash": ""
+  },
+  "src/skudo/operate/__init__.py": {
+    "mtime": 1789586196.4004796,
+    "seen": 1790108705.7599685,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/operate/cycle.py": {
+    "mtime": 1789590166.4406826,
+    "seen": 1790108705.759969,
+    "ast_hash": "ce3d735be320164c79840a24ded643f1",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/__init__.py": {
+    "mtime": 1789179254.435146,
+    "seen": 1790108705.7599692,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/coverage.py": {
+    "mtime": 1789179395.8654428,
+    "seen": 1790108705.7599697,
+    "ast_hash": "da58cd7ba861eb392b9aad5c942b3aa4",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/distribution.py": {
+    "mtime": 1789179395.8336828,
+    "seen": 1790108705.75997,
+    "ast_hash": "0dd9c509c50afb319a322499b9fa4a5d",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/models.py": {
+    "mtime": 1789179395.8326828,
+    "seen": 1790108705.7599707,
+    "ast_hash": "38a2eb43a02b5bd71fd731e15ceae59d",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/partition.py": {
+    "mtime": 1789179395.8336828,
+    "seen": 1790108705.759971,
+    "ast_hash": "79bf63e3aa8c2268ae9ac458e602ccae",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/report.py": {
+    "mtime": 1789179254.4594696,
+    "seen": 1790108705.7599714,
+    "ast_hash": "ea9fd5c3fa11b5bec85587e65dcb15e2",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/run.py": {
+    "mtime": 1789565341.27848,
+    "seen": 1790108705.7599716,
+    "ast_hash": "39a45f73a4d999f6c63d6bb8cb0a2f5d",
+    "semantic_hash": ""
+  },
+  "src/skudo/profile/states.py": {
+    "mtime": 1789179254.4435356,
+    "seen": 1790108705.759972,
+    "ast_hash": "c90ba3cf37abaa0eb947264613989c22",
+    "semantic_hash": ""
+  },
+  "src/skudo/report/__init__.py": {
+    "mtime": 1789585595.2937956,
+    "seen": 1790108705.7599723,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/report/html.py": {
+    "mtime": 1789585849.4672647,
+    "seen": 1790108705.7599728,
+    "ast_hash": "e892c8025f293d56e66e871924552849",
+    "semantic_hash": ""
+  },
+  "src/skudo/report/textos.py": {
+    "mtime": 1790163194.8625758,
+    "seen": 1790163419.0838861,
+    "ast_hash": "f3cfa6ecd556bd2a3bd880428c944c1e",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/__init__.py": {
+    "mtime": 1789643213.9047706,
+    "seen": 1790108705.7599733,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/concepts.py": {
+    "mtime": 1789643213.9054182,
+    "seen": 1790108705.759974,
+    "ast_hash": "bf2c5e45c29fe3af154c251c6a867610",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/curation.py": {
+    "mtime": 1789766476.200217,
+    "seen": 1790108705.7599742,
+    "ast_hash": "2679684becd2f965fcf285a060e93656",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/floor.py": {
+    "mtime": 1789643213.9054182,
+    "seen": 1790108705.7599745,
+    "ast_hash": "0813c015c8295591b148f8e1a0fcb282",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/floor_seed.py": {
+    "mtime": 1789643213.9054182,
+    "seen": 1790108705.759975,
+    "ast_hash": "d4e20db635a6d7b39561ade6627b5b20",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/inference.py": {
+    "mtime": 1789666281.3237436,
+    "seen": 1790108705.7599752,
+    "ast_hash": "322362ba3e3329549eb1866ed9b8359a",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/models.py": {
+    "mtime": 1789643213.9057708,
+    "seen": 1790108705.7599757,
+    "ast_hash": "e78e75abe3ead8e640401ca9c0a34712",
+    "semantic_hash": ""
+  },
+  "src/skudo/rules/transitions.py": {
+    "mtime": 1789643213.9057708,
+    "seen": 1790108705.759976,
+    "ast_hash": "e82795e54515d5b319083f262df8fb68",
+    "semantic_hash": ""
+  },
+  "src/skudo/score/__init__.py": {
+    "mtime": 1789587902.089527,
+    "seen": 1790108705.7599764,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/score/models.py": {
+    "mtime": 1789745512.4293919,
+    "seen": 1790108705.7599766,
+    "ast_hash": "c20f6165ab4ffcd7528b0f0df622aacc",
+    "semantic_hash": ""
+  },
+  "src/skudo/score/run.py": {
+    "mtime": 1789746305.3773136,
+    "seen": 1790108705.759977,
+    "ast_hash": "911b7a3b1b90d330a34ddf3d23ff1383",
+    "semantic_hash": ""
+  },
+  "src/skudo/score/scoring.py": {
+    "mtime": 1789663153.3464708,
+    "seen": 1790108705.7599778,
+    "ast_hash": "f78ea3c3ecb07216fdf5db9ce19233f6",
+    "semantic_hash": ""
+  },
+  "src/skudo/score/trend.py": {
+    "mtime": 1789590298.293535,
+    "seen": 1790108705.759978,
+    "ast_hash": "658fbd2bee123153368481b42f69a575",
+    "semantic_hash": ""
+  },
+  "src/skudo/web/__init__.py": {
+    "mtime": 1789593618.8645236,
+    "seen": 1790108705.7599785,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "src/skudo/web/app.py": {
+    "mtime": 1789999455.0424507,
+    "seen": 1790108705.7599788,
+    "ast_hash": "fcd0f44c2f3d36062a23614f29d86997",
+    "semantic_hash": ""
+  },
+  "src/skudo/web/auth.py": {
+    "mtime": 1789731153.3665006,
+    "seen": 1790108705.759979,
+    "ast_hash": "7c62a5fe44ef4d55cd0769dfaa2ddf42",
+    "semantic_hash": ""
+  },
+  "src/skudo/web/deps.py": {
+    "mtime": 1789593707.1070576,
+    "seen": 1790108705.7599795,
+    "ast_hash": "7a77d3015edc0909047e48e88b47d76a",
+    "semantic_hash": ""
+  },
+  "tests/acceptance/test_s0_harness.py": {
+    "mtime": 1789074919.6893291,
+    "seen": 1790108705.759981,
+    "ast_hash": "ae556856ddf77a79a1e2b8e00602af9c",
+    "semantic_hash": ""
+  },
+  "tests/auth/test_passwords.py": {
+    "mtime": 1789565653.8221352,
+    "seen": 1790108705.7599812,
+    "ast_hash": "7d3524a232d7309845b70da690c7d4f5",
+    "semantic_hash": ""
+  },
+  "tests/auth/test_users.py": {
+    "mtime": 1789565610.5185978,
+    "seen": 1790108705.7599816,
+    "ast_hash": "4099361d3503e2393432d71c5ac911a7",
+    "semantic_hash": ""
+  },
+  "tests/conftest.py": {
+    "mtime": 1789643213.9057708,
+    "seen": 1790108705.7599819,
+    "ast_hash": "aa848a8f74c673c1513da2559eaf61c6",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_catalog_design.py": {
+    "mtime": 1789999789.9430459,
+    "seen": 1790108705.7599823,
+    "ast_hash": "26c6c3db9c6e70a27ba4e689a2b50a2e",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_cli_evaluate.py": {
+    "mtime": 1789663153.3474703,
+    "seen": 1790108705.7599826,
+    "ast_hash": "82dccb264c6dcd810c7339efbeaa95b5",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_conversion.py": {
+    "mtime": 1790108598.5805204,
+    "seen": 1790108705.759983,
+    "ast_hash": "a3d4a3e076fd6911ea40146d98b7e82d",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_detectores.py": {
+    "mtime": 1789587839.276992,
+    "seen": 1790108705.7599833,
+    "ast_hash": "9d42deb6c4f6e40541cba8ca317ab20b",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_duplicados.py": {
+    "mtime": 1790095129.9355693,
+    "seen": 1790108705.7599838,
+    "ast_hash": "3a919918b9848013a2b474eb19dd1bd3",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_filter_blind.py": {
+    "mtime": 1789986150.8031642,
+    "seen": 1790108705.759984,
+    "ast_hash": "bedd11909fb7c63ae3a512f960dcec1d",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_labels.py": {
+    "mtime": 1790096339.126059,
+    "seen": 1790108705.7599845,
+    "ast_hash": "2ffff835e4b6b43eeb221aba9b6432bf",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_models_attribution.py": {
+    "mtime": 1789663153.3474703,
+    "seen": 1790108705.759985,
+    "ast_hash": "ae87f5b76c71e3ac8c7f9e53be40b287",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_pasada_de_deteccion.py": {
+    "mtime": 1790163194.9145756,
+    "seen": 1790163419.0839112,
+    "ast_hash": "54bfbf56d4f169e92a2d2724f04f5a54",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_rules_eval.py": {
+    "mtime": 1789663153.3474703,
+    "seen": 1790108705.7599857,
+    "ast_hash": "a5920093d3f5a671e4d63fcf7b948276",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_run_con_reglas.py": {
+    "mtime": 1789731836.3289576,
+    "seen": 1790108705.7599862,
+    "ast_hash": "4484e824cb496d40c30fc0efa920e571",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_run_filter_blind.py": {
+    "mtime": 1789986197.5888755,
+    "seen": 1790108705.7599866,
+    "ast_hash": "2950dae0b2b6914306c0bbaf7c508f3d",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_run_stock.py": {
+    "mtime": 1789746124.0825498,
+    "seen": 1790108705.759987,
+    "ast_hash": "f7381c969d3bef3a8f7a3fa6b8b0ef53",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_vitrina_stock.py": {
+    "mtime": 1789750196.457736,
+    "seen": 1790108705.7599874,
+    "ast_hash": "cb5c9f7f8dcfba791b3a81070eb28d39",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/environment_commerce_staging.json": {
+    "mtime": 1788972961.6789892,
+    "seen": 1790108705.7599883,
+    "ast_hash": "3548641a66eb2e16d534472f26ffbfae",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/environment_opensource.json": {
+    "mtime": 1788972955.97293,
+    "seen": 1790108705.7599885,
+    "ast_hash": "aa79574309a4f6e1ae3c584137a6e2de",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_attribute_set_sync.py": {
+    "mtime": 1789812152.048991,
+    "seen": 1790108705.7599897,
+    "ast_hash": "60772d910bc3950ca9d8ba896647c13d",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_attribute_sync.py": {
+    "mtime": 1789010071.440676,
+    "seen": 1790108705.7599902,
+    "ast_hash": "111fe64f20493e67b6610386c4129db0",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_catalog_sweeps.py": {
+    "mtime": 1789079755.369914,
+    "seen": 1790108705.7599907,
+    "ast_hash": "a08a4a189e977d095dc28a24be5d2893",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_category_sync.py": {
+    "mtime": 1789010071.440676,
+    "seen": 1790108705.7599914,
+    "ast_hash": "e718a2e17f0e109ffffb1ca1da05dd0b",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_delta_sync.py": {
+    "mtime": 1789080502.8604765,
+    "seen": 1790108705.759992,
+    "ast_hash": "4088ea7619d605a57e9c9b6456a7d451",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_full_sync.py": {
+    "mtime": 1789079468.4667614,
+    "seen": 1790108705.7599924,
+    "ast_hash": "8ef7b79d795259a51b7afb814bd22be4",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_full_sync_resume.py": {
+    "mtime": 1789079468.4687612,
+    "seen": 1790108705.7599926,
+    "ast_hash": "2c6309132b379be161e2754934f02b71",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_full_sync_scale.py": {
+    "mtime": 1789075199.053829,
+    "seen": 1790108705.7599928,
+    "ast_hash": "015d7b45db6e8682a69aa3dc4486889f",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_magento_datetime.py": {
+    "mtime": 1789073314.027808,
+    "seen": 1790108705.7599933,
+    "ast_hash": "fcc95aceed75cd231b994469398b880b",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_mass_sweep_valve.py": {
+    "mtime": 1789084290.6655245,
+    "seen": 1790108705.759994,
+    "ast_hash": "573dfea7466db802892eded20096692a",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_reconcile.py": {
+    "mtime": 1789074919.6943517,
+    "seen": 1790108705.7599945,
+    "ast_hash": "c43f821295a1598c0278c16d1bf401ed",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_repair.py": {
+    "mtime": 1789081060.8780527,
+    "seen": 1790108705.7599952,
+    "ast_hash": "a65bd39ffb65f831d800e1cb9263597d",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_signal_sync.py": {
+    "mtime": 1789074919.6958501,
+    "seen": 1790108705.7599957,
+    "ast_hash": "5919aaffaa2f45bfab6686765c393bbf",
+    "semantic_hash": ""
+  },
+  "tests/ingest/test_source.py": {
+    "mtime": 1789073341.251033,
+    "seen": 1790108705.7599962,
+    "ast_hash": "ff1085167612ef2a569039f4f93ddb2d",
+    "semantic_hash": ""
+  },
+  "tests/magento/test_bot_challenge.py": {
+    "mtime": 1789582652.3883035,
+    "seen": 1790108705.7599967,
+    "ast_hash": "6c584154acb17c53e5d6bc6fb6dfdd11",
+    "semantic_hash": ""
+  },
+  "tests/magento/test_client.py": {
+    "mtime": 1789029048.6098197,
+    "seen": 1790108705.7599974,
+    "ast_hash": "41ac1949cb55d3b80f8541046fd6234a",
+    "semantic_hash": ""
+  },
+  "tests/magento/test_environment.py": {
+    "mtime": 1788972988.6308286,
+    "seen": 1790108705.7599976,
+    "ast_hash": "2450af1cbf1892f8687614c889398349",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_attributes.py": {
+    "mtime": 1789084831.1603677,
+    "seen": 1790108705.7599983,
+    "ast_hash": "dcdea0cd0704b1681b3bb4beb8278632",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_categories.py": {
+    "mtime": 1789079965.1639311,
+    "seen": 1790108705.7599986,
+    "ast_hash": "52f855f521b042c18eb315c5c25836bd",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_category_effect_real.py": {
+    "mtime": 1789010071.440676,
+    "seen": 1790108705.759999,
+    "ast_hash": "452c741afd5051a15500973feadd9f12",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_mirror_has_no_orphans.py": {
+    "mtime": 1790096502.8946753,
+    "seen": 1790108705.7599993,
+    "ast_hash": "ab6c80660ce94c488516efb89193c832",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_muestra_sin_stock.py": {
+    "mtime": 1789745766.0207179,
+    "seen": 1790108705.7599998,
+    "ast_hash": "5311fbbd2ecdd065045200314f929219",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_orphan_category_assignments.py": {
+    "mtime": 1789079371.424454,
+    "seen": 1790108705.7600002,
+    "ast_hash": "074cb23485ec15817130384dc0375952",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_products.py": {
+    "mtime": 1790129197.9386141,
+    "seen": 1790129361.1413858,
+    "ast_hash": "32fd52ce3b126b5a152520ca25a350ac",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_signals.py": {
+    "mtime": 1789080502.8594766,
+    "seen": 1790108705.7600012,
+    "ast_hash": "a2bb75beec6be4a0dd74d7a90a69f29e",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_store_setting.py": {
+    "mtime": 1789745481.7422261,
+    "seen": 1790108705.760002,
+    "ast_hash": "b4bf160c23d492a12fac0babd1cebfb1",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_topology.py": {
+    "mtime": 1790000794.0410407,
+    "seen": 1790108705.7600024,
+    "ast_hash": "1983c09c2b6d8fedca2a6c38c2082a7c",
+    "semantic_hash": ""
+  },
+  "tests/mirror/test_write_paths_are_reachable.py": {
+    "mtime": 1789179341.22115,
+    "seen": 1790108705.7600029,
+    "ast_hash": "d4364c6312ae072623622b282f7c8c17",
+    "semantic_hash": ""
+  },
+  "tests/operate/test_ciclo.py": {
+    "mtime": 1789586513.9071417,
+    "seen": 1790108705.760003,
+    "ast_hash": "13418a8447ca5782be0c30e7472fda96",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_ambiguity.py": {
+    "mtime": 1789179254.4493587,
+    "seen": 1790108705.7600036,
+    "ast_hash": "347ff38db9a7d4ce2535ab8b85c0ab97",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_coverage.py": {
+    "mtime": 1789179254.4451792,
+    "seen": 1790108705.7600038,
+    "ast_hash": "f576a71854f250c1fe314b7922bc1d9d",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_distribution.py": {
+    "mtime": 1789179254.4522552,
+    "seen": 1790108705.7600043,
+    "ast_hash": "8d455cc5d9380ac1c23b5db2b610d84b",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_models.py": {
+    "mtime": 1789179254.4393334,
+    "seen": 1790108705.7600045,
+    "ast_hash": "b0cc917d36f779b74bc5e3f45a83f1fa",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_partition.py": {
+    "mtime": 1789179254.4507933,
+    "seen": 1790108705.7600052,
+    "ast_hash": "d62c128d300870c603a7a0b0f9e0ee8d",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_report.py": {
+    "mtime": 1789179395.831683,
+    "seen": 1790108705.7600057,
+    "ast_hash": "aa11841d7df3732ef45ebc681f43c543",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_run.py": {
+    "mtime": 1789179643.3984854,
+    "seen": 1790108705.760006,
+    "ast_hash": "d368913b3e5dff608991013fc7eb5b78",
+    "semantic_hash": ""
+  },
+  "tests/profile/test_states.py": {
+    "mtime": 1789179254.4419148,
+    "seen": 1790108705.7600064,
+    "ast_hash": "9d8174793b3f7c7fbdee15bcc4787ae2",
+    "semantic_hash": ""
+  },
+  "tests/report/test_informe.py": {
+    "mtime": 1789585868.9130406,
+    "seen": 1790108705.7600067,
+    "ast_hash": "84e23f9b5d2d257323df3c570d0ae6eb",
+    "semantic_hash": ""
+  },
+  "tests/rules/__init__.py": {
+    "mtime": 1789643213.9057708,
+    "seen": 1790108705.7600071,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_cli.py": {
+    "mtime": 1789643213.9066672,
+    "seen": 1790108705.7600076,
+    "ast_hash": "d19f8dcad3001a5cb8f727fdf9a4666f",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_concepts.py": {
+    "mtime": 1789643213.9066672,
+    "seen": 1790108705.7600079,
+    "ast_hash": "7433e1f1a6329514b7f012201a3930d8",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_crear.py": {
+    "mtime": 1789766448.7052236,
+    "seen": 1790108705.760008,
+    "ast_hash": "e73798e6829142bebfe375e4a5dba227",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_curation.py": {
+    "mtime": 1789643213.9066672,
+    "seen": 1790108705.7600088,
+    "ast_hash": "9f180ca4d11b09ac0ccf507edc2a2b76",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_floor.py": {
+    "mtime": 1789643213.9067707,
+    "seen": 1790108705.760009,
+    "ast_hash": "9e721aa3e9ed9d786a8c67fc294376db",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_inference.py": {
+    "mtime": 1789666317.1980772,
+    "seen": 1790108705.7600095,
+    "ast_hash": "bdb88a587f66bd741b15c5783c3f8027",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_models.py": {
+    "mtime": 1789643213.9067707,
+    "seen": 1790108705.7600098,
+    "ast_hash": "2879da3348eeaf20351237281dfef64a",
+    "semantic_hash": ""
+  },
+  "tests/rules/test_transitions.py": {
+    "mtime": 1789643213.9067707,
+    "seen": 1790108705.76001,
+    "ast_hash": "99843c0f0ac47a32a8e6d5e7b652eaea",
+    "semantic_hash": ""
+  },
+  "tests/score/test_dedup_causa_raiz.py": {
+    "mtime": 1789663153.3474703,
+    "seen": 1790108705.7600105,
+    "ast_hash": "894272a04a83388d5a50581cb506da76",
+    "semantic_hash": ""
+  },
+  "tests/score/test_pasada_de_nota.py": {
+    "mtime": 1790162746.9292524,
+    "seen": 1790162871.8401544,
+    "ast_hash": "cbb8c99bd870069ca890de52cb1340b6",
+    "semantic_hash": ""
+  },
+  "tests/score/test_prioridad_vitrina.py": {
+    "mtime": 1789750207.046729,
+    "seen": 1790108705.7600112,
+    "ast_hash": "54a8cf15dc9742c39edfba292a74bf0c",
+    "semantic_hash": ""
+  },
+  "tests/score/test_scoring.py": {
+    "mtime": 1789588077.9994762,
+    "seen": 1790108705.7600114,
+    "ast_hash": "0b8370b75fc69f54c474f5aa4f720d2c",
+    "semantic_hash": ""
+  },
+  "tests/score/test_tendencia.py": {
+    "mtime": 1790162746.9702525,
+    "seen": 1790162871.840156,
+    "ast_hash": "76df18d04f8a9fa797e10c162d9c501c",
+    "semantic_hash": ""
+  },
+  "tests/skudo_testing.py": {
+    "mtime": 1790129178.597588,
+    "seen": 1790129361.1414034,
+    "ast_hash": "c47f3b4803c2ae59e4fe0a9f6946f7e1",
+    "semantic_hash": ""
+  },
+  "tests/test_cli.py": {
+    "mtime": 1789643213.9067707,
+    "seen": 1790108705.7600129,
+    "ast_hash": "d6ff40637611416c853bc2297865f1b2",
+    "semantic_hash": ""
+  },
+  "tests/test_config.py": {
+    "mtime": 1789073412.8828864,
+    "seen": 1790108705.760014,
+    "ast_hash": "856d463838241aaaa1fccaf086f387d6",
+    "semantic_hash": ""
+  },
+  "tests/test_conftest_guard.py": {
+    "mtime": 1788972863.0902467,
+    "seen": 1790108705.7600143,
+    "ast_hash": "185b78f3047f3c28f9e1a4317559389e",
+    "semantic_hash": ""
+  },
+  "tests/test_tenant_isolation.py": {
+    "mtime": 1789565327.757436,
+    "seen": 1790108705.7600148,
+    "ast_hash": "123bce1157bbc9cc6f1f8c03aefef0ee",
+    "semantic_hash": ""
+  },
+  "tests/web/__init__.py": {
+    "mtime": 1789663153.3474703,
+    "seen": 1790108705.760015,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "tests/web/test_catalog_design_endpoint.py": {
+    "mtime": 1789999469.2259054,
+    "seen": 1790108705.7600157,
+    "ast_hash": "a0e6d054da2771beea0692686ab9ebb6",
+    "semantic_hash": ""
+  },
+  "tests/web/test_crear_endpoint.py": {
+    "mtime": 1789766538.8113248,
+    "seen": 1790108705.760016,
+    "ast_hash": "1a2c7c406525e1fbbd9ecb042b23abdf",
+    "semantic_hash": ""
+  },
+  "tests/web/test_curation_endpoints.py": {
+    "mtime": 1789731136.381306,
+    "seen": 1790108705.7600164,
+    "ast_hash": "5ee7b9a108a4118e49f78a436f4a2e60",
+    "semantic_hash": ""
+  },
+  "tests/web/test_products_prioridad.py": {
+    "mtime": 1789749529.6308222,
+    "seen": 1790108705.760017,
+    "ast_hash": "2aafc9044084e8eec645c5e79e47e69c",
+    "semantic_hash": ""
+  },
+  "tests/web/test_rules_endpoint.py": {
+    "mtime": 1789663153.348366,
+    "seen": 1790108705.7600172,
+    "ast_hash": "70675d41c1668a1a7085d56824d18258",
+    "semantic_hash": ""
+  },
+  "tests/web/test_set_info.py": {
+    "mtime": 1789807378.2905188,
+    "seen": 1790108705.7600176,
+    "ast_hash": "863ed172f4b9cfc3f4844bfdb8b31dd8",
+    "semantic_hash": ""
+  },
+  ".claude/CLAUDE.md": {
+    "mtime": 1790095226.8827922,
+    "seen": 1790108705.7600179,
+    "ast_hash": "9b31786b637be3c13978bec4c2330752",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/SKILL.md": {
+    "mtime": 1790095226.8826363,
+    "seen": 1790108705.7600183,
+    "ast_hash": "1656a8a8e4a05bbe69f32cd15de81e87",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/add-watch.md": {
+    "mtime": 1790095149.8475559,
+    "seen": 1790108705.7600186,
+    "ast_hash": "d59d027fe449f06aa03905a01184e779",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/exports.md": {
+    "mtime": 1790095149.8475559,
+    "seen": 1790108705.7600193,
+    "ast_hash": "9da2a2152e60a22f07f05fed5158f287",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/extraction-spec.md": {
+    "mtime": 1790095149.8475559,
+    "seen": 1790108705.7600195,
+    "ast_hash": "42fef56a01698118f7fd722acdadea34",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/github-and-merge.md": {
+    "mtime": 1790095149.8475559,
+    "seen": 1790108705.76002,
+    "ast_hash": "cde13df085e4c492aeb7ba298a996d0d",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/hooks.md": {
+    "mtime": 1790095149.8475559,
+    "seen": 1790108705.7600203,
+    "ast_hash": "3f545db6ce646650bb9de588f5512a27",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/query.md": {
+    "mtime": 1790095149.8475559,
+    "seen": 1790108705.7600207,
+    "ast_hash": "3c46f8ad006874260614ed8657d02307",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/transcribe.md": {
+    "mtime": 1790095149.8485558,
+    "seen": 1790108705.760021,
+    "ast_hash": "67b6a5fa6c0974e18f60db9f8932fbd8",
+    "semantic_hash": ""
+  },
+  ".claude/skills/graphify/references/update.md": {
+    "mtime": 1790095149.8485558,
+    "seen": 1790108705.7600214,
+    "ast_hash": "9378bd03d56baaf78bd738ab3848f142",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/SKILL.md": {
+    "mtime": 1789587580.5169759,
+    "seen": 1790108705.7600217,
+    "ast_hash": "7aee1162f7fd143cde4a68dde3a1616b",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/adapt.md": {
+    "mtime": 1789587580.5171785,
+    "seen": 1790108705.7600222,
+    "ast_hash": "93ac74ec6fc9fcff285f627e74f78771",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/adapt.native.md": {
+    "mtime": 1789587580.5172317,
+    "seen": 1790108705.7600226,
+    "ast_hash": "83199ca5ed98a15fe6951d5485b7cfa8",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/android.md": {
+    "mtime": 1789587580.5172656,
+    "seen": 1790108705.7600229,
+    "ast_hash": "18f5d94b2c51ac3bfede3b209660bbb5",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/animate.md": {
+    "mtime": 1789587580.5172944,
+    "seen": 1790108705.7600234,
+    "ast_hash": "03c9f7615f5d3c10bf57c1aef1ec9882",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/audit.md": {
+    "mtime": 1789587580.5173295,
+    "seen": 1790108705.7600236,
+    "ast_hash": "6d57f947d39f9b6714e6423f4950c171",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/audit.native.md": {
+    "mtime": 1789587580.5173633,
+    "seen": 1790108705.760024,
+    "ast_hash": "2e77341f171a3b258b8d7e6b086b0ddc",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/bolder.md": {
+    "mtime": 1789587580.5174057,
+    "seen": 1790108705.7600243,
+    "ast_hash": "6e4a0e724e7ccf1fa38bbf51a6f7d6a0",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/clarify.md": {
+    "mtime": 1789587580.517441,
+    "seen": 1790108705.7600245,
+    "ast_hash": "3f9b6ded202ec0b912807451daaf1d5c",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/colorize.md": {
+    "mtime": 1789587580.5174756,
+    "seen": 1790108705.760025,
+    "ast_hash": "99e051670d4153052b96ee844008d012",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/craft-floor.md": {
+    "mtime": 1789587580.517508,
+    "seen": 1790108705.7600253,
+    "ast_hash": "cdc54a0514fe95ecde3fb0cb889a5376",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/craft.md": {
+    "mtime": 1789587580.5175421,
+    "seen": 1790108705.7600257,
+    "ast_hash": "9075911f45c58c15a720f8188b2738f4",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/critique.md": {
+    "mtime": 1789587580.5175736,
+    "seen": 1790108705.760027,
+    "ast_hash": "80b81d8525c40d989b646d093ffc92d2",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/degraded/asset-producer.md": {
+    "mtime": 1789587580.517672,
+    "seen": 1790108705.7600272,
+    "ast_hash": "d021a0c821ebb71e56d8123a6681ccac",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/degraded/documenter.md": {
+    "mtime": 1789587580.5177145,
+    "seen": 1790108705.7600276,
+    "ast_hash": "a38215374db267ad2be047a2a58cc816",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/degraded/finish-reviewer.md": {
+    "mtime": 1789587580.517743,
+    "seen": 1790108705.760028,
+    "ast_hash": "3aeae1c6e9c93dc21b633d2e836340f7",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/degraded/manual-edit-applier.md": {
+    "mtime": 1789587580.5177848,
+    "seen": 1790108705.7600284,
+    "ast_hash": "1652cf7a403f11f4d57382e5ccec6999",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/delight.md": {
+    "mtime": 1789587580.517817,
+    "seen": 1790108705.7600286,
+    "ast_hash": "e10166bb38cadd52ee69fb78226e1322",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/distill.md": {
+    "mtime": 1789587580.5178468,
+    "seen": 1790108705.760029,
+    "ast_hash": "2e49b01921563d71b09a12f3fec9d437",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/doctor.md": {
+    "mtime": 1789587580.5178807,
+    "seen": 1790108705.7600298,
+    "ast_hash": "7f5c7f532b3e87a16ebb3485add0fb81",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/document.md": {
+    "mtime": 1789587580.517918,
+    "seen": 1790108705.76003,
+    "ast_hash": "f567a81a01ec2dcca9243aaa09bb8d01",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/extract.md": {
+    "mtime": 1789587580.51797,
+    "seen": 1790108705.7600305,
+    "ast_hash": "d20662216dd9198edc2cdc67d0359743",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/harden.md": {
+    "mtime": 1789587580.5180132,
+    "seen": 1790108705.7600307,
+    "ast_hash": "4655cdf1b18a530609ba921f0971e149",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/hooks.md": {
+    "mtime": 1789587580.5180545,
+    "seen": 1790108705.7600312,
+    "ast_hash": "6c5e378f13e450e6e20ea91bccb6e9ac",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/init.md": {
+    "mtime": 1789587580.5180945,
+    "seen": 1790108705.7600315,
+    "ast_hash": "69461f8a84ac0ef74d17252f9344abaa",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/ios.md": {
+    "mtime": 1789587580.5181308,
+    "seen": 1790108705.760032,
+    "ast_hash": "a8f56b5c246ad44e142853ef59a19039",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/layout.md": {
+    "mtime": 1789587580.5181637,
+    "seen": 1790108705.7600322,
+    "ast_hash": "47a23724d1b8f043665a4e5612d13481",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/live-setup.md": {
+    "mtime": 1789587580.5182009,
+    "seen": 1790108705.7600327,
+    "ast_hash": "4ed7527f994917e276df53171b1d9034",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/live.md": {
+    "mtime": 1789587580.5182402,
+    "seen": 1790108705.7600334,
+    "ast_hash": "f260c561a9bc479bfe64e3d01ef61730",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/new-work.md": {
+    "mtime": 1789587580.5182896,
+    "seen": 1790108705.7600336,
+    "ast_hash": "6de6deac63a3f5de43dcea00ba218cd2",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/onboard.md": {
+    "mtime": 1789587580.5183492,
+    "seen": 1790108705.760034,
+    "ast_hash": "7095aaea9e2994e37afb3cf1743bc092",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/operate.md": {
+    "mtime": 1789587580.518383,
+    "seen": 1790108705.7600343,
+    "ast_hash": "53a569b985749058f7b178a32e0a157f",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/optimize.md": {
+    "mtime": 1789587580.518418,
+    "seen": 1790108705.7600348,
+    "ast_hash": "6c8dd78b1e66f0bb71ef6284b062bb4c",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/overdrive.md": {
+    "mtime": 1789587580.51845,
+    "seen": 1790108705.760035,
+    "ast_hash": "a9ea1b7446513bf8bdf7641679facfe6",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/polish.md": {
+    "mtime": 1789587580.5184872,
+    "seen": 1790108705.7600355,
+    "ast_hash": "85a66fe58fdf6e1f353d27486ac25c67",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/quieter.md": {
+    "mtime": 1789587580.518524,
+    "seen": 1790108705.7600358,
+    "ast_hash": "615792c6a96fd636fbec7218fc2510c1",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/routing.md": {
+    "mtime": 1789587580.5185568,
+    "seen": 1790108705.7600365,
+    "ast_hash": "47f95501b3914aee6b04924f3a7b4552",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/shape.md": {
+    "mtime": 1789587580.5185883,
+    "seen": 1790108705.7600367,
+    "ast_hash": "ecf5345d56452d10cd2c9203a7512704",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/typeset.md": {
+    "mtime": 1789587580.518619,
+    "seen": 1790108705.7600372,
+    "ast_hash": "964697bac91f691be2b5f7440417f04d",
+    "semantic_hash": ""
+  },
+  ".claude/skills/impeccable/reference/visualize.md": {
+    "mtime": 1789587580.5186532,
+    "seen": 1790108705.7600374,
+    "ast_hash": "8bd5db57ad890f19156f8c8104a6f123",
+    "semantic_hash": ""
+  },
+  "CLAUDE.md": {
+    "mtime": 1790095226.8830078,
+    "seen": 1790108705.760038,
+    "ast_hash": "82efb97a359f5c7290bf2513d14686be",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1789073918.0205019,
+    "seen": 1790108705.7600384,
+    "ast_hash": "73fb1e19fc3d4ba3cf64420e94cf5e71",
+    "semantic_hash": ""
+  },
+  "docker-compose.yml": {
+    "mtime": 1788972826.6116552,
+    "seen": 1790108705.7600389,
+    "ast_hash": "76cf64ccc4e4c6e516d1b179546162e9",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/h1-deteccion-de-cambios.md": {
+    "mtime": 1789072094.785781,
+    "seen": 1790108705.7600393,
+    "ast_hash": "f30d65e142e904ad07165358d4e58b46",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/h3-cli-y-escala.md": {
+    "mtime": 1789078548.6038344,
+    "seen": 1790108705.7600396,
+    "ast_hash": "6852128aa1bfb7760f496af6d2ef9e79",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/m3-huerfanos.md": {
+    "mtime": 1789085184.100864,
+    "seen": 1790108705.7600403,
+    "ast_hash": "893e9c68f72c7c31599a507b6309ec29",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/pendiente-s0.md": {
+    "mtime": 1789085184.1379707,
+    "seen": 1790108705.7600405,
+    "ast_hash": "731ee24554db368098d17eea60094dfb",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-09-09-s0-conector-espejo-canonico.md": {
+    "mtime": 1788956659.5578184,
+    "seen": 1790108705.760041,
+    "ast_hash": "477b05d4ecaa456e608f93ed2d5e3704",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-09-09-s0-enmienda-c1-ingesta-y-modulo.md": {
+    "mtime": 1789006266.5307202,
+    "seen": 1790108705.7600412,
+    "ast_hash": "b0aeea032df535a135e3588c1ab57dec",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-09-11-s1a-perfilador.md": {
+    "mtime": 1789179734.794588,
+    "seen": 1790108705.7600417,
+    "ast_hash": "655cea0e66cf421b9ebebee804fe9403",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-09-16-s1b-reglas-y-piso.md": {
+    "mtime": 1789607866.822318,
+    "seen": 1790108705.760042,
+    "ast_hash": "f4c4a63168e8a11b2e0fc0ec2418b9d0",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-09-17-s1c-evaluacion-y-panel.md": {
+    "mtime": 1789648223.449729,
+    "seen": 1790108705.7600422,
+    "ast_hash": "7003f6801321198b926f92ef2f749f27",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/2026-09-18-stock-visibilidad.md": {
+    "mtime": 1789745337.8994498,
+    "seen": 1790108705.7600427,
+    "ast_hash": "c056157481b4a0a1908ec54c1239aab3",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/plans/s0-verificacion-manual.md": {
+    "mtime": 1789007991.413982,
+    "seen": 1790108705.760043,
+    "ast_hash": "8d5bf25aa00d888525d7de103ff11071",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/s1-datos-reales.md": {
+    "mtime": 1789133449.3858767,
+    "seen": 1790108705.7600443,
+    "ast_hash": "99218d0f2b21e444ed718f44ef9f633a",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/s1b-calibracion.md": {
+    "mtime": 1789666405.570275,
+    "seen": 1790108705.7600448,
+    "ast_hash": "9bcaf17e3c704de08a38f6a903af8e5a",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-09-08-standardskudo-catalog-quality-design.md": {
+    "mtime": 1789582298.6491718,
+    "seen": 1790108705.760045,
+    "ast_hash": "8f7e57b4b0aba63b311761b8f5ed120e",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-09-11-s1-perfilador-design.md": {
+    "mtime": 1789156450.5443943,
+    "seen": 1790108705.7600455,
+    "ast_hash": "0a30cc4a040e91d143796334c7d18ec9",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-09-16-s1b-reglas-y-piso-design.md": {
+    "mtime": 1789605132.1042488,
+    "seen": 1790108705.7600458,
+    "ast_hash": "3496c444c8dd657650269afc11c2ea91",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-09-17-s1c-evaluacion-y-panel-design.md": {
+    "mtime": 1789645793.1839597,
+    "seen": 1790108705.7600462,
+    "ast_hash": "27c3b05e8454abb82c8d500ab9a3d419",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/specs/2026-09-18-stock-visibilidad-design.md": {
+    "mtime": 1789744756.1823084,
+    "seen": 1790108705.7600465,
+    "ast_hash": "79182a15811399afaf35d6129eb88d54",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/verificacion-http-real-fixes.md": {
+    "mtime": 1789029687.94264,
+    "seen": 1790108705.7600472,
+    "ast_hash": "6f6e75c420291eb1b62a13463f165bda",
+    "semantic_hash": ""
+  },
+  "docs/superpowers/verificacion-http-real.md": {
+    "mtime": 1789026984.576532,
+    "seen": 1790108705.7600474,
+    "ast_hash": "179c430c3fcda2326ec0587574d4bc75",
+    "semantic_hash": ""
+  },
+  "src/skudo/web/static/index.html": {
+    "mtime": 1790163194.8925757,
+    "seen": 1790163419.0840633,
+    "ast_hash": "d5e971efd32cd0c45ae6072e136c46e0",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_plantilla.py": {
+    "mtime": 1790124360.1903887,
+    "seen": 1790124491.520861,
+    "ast_hash": "3d2e2a535e783a1ed0300c66a7d4b80a",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_basura.py": {
+    "mtime": 1790125263.7172184,
+    "seen": 1790125432.3925204,
+    "ast_hash": "be4108e2633033976311b647bed82c21",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_nombre_es_codigo.py": {
+    "mtime": 1790125965.8439298,
+    "seen": 1790126079.470642,
+    "ast_hash": "6481ecb8ffc9436c46d04325a54db791",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_campos_basura.py": {
+    "mtime": 1790126289.8215828,
+    "seen": 1790126827.8870656,
+    "ast_hash": "ee9a31f1249960687913d86038919bf5",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_marca_inconsistente.py": {
+    "mtime": 1790126749.7688203,
+    "seen": 1790126827.887071,
+    "ast_hash": "af3eda0eb8875c501940fbc5753d9f67",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_gtin_invalido.py": {
+    "mtime": 1790126988.0275342,
+    "seen": 1790127110.1632729,
+    "ast_hash": "0e062040b715da1d9f2f9939b81cea5c",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_valores_negativos.py": {
+    "mtime": 1790127333.019408,
+    "seen": 1790127478.4613068,
+    "ast_hash": "df6b15f42f224d27ba292341c80ae135",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0023_product_parent_skus.py": {
+    "mtime": 1790128283.2906914,
+    "seen": 1790128672.286526,
+    "ast_hash": "1f8d0e44af828c18e97e7fce7dd5701f",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_configurable_sin_hijos.py": {
+    "mtime": 1790128465.9847968,
+    "seen": 1790128672.286616,
+    "ast_hash": "c6e4db5507e2356cddf3d38b84316e57",
+    "semantic_hash": ""
+  },
+  "alembic/versions/0024_product_variation_attributes.py": {
+    "mtime": 1790129142.85154,
+    "seen": 1790129361.1412435,
+    "ast_hash": "f9f0436bfc7140581418442fe43d0a17",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_variantes_sin_atributos_de_variacion.py": {
+    "mtime": 1790129198.0226142,
+    "seen": 1790129361.1413648,
+    "ast_hash": "9924e17fc098a3fb0bf1efbbfeeac7a1",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_unidades_mezcladas.py": {
+    "mtime": 1790129833.2155979,
+    "seen": 1790129977.3358192,
+    "ast_hash": "aadbadf84076e71d3bb5ed6b188958f3",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_descripcion_corta_copia_larga.py": {
+    "mtime": 1790130481.6316414,
+    "seen": 1790130595.9932175,
+    "ast_hash": "84b87d96ffc03312a7c99471c4f83636",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_texto_duplicado.py": {
+    "mtime": 1790157222.05962,
+    "seen": 1790157311.808019,
+    "ast_hash": "03c74c822a8edaa3df444773ad987d1d",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_unidades_ausentes.py": {
+    "mtime": 1790158218.6956952,
+    "seen": 1790158378.3247721,
+    "ast_hash": "0dd9d254251fc72f0d67495a3bd35654",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_meta_duplicado.py": {
+    "mtime": 1790158618.4689927,
+    "seen": 1790161482.1117904,
+    "ast_hash": "cc1c0e42c3043dfed3e5e09d2a9a8ea2",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_alt_text.py": {
+    "mtime": 1790162455.9890141,
+    "seen": 1790162871.8401055,
+    "ast_hash": "1893cd050ce2617249c9591cc6df8e9f",
+    "semantic_hash": ""
+  },
+  "src/skudo/findings/traduccion.py": {
+    "mtime": 1790163179.067623,
+    "seen": 1790163419.0838628,
+    "ast_hash": "0f7964eebb88e67184d07db9ce10dcc5",
+    "semantic_hash": ""
+  },
+  "tests/findings/test_nombre_sin_traducir.py": {
+    "mtime": 1790163234.1534688,
+    "seen": 1790163419.0839105,
+    "ast_hash": "8cf0a84da8ec264b9e3ff457245e3398",
+    "semantic_hash": ""
+  }
+}
