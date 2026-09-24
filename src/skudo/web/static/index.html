@@ -940,7 +940,7 @@ window.showFindingDetail = async function(findingCode, storeId) {
   document.getElementById('finding-modal-title').textContent = LABELS[findingCode] || findingCode;
   document.getElementById('finding-modal-body').innerHTML = '<p>Cargando afectados...</p>';
   try {
-    const data = await api.get(`/api/tenants/${tenantId}/findings/${findingCode}?store=${storeId}`);
+    const data = await API.get(`/api/tenants/${tenantId}/findings/${findingCode}?store=${storeId}`);
     if (!data.items || data.items.length === 0) {
       document.getElementById('finding-modal-body').innerHTML = '<p>No se encontraron afectados con este código o la pasada caducó.</p>';
       return;
