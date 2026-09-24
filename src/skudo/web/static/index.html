@@ -935,12 +935,12 @@ const LABELS = {
 // Los códigos dinámicos (filtro_ciego:<attr>, regla:<kind>:<attr>) no están en
 // LABELS: se arman legibles a partir de sus partes.
 
-window.showFindingDetail = async function(findingCode, storeId) {
+window.showFindingDetail = async function(findingCode) {
   document.getElementById('finding-modal').style.display = 'flex';
   document.getElementById('finding-modal-title').textContent = LABELS[findingCode] || findingCode;
   document.getElementById('finding-modal-body').innerHTML = '<p>Cargando afectados...</p>';
   try {
-    const data = await API.get(`/api/tenants/${tenantId}/findings/${findingCode}?store=${storeId}`);
+    const data = await API.get(`/api/tenants/${state.tenant.code}/findings/${findingCode}?store=${state.store}`);
     if (!data.items || data.items.length === 0) {
       document.getElementById('finding-modal-body').innerHTML = '<p>No se encontraron afectados con este código o la pasada caducó.</p>';
       return;
@@ -1418,8 +1418,11 @@ async function renderFindings() {
         conf != null ? el('div', { class: 'rule-draft-note' }, `confianza regla: ${Math.round(conf * 100)}%`) : null,
       );
 
-      tbody.append(el('tr', { style: {cursor: 'pointer'}, onclick: () => showFindingDetail(h.code, storeId) },
-        el('td', { style: { fontWeight: '500' } }, etiquetaCodigo(h.code)),
+      tbody.append(el('tr', { style: { cursor: 'pointer' }, title: 'Ver SKUs afectados', onclick: () => showFindingDetail(h.code) },
+        el('td', { style: { fontWeight: '500' } },
+          etiquetaCodigo(h.code),
+          el('div', { style: { color: 'var(--accent)', fontSize: '11px', marginTop: '4px' } }, 'Ver afectados →')
+        ),
         origenCell,
         el('td', null, el('span', { class: `severity-badge ${sevClass(h.severidad)}` }, h.severidad)),
         el('td', null, String(h.hallazgos)),
@@ -1877,7 +1880,7 @@ async function renderProducts() {
     )));
     const tbody = el('tbody');
     for (const p of data.productos) {
-      tbody.append(el('tr', { style: {cursor: 'pointer'}, onclick: () => showFindingDetail(h.code, storeId) },
+      tbody.append(el('tr', null,
         el('td', { style: { fontWeight: '500', fontFamily: 'var(--font-body)', fontSize: '13px' } }, p.sku),
         el('td', { style: { fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-display)', fontWeight: '700' } }, String(p.puntaje)),
         el('td', null, el('span', { class: `severity-badge ${gradeClass(p.grado)}`, title: gradoTitle(p.grado), style: { fontFamily: 'var(--font-display)' } }, p.grado)),
