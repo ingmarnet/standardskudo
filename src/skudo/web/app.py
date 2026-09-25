@@ -12,9 +12,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from skudo.auth.users import authenticate
+from skudo.auth.models import ROLES, PlatformUser
+from skudo.auth.passwords import hash_password
+from skudo.auth.users import (
+    authenticate,
+    set_tenant_access,
+    tenant_ids_for_user,
+)
+from skudo.auth.users import (
+    create_user as auth_create_user,
+)
+from skudo.auth.users import (
+    list_users as auth_list_users,
+)
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
 from skudo.mirror.models import Attribute, AttributeSet, ProductRecord, Tenant
@@ -29,8 +42,50 @@ from skudo.web.auth import create_token, require_role, require_user
 # Roles con permiso para curar (aceptar, acotar, rechazar, snapshot). La
 # curación es una decisión de gobierno: el lector y el operador no la tocan.
 CURATION_ROLES = ("superadmin", "administrador", "aprobador")
+ADMIN_ROLES = ("superadmin", "administrador")
 
 app = FastAPI(title="Skudo", version="0.1.0")
+
+
+
+def _is_admin(user: dict) -> bool:
+    return user.get("role") in ADMIN_ROLES
+
+
+def _explicit_tenant_ids(db: Session, user: dict) -> list[int]:
+    try:
+        user_id = int(user.get("sub"))
+    except (TypeError, ValueError):
+        return []
+    return tenant_ids_for_user(db, user_id)
+
+
+def _check_tenant_access(db: Session, tenant: Tenant, user: dict) -> None:
+    """Aplica alcance por tenant sin romper cuentas legadas.
+
+    Administradores ven todo. Para roles no administradores, la primera fila en
+    `platform_user_tenant_access` activa el modo restrictivo: sólo ven esos
+    tenants. Sin filas, se conserva el acceso legado a todos los tenants para no
+    bloquear usuarios existentes durante el rollout.
+    """
+    if _is_admin(user):
+        return
+    allowed = _explicit_tenant_ids(db, user)
+    if allowed and tenant.id not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="usuario sin acceso a este tenant",
+        )
+
+
+def _user_json(db: Session, user: PlatformUser) -> dict:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "role": user.role,
+        "is_active": user.is_active,
+        "tenant_ids": tenant_ids_for_user(db, user.id),
+    }
 
 app.add_middleware(
     CORSMiddleware,
@@ -79,12 +134,95 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     return TokenResponse(access_token=token, role=user.role, email=user.email)
 
 
+
+# --- Usuarios y permisos -----------------------------------------------------
+
+
+class UserCreateRequest(BaseModel):
+    email: str
+    password: str
+    role: str
+    tenant_ids: list[int] = []
+
+
+class UserUpdateRequest(BaseModel):
+    role: str | None = None
+    password: str | None = None
+    is_active: bool | None = None
+    tenant_ids: list[int] | None = None
+
+
+@app.get("/api/users")
+def list_platform_users(
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*ADMIN_ROLES)),
+):
+    return [_user_json(db, u) for u in auth_list_users(db)]
+
+
+@app.post("/api/users", status_code=status.HTTP_201_CREATED)
+def create_platform_user(
+    body: UserCreateRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*ADMIN_ROLES)),
+):
+    try:
+        new_user = auth_create_user(db, body.email, body.password, body.role)
+        set_tenant_access(db, new_user, body.tenant_ids)
+        db.commit()
+        db.refresh(new_user)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(400, detail=str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, detail="email ya registrado")
+    return _user_json(db, new_user)
+
+
+@app.patch("/api/users/{user_id}")
+def update_platform_user(
+    user_id: int,
+    body: UserUpdateRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*ADMIN_ROLES)),
+):
+    target = db.get(PlatformUser, user_id)
+    if target is None:
+        raise HTTPException(404, "Usuario no encontrado")
+
+    try:
+        if body.role is not None:
+            if body.role not in ROLES:
+                raise ValueError(
+                    f"rol desconocido: {body.role!r}. Los válidos son {', '.join(ROLES)}"
+                )
+            target.role = body.role
+        if body.password is not None:
+            target.password_hash = hash_password(body.password)
+        if body.is_active is not None:
+            target.is_active = body.is_active
+        if body.tenant_ids is not None:
+            set_tenant_access(db, target, body.tenant_ids)
+        db.commit()
+        db.refresh(target)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(400, detail=str(e))
+    return _user_json(db, target)
+
+
 # --- Tenants ----------------------------------------------------------------
 
 
 @app.get("/api/tenants")
 def list_tenants(db: Session = Depends(get_db), user=Depends(require_user)):
-    tenants = db.scalars(select(Tenant).order_by(Tenant.code)).all()
+    q = select(Tenant).order_by(Tenant.code)
+    if not _is_admin(user):
+        allowed = _explicit_tenant_ids(db, user)
+        if allowed:
+            q = q.where(Tenant.id.in_(allowed))
+    tenants = db.scalars(q).all()
     resultado = []
     for t in tenants:
         stores = sorted(
@@ -130,6 +268,7 @@ def tenant_health(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
 
     stores = sorted(
         s
@@ -182,6 +321,7 @@ def tenant_findings(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
 
     run = db.scalars(
         select(FindingRun)
@@ -213,6 +353,7 @@ def finding_details(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
 
     run = db.scalars(
         select(FindingRun)
@@ -255,6 +396,7 @@ def tenant_rules(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
 
     reglas = db.scalars(
         select(Rule)
@@ -321,11 +463,12 @@ class MotivoRequest(BaseModel):
     motivo: str
 
 
-def _regla_del_tenant(db: Session, tenant_code: str, rule_id: int) -> Rule:
+def _regla_del_tenant(db: Session, tenant_code: str, rule_id: int, user: dict) -> Rule:
     """Resuelve una regla comprobando que pertenece al tenant. 404 si no."""
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
     regla = db.get(Rule, rule_id)
     if regla is None or regla.tenant_id != tenant.id:
         raise HTTPException(404, "Regla no encontrada en este tenant")
@@ -351,7 +494,7 @@ def accept_rule(
     db: Session = Depends(get_db),
     user=Depends(require_role(*CURATION_ROLES)),
 ):
-    regla = _regla_del_tenant(db, tenant_code, rule_id)
+    regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
         curation.aceptar(
             db, [regla.id], actor=user["email"],
@@ -374,7 +517,7 @@ def reject_rule(
     db: Session = Depends(get_db),
     user=Depends(require_role(*CURATION_ROLES)),
 ):
-    regla = _regla_del_tenant(db, tenant_code, rule_id)
+    regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
         curation.rechazar(db, regla.id, actor=user["email"], motivo=body.motivo)
     except ValueError as e:
@@ -394,7 +537,7 @@ def limit_rule(
     db: Session = Depends(get_db),
     user=Depends(require_role(*CURATION_ROLES)),
 ):
-    regla = _regla_del_tenant(db, tenant_code, rule_id)
+    regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
         curation.acotar(db, regla.id, actor=user["email"], motivo=body.motivo)
     except ValueError as e:
@@ -416,6 +559,7 @@ def snapshot_rules(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
     snap = curation.snapshot(db, tenant_id=tenant.id, store_view=store)
     db.commit()
     return {"version": snap.version, "rule_count": len(snap.rule_ids)}
@@ -443,6 +587,7 @@ def rule_options(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
     atributos = [
         {"code": code, "label": label}
         for code, label in db.execute(
@@ -482,6 +627,7 @@ def rule_set_info(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
 
     nombres = {
         mid: name
@@ -543,6 +689,7 @@ def catalog_design(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
 
     perfil = db.scalars(
         select(ProfileRun)
@@ -576,6 +723,7 @@ def create_rule(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
     try:
         regla = curation.crear(
             db, tenant_id=tenant.id, store_view_magento_id=store,
@@ -609,6 +757,7 @@ def tenant_products(
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
 
     q = (
         select(ProductScore)

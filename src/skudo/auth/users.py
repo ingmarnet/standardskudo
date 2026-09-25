@@ -1,10 +1,11 @@
 """Alta, consulta y cambio de contraseña de los usuarios de la plataforma."""
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from skudo.auth.models import ROLES, PlatformUser
+from skudo.auth.models import ROLES, PlatformUser, PlatformUserTenantAccess
 from skudo.auth.passwords import hash_password, verify_password
+from skudo.mirror.models import Tenant
 
 
 def normalize_email(email: str) -> str:
@@ -60,3 +61,42 @@ def authenticate(session: Session, email: str, password: str) -> PlatformUser | 
 
 def list_users(session: Session) -> list[PlatformUser]:
     return list(session.scalars(select(PlatformUser).order_by(PlatformUser.email)))
+
+
+def tenant_ids_for_user(session: Session, user_id: int) -> list[int]:
+    """Devuelve los tenants explícitamente asignados al usuario.
+
+    Lista vacía significa "sin alcance explícito". El backend web lo interpreta
+    como compatibilidad legado: no restringe tenants hasta que se asigna al
+    menos uno.
+    """
+    return sorted(
+        session.scalars(
+            select(PlatformUserTenantAccess.tenant_id)
+            .where(PlatformUserTenantAccess.user_id == user_id)
+            .order_by(PlatformUserTenantAccess.tenant_id)
+        ).all()
+    )
+
+
+def set_tenant_access(session: Session, user: PlatformUser, tenant_ids: list[int]) -> None:
+    """Reemplaza el alcance explícito de tenants de un usuario.
+
+    Valida que todos los ids existan antes de escribir, para que el panel no
+    guarde permisos fantasma por una selección stale.
+    """
+    unique_ids = sorted({int(tid) for tid in tenant_ids})
+    if unique_ids:
+        existing = set(
+            session.scalars(select(Tenant.id).where(Tenant.id.in_(unique_ids))).all()
+        )
+        missing = [tid for tid in unique_ids if tid not in existing]
+        if missing:
+            raise ValueError(f"tenant inexistente: {missing[0]}")
+
+    session.execute(
+        delete(PlatformUserTenantAccess).where(PlatformUserTenantAccess.user_id == user.id)
+    )
+    for tenant_id in unique_ids:
+        session.add(PlatformUserTenantAccess(user_id=user.id, tenant_id=tenant_id))
+    session.flush()

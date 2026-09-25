@@ -840,6 +840,10 @@ body {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="18" cy="18" r="3"/></svg>
         Diseño del catálogo
       </a>
+      <a data-view="users" id="nav-users" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        Usuarios
+      </a>
     </nav>
     <div class="sidebar-footer">
       <div class="user-info" id="user-email"></div>
@@ -892,6 +896,7 @@ const API = (() => {
   return {
     get: (p) => request(p),
     post: (p, d) => request(p, { method: 'POST', body: JSON.stringify(d) }),
+    patch: (p, d) => request(p, { method: 'PATCH', body: JSON.stringify(d) }),
     login, logout,
     get token() { return token; },
     get user() { return userInfo },
@@ -1505,7 +1510,10 @@ function toast(msg, isError = false) {
 }
 
 const CURATION_ROLES = ['superadmin', 'administrador', 'aprobador'];
+const ADMIN_ROLES = ['superadmin', 'administrador'];
+const USER_ROLES = ['lector', 'operador', 'aprobador', 'administrador', 'superadmin'];
 function puedeCurar() { return CURATION_ROLES.includes(API.user?.role); }
+function puedeGestionarUsuarios() { return ADMIN_ROLES.includes(API.user?.role); }
 
 // Qué acciones ofrece una regla según su estado y origen. El backend y la
 // máquina de estados son la autoridad; esto sólo evita mostrar botones que
@@ -2029,6 +2037,112 @@ async function renderCatalogDesign() {
   }
 }
 
+
+async function renderUsers() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '';
+  if (!puedeGestionarUsuarios()) {
+    main.append(el('div', { class: 'empty-state' }, el('p', null, 'Tu usuario no tiene permiso para administrar accesos.')));
+    return;
+  }
+
+  main.append(
+    el('div', { class: 'main-header' }, el('h1', null, 'Usuarios y permisos')),
+    el('p', { class: 'section-intro' }, 'Crea usuarios de la plataforma y define a qué tenants pueden entrar. Si un usuario no tiene tenants marcados queda con alcance legado sin restricción; para permisos acotados, marca al menos uno.'),
+    renderLoading(),
+  );
+
+  try {
+    const [users, tenants] = await Promise.all([API.get('/api/users'), API.get('/api/tenants')]);
+    main.querySelector('.loading')?.remove();
+
+    const tenantChecks = (name, selected = []) => {
+      const selectedSet = new Set((selected || []).map(Number));
+      const wrap = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px', marginTop: '8px' } });
+      for (const t of tenants) {
+        const input = el('input', { type: 'checkbox', name, value: t.id });
+        input.checked = selectedSet.has(Number(t.id));
+        wrap.append(el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)' } }, input, `${t.name || t.code} (${t.code})`));
+      }
+      return wrap;
+    };
+    const selectedIds = (root, name) => Array.from(root.querySelectorAll(`input[name="${name}"]:checked`)).map(i => Number(i.value));
+    const roleSelect = (value, name = 'role') => {
+      const sel = el('select', { name, class: 'store-select' });
+      for (const role of USER_ROLES) {
+        const opt = el('option', { value: role }, role);
+        if (role === value) opt.selected = true;
+        sel.append(opt);
+      }
+      return sel;
+    };
+
+    const createCard = el('div', { class: 'card', style: { marginBottom: '18px' } });
+    const form = el('form', { style: { display: 'grid', gap: '12px' } });
+    const email = el('input', { type: 'email', name: 'email', placeholder: 'email@empresa.com', required: true, style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px' } });
+    const password = el('input', { type: 'password', name: 'password', placeholder: 'contraseña inicial', autocomplete: 'new-password', required: true, style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px' } });
+    const createTenants = tenantChecks('create_tenants', []);
+    form.append(
+      el('h3', { class: 'card-title' }, 'Crear usuario'),
+      el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(180px, .8fr) minmax(150px, .6fr)', gap: '12px' } }, email, password, roleSelect('lector')),
+      el('div', null, el('strong', null, 'Tenants habilitados'), createTenants),
+      el('button', { type: 'submit', class: 'btn btn-primary', style: { justifySelf: 'start' } }, 'Crear usuario'),
+    );
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        await API.post('/api/users', {
+          email: email.value,
+          password: password.value,
+          role: form.querySelector('select[name="role"]').value,
+          tenant_ids: selectedIds(form, 'create_tenants'),
+        });
+        toast('Usuario creado');
+        renderUsers();
+      } catch (err) { toast(err.message, true); }
+    });
+    createCard.append(form);
+    main.append(createCard);
+
+    const table = el('table', { class: 'findings-table' });
+    table.append(el('thead', null, el('tr', null,
+      el('th', null, 'Usuario'), el('th', null, 'Rol'), el('th', null, 'Activo'), el('th', null, 'Tenants'), el('th', null, 'Acción')
+    )));
+    const tbody = el('tbody');
+    for (const u of users) {
+      const row = el('tr');
+      const role = roleSelect(u.role, `role_${u.id}`);
+      const active = el('input', { type: 'checkbox' });
+      active.checked = Boolean(u.is_active);
+      const pass = el('input', { type: 'password', placeholder: 'nueva contraseña (opcional)', autocomplete: 'new-password', style: { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: '8px', marginTop: '8px', width: '100%' } });
+      const checks = tenantChecks(`tenants_${u.id}`, u.tenant_ids || []);
+      const save = el('button', { type: 'button', class: 'btn secondary' }, 'Guardar');
+      save.addEventListener('click', async () => {
+        const payload = { role: role.value, is_active: active.checked, tenant_ids: selectedIds(row, `tenants_${u.id}`) };
+        if (pass.value.trim()) payload.password = pass.value;
+        try {
+          await API.patch(`/api/users/${u.id}`, payload);
+          toast('Permisos actualizados');
+          renderUsers();
+        } catch (err) { toast(err.message, true); }
+      });
+      row.append(
+        el('td', { style: { fontWeight: '500' } }, u.email, pass),
+        el('td', null, role),
+        el('td', null, active),
+        el('td', null, checks),
+        el('td', null, save),
+      );
+      tbody.append(row);
+    }
+    table.append(tbody);
+    main.append(el('div', { class: 'card' }, table));
+  } catch (e) {
+    main.innerHTML = '';
+    main.append(el('div', { class: 'empty-state' }, el('p', null, `Error: ${e.message}`)));
+  }
+}
+
 // --- Navigation ---
 
 function navigate(view) {
@@ -2043,6 +2157,7 @@ function navigate(view) {
     case 'rules': renderRules(); break;
     case 'products': renderProducts(); break;
     case 'catalog-design': renderCatalogDesign(); break;
+    case 'users': renderUsers(); break;
   }
 }
 
@@ -2090,6 +2205,8 @@ function showApp() {
   document.getElementById('login-screen').hidden = true;
   document.getElementById('app').hidden = false;
   document.getElementById('user-email').textContent = API.user?.email || '';
+  const usersNav = document.getElementById('nav-users');
+  if (usersNav) usersNav.hidden = !puedeGestionarUsuarios();
   navigate('tenants');
 }
 

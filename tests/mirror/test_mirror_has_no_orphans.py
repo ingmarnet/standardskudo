@@ -221,6 +221,8 @@ ROOT_TABLES = {
     # no dentro de uno. Cuando S7 traiga los roles por tenant, la tabla de
     # pertenencia que los una sí será hija y necesitará su arista.
     "platform_user",
+    # La pertenencia usuario-tenant sí cuelga de ambos lados con FKs reales; se
+    # declara abajo en FK_ENFORCED_TABLES.
     # `google_floor` (S1b) es raíz en el mismo sentido que `platform_user`, pero
     # por otra razón: son los requisitos de Google Shopping, iguales para todos
     # los tenants, así que la tabla ni siquiera tiene `tenant_id`. Sin columna
@@ -258,6 +260,8 @@ FK_ENFORCED_TABLES = {
     "rule_version",
     "ruleset_snapshot",
     "concept_map",
+    # Permisos de plataforma: FK a usuario y tenant, con borrado en cascada.
+    "platform_user_tenant_access",
 }
 
 
