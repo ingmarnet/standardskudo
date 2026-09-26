@@ -1,0 +1,17 @@
+[Unit]
+Description=Skudo API (FastAPI + panel web)
+After=network.target network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/skudo
+EnvironmentFile=/etc/skudo/skudo.env
+ExecStart=/opt/skudo/.venv/bin/skudo serve
+Restart=always
+RestartSec=3
+# TODO(seguridad): correr como un usuario dedicado `skudo` en vez de root una
+# vez que el entorno deje de estar 100% bajo root.
+
+[Install]
+WantedBy=multi-user.target

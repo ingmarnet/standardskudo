@@ -1,0 +1,16 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Desplegar en produccion (self-hosted)
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desplegar
+        run: bash deploy/deploy.sh
+        shell: bash
