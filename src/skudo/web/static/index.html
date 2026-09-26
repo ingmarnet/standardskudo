@@ -1077,18 +1077,60 @@ function renderLoading() {
 
 // --- Views ---
 
+function showTokenResult(res) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'display:flex; position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:9999; align-items:center; justify-content:center; padding:24px;';
+  overlay.innerHTML = `
+    <div style="background:var(--surface); color:var(--ink); border:1px solid var(--border); border-radius:14px; box-shadow:0 24px 80px rgba(15,23,42,.22); width:min(640px,96vw); padding:24px;">
+      <h3 style="margin:0 0 8px;">Tenant ${res.code} creado</h3>
+      <p style="font-size:13px; color:var(--warning); margin:0 0 12px;">Guardá este token ahora: no se volverá a mostrar. Es lo que el cliente instala en su Magento y lo que va en la variable de entorno del servidor.</p>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <code style="font-family:var(--font-body); background:var(--card); border:1px solid var(--border); padding:8px 10px; border-radius:8px; flex:1; word-break:break-all;">${res.token}</code>
+        <button id="token-copy" type="button" class="btn secondary">Copiar</button>
+      </div>
+      <p style="font-size:12px; color:var(--ink-secondary); margin-top:12px;">Variable de entorno en el servidor: <code>${res.token_env_var}</code></p>
+      <button id="token-close" type="button" class="btn primary" style="margin-top:16px;">Entendido</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#token-copy').addEventListener('click', () => { navigator.clipboard.writeText(res.token); toast('Token copiado'); });
+  const close = () => overlay.remove();
+  overlay.querySelector('#token-close').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+}
+
+function renderTenantCreateForm() {
+  const card = el('div', { class: 'card', style: { marginBottom: '18px' } });
+  const form = el('form', { style: { display: 'grid', gap: '10px' } });
+  const code = el('input', { type: 'text', placeholder: 'código (ej. renova)', required: true, pattern: '[a-z0-9_-]+', style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px' } });
+  const name = el('input', { type: 'text', placeholder: 'nombre (opcional)', style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px' } });
+  const base = el('input', { type: 'url', placeholder: 'https://tienda.com', required: true, style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px' } });
+  form.append(
+    el('h3', { class: 'card-title' }, 'Nuevo tenant'),
+    el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' } }, code, name, base),
+    el('button', { type: 'submit', class: 'btn btn-primary', style: { justifySelf: 'start' } }, 'Crear tenant'),
+  );
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const res = await API.post('/api/tenants', { code: code.value.trim(), name: name.value.trim(), base_url: base.value.trim() });
+      showTokenResult(res);
+      renderTenants();
+    } catch (err) { toast(err.message, true); }
+  });
+  card.append(form);
+  return card;
+}
+
 async function renderTenants() {
   const main = document.getElementById('main-content');
   main.innerHTML = '';
-  main.append(
-    el('div', { class: 'main-header' }, el('h1', null, 'Tenants')),
-    renderLoading()
-  );
+  main.append(el('div', { class: 'main-header' }, el('h1', null, 'Tenants')));
+  if (puedeGestionarUsuarios()) main.append(renderTenantCreateForm());
+  main.append(renderLoading());
 
   try {
     const tenants = await API.get('/api/tenants');
-    main.innerHTML = '';
-    main.append(el('div', { class: 'main-header' }, el('h1', null, 'Tenants')));
+    main.querySelector('.loading')?.remove();
 
     if (!tenants.length) {
       main.append(el('div', { class: 'empty-state' }, el('p', null, 'No hay tenants registrados.')));
@@ -2048,7 +2090,7 @@ async function renderUsers() {
 
   main.append(
     el('div', { class: 'main-header' }, el('h1', null, 'Usuarios y permisos')),
-    el('p', { class: 'section-intro' }, 'Crea usuarios de la plataforma y define a qué tenants pueden entrar. Si un usuario no tiene tenants marcados queda con alcance legado sin restricción; para permisos acotados, marca al menos uno.'),
+    el('p', { class: 'section-intro' }, 'Cada usuario tiene un rol global y, por tenant, el rol con el que entra (el mismo usuario puede ser aprobador de uno y lector de otro). Si no marcás ningún tenant, conserva su alcance según el rol global.'),
     renderLoading(),
   );
 
@@ -2056,17 +2098,36 @@ async function renderUsers() {
     const [users, tenants] = await Promise.all([API.get('/api/users'), API.get('/api/tenants')]);
     main.querySelector('.loading')?.remove();
 
-    const tenantChecks = (name, selected = []) => {
-      const selectedSet = new Set((selected || []).map(Number));
-      const wrap = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '8px', marginTop: '8px' } });
+    const tenantRolesEditor = (name, selected = []) => {
+      const byId = new Map((selected || []).map(r => [Number(r.tenant_id), r.role]));
+      const wrap = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px', marginTop: '8px' } });
       for (const t of tenants) {
-        const input = el('input', { type: 'checkbox', name, value: t.id });
-        input.checked = selectedSet.has(Number(t.id));
-        wrap.append(el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--ink)' } }, input, `${t.name || t.code} (${t.code})`));
+        const tid = Number(t.id);
+        const input = el('input', { type: 'checkbox', name: `${name}_check`, value: t.id });
+        input.checked = byId.has(tid);
+        const sel = el('select', { name: `${name}_role_${tid}`, class: 'store-select', style: { flex: 1, minWidth: 0 } });
+        for (const role of USER_ROLES) {
+          const opt = el('option', { value: role }, role);
+          if (role === (byId.get(tid) || 'lector')) opt.selected = true;
+          sel.append(opt);
+        }
+        wrap.append(el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 8px' } },
+          input,
+          el('span', { style: { fontSize: '13px', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `${t.name || t.code} (${t.code})`),
+          sel,
+        ));
       }
       return wrap;
     };
-    const selectedIds = (root, name) => Array.from(root.querySelectorAll(`input[name="${name}"]:checked`)).map(i => Number(i.value));
+    const selectedTenantRoles = (root, name) => {
+      const result = [];
+      root.querySelectorAll(`input[name="${name}_check"]:checked`).forEach(i => {
+        const tid = Number(i.value);
+        const role = root.querySelector(`select[name="${name}_role_${tid}"]`)?.value || 'lector';
+        result.push({ tenant_id: tid, role });
+      });
+      return result;
+    };
     const roleSelect = (value, name = 'role') => {
       const sel = el('select', { name, class: 'store-select' });
       for (const role of USER_ROLES) {
@@ -2081,7 +2142,7 @@ async function renderUsers() {
     const form = el('form', { style: { display: 'grid', gap: '12px' } });
     const email = el('input', { type: 'email', name: 'email', placeholder: 'email@empresa.com', required: true, style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px' } });
     const password = el('input', { type: 'password', name: 'password', placeholder: 'contraseña inicial', autocomplete: 'new-password', required: true, style: { padding: '10px 12px', border: '1px solid var(--border)', borderRadius: '8px' } });
-    const createTenants = tenantChecks('create_tenants', []);
+    const createTenants = tenantRolesEditor('create_tenants', []);
     form.append(
       el('h3', { class: 'card-title' }, 'Crear usuario'),
       el('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(180px, .8fr) minmax(150px, .6fr)', gap: '12px' } }, email, password, roleSelect('lector')),
@@ -2095,7 +2156,7 @@ async function renderUsers() {
           email: email.value,
           password: password.value,
           role: form.querySelector('select[name="role"]').value,
-          tenant_ids: selectedIds(form, 'create_tenants'),
+          tenant_roles: selectedTenantRoles(form, 'create_tenants'),
         });
         toast('Usuario creado');
         renderUsers();
@@ -2115,10 +2176,10 @@ async function renderUsers() {
       const active = el('input', { type: 'checkbox' });
       active.checked = Boolean(u.is_active);
       const pass = el('input', { type: 'password', placeholder: 'nueva contraseña (opcional)', autocomplete: 'new-password', style: { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: '8px', marginTop: '8px', width: '100%' } });
-      const checks = tenantChecks(`tenants_${u.id}`, u.tenant_ids || []);
+      const checks = tenantRolesEditor(`tenants_${u.id}`, u.tenant_roles || []);
       const save = el('button', { type: 'button', class: 'btn secondary' }, 'Guardar');
       save.addEventListener('click', async () => {
-        const payload = { role: role.value, is_active: active.checked, tenant_ids: selectedIds(row, `tenants_${u.id}`) };
+        const payload = { role: role.value, is_active: active.checked, tenant_roles: selectedTenantRoles(row, `tenants_${u.id}`) };
         if (pass.value.trim()) payload.password = pass.value;
         try {
           await API.patch(`/api/users/${u.id}`, payload);

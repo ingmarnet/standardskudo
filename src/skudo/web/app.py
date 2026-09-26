@@ -5,6 +5,8 @@ tendencia, hallazgos. Cada endpoint recibe la sesión de base de datos por
 inyección de dependencia de FastAPI, y el usuario autenticado por el token JWT.
 """
 
+import re
+import secrets
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -20,7 +22,8 @@ from skudo.auth.passwords import hash_password
 from skudo.auth.users import (
     authenticate,
     set_tenant_access,
-    tenant_ids_for_user,
+    tenant_role_for,
+    tenant_roles_for_user,
 )
 from skudo.auth.users import (
     create_user as auth_create_user,
@@ -28,6 +31,7 @@ from skudo.auth.users import (
 from skudo.auth.users import (
     list_users as auth_list_users,
 )
+from skudo.config import default_token_env_var
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
 from skudo.mirror.models import Attribute, AttributeSet, ProductRecord, Tenant
@@ -57,7 +61,7 @@ def _explicit_tenant_ids(db: Session, user: dict) -> list[int]:
         user_id = int(user.get("sub"))
     except (TypeError, ValueError):
         return []
-    return tenant_ids_for_user(db, user_id)
+    return [r["tenant_id"] for r in tenant_roles_for_user(db, user_id)]
 
 
 def _check_tenant_access(db: Session, tenant: Tenant, user: dict) -> None:
@@ -78,13 +82,41 @@ def _check_tenant_access(db: Session, tenant: Tenant, user: dict) -> None:
         )
 
 
+def _effective_role(db: Session, tenant: Tenant, user: dict) -> str:
+    """Rol efectivo del usuario sobre un tenant.
+
+    Administradores mandan en todos lados. Para el resto, la fila de acceso por
+    tenant gana si existe; si no, manda el rol global (compatibilidad legada).
+    """
+    global_role = user.get("role", "lector")
+    if global_role in ADMIN_ROLES:
+        return global_role
+    try:
+        user_id = int(user.get("sub"))
+    except (TypeError, ValueError):
+        return global_role
+    per_tenant = tenant_role_for(db, user_id, tenant.id)
+    return per_tenant if per_tenant else global_role
+
+
+def _require_tenant_role(db: Session, tenant: Tenant, user: dict, *roles: str) -> str:
+    """Exige uno de `roles` como rol EFECTIVO sobre el tenant. 403 si no."""
+    role = _effective_role(db, tenant, user)
+    if role not in roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="rol sin permiso para esta acción en este tenant",
+        )
+    return role
+
+
 def _user_json(db: Session, user: PlatformUser) -> dict:
     return {
         "id": user.id,
         "email": user.email,
         "role": user.role,
         "is_active": user.is_active,
-        "tenant_ids": tenant_ids_for_user(db, user.id),
+        "tenant_roles": tenant_roles_for_user(db, user.id),
     }
 
 app.add_middleware(
@@ -138,18 +170,23 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 # --- Usuarios y permisos -----------------------------------------------------
 
 
+class TenantRoleInput(BaseModel):
+    tenant_id: int
+    role: str
+
+
 class UserCreateRequest(BaseModel):
     email: str
     password: str
     role: str
-    tenant_ids: list[int] = []
+    tenant_roles: list[TenantRoleInput] = []
 
 
 class UserUpdateRequest(BaseModel):
     role: str | None = None
     password: str | None = None
     is_active: bool | None = None
-    tenant_ids: list[int] | None = None
+    tenant_roles: list[TenantRoleInput] | None = None
 
 
 @app.get("/api/users")
@@ -168,7 +205,7 @@ def create_platform_user(
 ):
     try:
         new_user = auth_create_user(db, body.email, body.password, body.role)
-        set_tenant_access(db, new_user, body.tenant_ids)
+        set_tenant_access(db, new_user, [r.model_dump() for r in body.tenant_roles])
         db.commit()
         db.refresh(new_user)
     except ValueError as e:
@@ -202,8 +239,8 @@ def update_platform_user(
             target.password_hash = hash_password(body.password)
         if body.is_active is not None:
             target.is_active = body.is_active
-        if body.tenant_ids is not None:
-            set_tenant_access(db, target, body.tenant_ids)
+        if body.tenant_roles is not None:
+            set_tenant_access(db, target, [r.model_dump() for r in body.tenant_roles])
         db.commit()
         db.refresh(target)
     except ValueError as e:
@@ -213,6 +250,54 @@ def update_platform_user(
 
 
 # --- Tenants ----------------------------------------------------------------
+
+
+class TenantCreateRequest(BaseModel):
+    code: str
+    name: str | None = None
+    base_url: str
+
+
+@app.post("/api/tenants", status_code=status.HTTP_201_CREATED)
+def create_tenant(
+    body: TenantCreateRequest,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*ADMIN_ROLES)),
+):
+    """Onboarding autoservicio: crea el tenant y devuelve su token UNA vez.
+
+    El token no se guarda en la base (seguimos el invariante de secretos): se
+    genera acá, se devuelve al administrador una sola vez, y es él quien lo
+    instala en el Magento del cliente y en la variable de entorno que
+    `token_env_var` nombra en el servidor.
+    """
+    code = body.code.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", code):
+        raise HTTPException(400, "código inválido: solo minúsculas, dígitos, guion o guion bajo")
+    base_url = body.base_url.strip()
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(400, "base_url debe empezar con http:// o https://")
+    if db.scalar(select(Tenant.id).where(Tenant.code == code)) is not None:
+        raise HTTPException(409, "ya existe un tenant con ese código")
+
+    token = secrets.token_urlsafe(32)
+    tenant = Tenant(
+        code=code,
+        name=(body.name or "").strip() or code,
+        base_url=base_url,
+        token_env_var=default_token_env_var(code),
+    )
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    return {
+        "id": tenant.id,
+        "code": tenant.code,
+        "name": tenant.name,
+        "base_url": tenant.base_url,
+        "token_env_var": tenant.token_env_var,
+        "token": token,
+    }
 
 
 @app.get("/api/tenants")
@@ -469,6 +554,7 @@ def _regla_del_tenant(db: Session, tenant_code: str, rule_id: int, user: dict) -
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
     _check_tenant_access(db, tenant, user)
+    _require_tenant_role(db, tenant, user, *CURATION_ROLES)
     regla = db.get(Rule, rule_id)
     if regla is None or regla.tenant_id != tenant.id:
         raise HTTPException(404, "Regla no encontrada en este tenant")
@@ -492,7 +578,7 @@ def accept_rule(
     rule_id: int,
     body: AceptarRequest = AceptarRequest(),
     db: Session = Depends(get_db),
-    user=Depends(require_role(*CURATION_ROLES)),
+    user=Depends(require_user),
 ):
     regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
@@ -515,7 +601,7 @@ def reject_rule(
     rule_id: int,
     body: MotivoRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_role(*CURATION_ROLES)),
+    user=Depends(require_user),
 ):
     regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
@@ -535,7 +621,7 @@ def limit_rule(
     rule_id: int,
     body: MotivoRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_role(*CURATION_ROLES)),
+    user=Depends(require_user),
 ):
     regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
@@ -554,12 +640,13 @@ def snapshot_rules(
     tenant_code: str,
     store: int,
     db: Session = Depends(get_db),
-    user=Depends(require_role(*CURATION_ROLES)),
+    user=Depends(require_user),
 ):
     tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
     _check_tenant_access(db, tenant, user)
+    _require_tenant_role(db, tenant, user, *CURATION_ROLES)
     snap = curation.snapshot(db, tenant_id=tenant.id, store_view=store)
     db.commit()
     return {"version": snap.version, "rule_count": len(snap.rule_ids)}
@@ -716,7 +803,7 @@ def create_rule(
     store: int,
     body: CrearReglaRequest,
     db: Session = Depends(get_db),
-    user=Depends(require_role(*CURATION_ROLES)),
+    user=Depends(require_user),
 ):
     """Crea una regla `curada` en borrador desde el panel. Entra al mismo
     circuito de curación que las inferidas."""
@@ -724,6 +811,7 @@ def create_rule(
     if not tenant:
         raise HTTPException(404, "Tenant no encontrado")
     _check_tenant_access(db, tenant, user)
+    _require_tenant_role(db, tenant, user, *CURATION_ROLES)
     try:
         regla = curation.crear(
             db, tenant_id=tenant.id, store_view_magento_id=store,

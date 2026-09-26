@@ -63,40 +63,59 @@ def list_users(session: Session) -> list[PlatformUser]:
     return list(session.scalars(select(PlatformUser).order_by(PlatformUser.email)))
 
 
-def tenant_ids_for_user(session: Session, user_id: int) -> list[int]:
-    """Devuelve los tenants explícitamente asignados al usuario.
+def tenant_roles_for_user(session: Session, user_id: int) -> list[dict]:
+    """Rol por tenant asignado al usuario, ordenado por tenant_id.
 
     Lista vacía significa "sin alcance explícito". El backend web lo interpreta
     como compatibilidad legado: no restringe tenants hasta que se asigna al
     menos uno.
     """
-    return sorted(
-        session.scalars(
-            select(PlatformUserTenantAccess.tenant_id)
-            .where(PlatformUserTenantAccess.user_id == user_id)
-            .order_by(PlatformUserTenantAccess.tenant_id)
-        ).all()
+    rows = session.execute(
+        select(PlatformUserTenantAccess.tenant_id, PlatformUserTenantAccess.role)
+        .where(PlatformUserTenantAccess.user_id == user_id)
+        .order_by(PlatformUserTenantAccess.tenant_id)
+    ).all()
+    return [{"tenant_id": tid, "role": role} for tid, role in rows]
+
+
+def tenant_role_for(session: Session, user_id: int, tenant_id: int) -> str | None:
+    """Rol del usuario dentro de un tenant concreto, o None si no hay fila."""
+    return session.scalar(
+        select(PlatformUserTenantAccess.role).where(
+            PlatformUserTenantAccess.user_id == user_id,
+            PlatformUserTenantAccess.tenant_id == tenant_id,
+        )
     )
 
 
-def set_tenant_access(session: Session, user: PlatformUser, tenant_ids: list[int]) -> None:
-    """Reemplaza el alcance explícito de tenants de un usuario.
+def set_tenant_access(session: Session, user: PlatformUser, tenant_roles: list[dict]) -> None:
+    """Reemplaza el alcance explícito por tenant de un usuario.
 
-    Valida que todos los ids existan antes de escribir, para que el panel no
-    guarde permisos fantasma por una selección stale.
+    `tenant_roles` es una lista de `{"tenant_id": int, "role": str}`. Valida que
+    los ids existan y que los roles pertenezcan al vocabulario cerrado, para que
+    el panel no guarde permisos fantasma por una selección stale o una errata.
     """
-    unique_ids = sorted({int(tid) for tid in tenant_ids})
-    if unique_ids:
+    pares = {}
+    for entrada in tenant_roles:
+        tid = int(entrada["tenant_id"])
+        role = entrada["role"]
+        if role not in ROLES:
+            raise ValueError(f"rol desconocido: {role!r}. Los válidos son {', '.join(ROLES)}")
+        pares[tid] = role
+
+    if pares:
         existing = set(
-            session.scalars(select(Tenant.id).where(Tenant.id.in_(unique_ids))).all()
+            session.scalars(select(Tenant.id).where(Tenant.id.in_(list(pares)))).all()
         )
-        missing = [tid for tid in unique_ids if tid not in existing]
+        missing = [tid for tid in pares if tid not in existing]
         if missing:
             raise ValueError(f"tenant inexistente: {missing[0]}")
 
     session.execute(
         delete(PlatformUserTenantAccess).where(PlatformUserTenantAccess.user_id == user.id)
     )
-    for tenant_id in unique_ids:
-        session.add(PlatformUserTenantAccess(user_id=user.id, tenant_id=tenant_id))
+    for tenant_id in sorted(pares):
+        session.add(
+            PlatformUserTenantAccess(user_id=user.id, tenant_id=tenant_id, role=pares[tenant_id])
+        )
     session.flush()

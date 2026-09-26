@@ -9,7 +9,7 @@ aparte, y esta no cambia.
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from skudo.mirror.models import Base
@@ -59,6 +59,12 @@ class PlatformUserTenantAccess(Base):
     )
     tenant_id: Mapped[int] = mapped_column(
         ForeignKey("tenant.id", ondelete="CASCADE"), index=True
+    )
+    # Rol del usuario DENTRO de este tenant. El rol global de `platform_user`
+    # sigue existiendo; esta columna lo afina por tenant (S7): el mismo usuario
+    # puede ser aprobador de A y lector de B. "lector" es el default conservador.
+    role: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'lector'"), default="lector"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
