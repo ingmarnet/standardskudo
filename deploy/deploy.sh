@@ -6,8 +6,16 @@ set -euo pipefail
 
 APP_DIR="${SKUDO_APP_DIR:-/opt/skudo}"
 VENV="${SKUDO_VENV:-/opt/skudo/.venv}"
+ENV_FILE="${SKUDO_ENV_FILE:-/etc/skudo/skudo.env}"
 
 cd "$APP_DIR"
+
+# Cargar entorno (SKUDO_DATABASE_URL, tokens). El runner no hereda estas vars;
+# alembic y el humo de import las necesitan. `set -a` para exportar al sourcear.
+set -a
+# shellcheck disable=SC1090
+. "$ENV_FILE"
+set +a
 
 PREV=$(git rev-parse HEAD)
 git fetch origin main
