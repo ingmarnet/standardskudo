@@ -37,8 +37,12 @@ fi
 # Migraciones de esquema.
 "$VENV/bin/alembic" upgrade head
 
-# Reinicio y verificación.
-systemctl restart skudo
+# Reinicio (el runner corre como ingmar: sudo NOPASSWD acotado a este comando).
+if [ "$(id -u)" -eq 0 ]; then
+  systemctl restart skudo
+else
+  sudo -n systemctl restart skudo
+fi
 
 for i in $(seq 1 20); do
   if curl -fsS http://127.0.0.1:8000/docs >/dev/null 2>&1; then
