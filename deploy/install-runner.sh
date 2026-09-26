@@ -14,12 +14,21 @@ RUNNER_DIR="${SKUDO_RUNNER_DIR:-/opt/actions-runner}"
 RUNNER_VERSION="${SKUDO_RUNNER_VERSION:-2.322.0}"
 REPO_URL="https://github.com/ingmarnet/standardskudo"
 
+# Al invocarse vía `sudo`, `config.sh` ve SUDO_USER y se niega ("Must not run
+# with sudo"). Lo limpiamos: el proceso ya es root, sólo quitamos la marca.
+unset SUDO_USER SUDO_UID SUDO_GID SUDO_COMMAND 2>/dev/null || true
+
 # --- 1) runner self-hosted -------------------------------------------------
 mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
-curl -o actions-runner.tar.gz -L   "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
+curl -o actions-runner.tar.gz -L \
+  "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
 tar xzf actions-runner.tar.gz
-./config.sh --unattended   --url "$REPO_URL"   --token "$TOKEN"   --name "$(hostname)"   --labels self-hosted,linux
+./config.sh --unattended \
+  --url "$REPO_URL" \
+  --token "$TOKEN" \
+  --name "$(hostname)" \
+  --labels self-hosted,linux
 ./svc.sh install
 ./svc.sh start
 
