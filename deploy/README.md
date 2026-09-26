@@ -27,11 +27,13 @@ Tras esto, cualquier push a `main` se despliega solo. Estado en la pestaña
 
 ## Requisitos / notas
 
-- El runner corre como `root` (el entorno hoy está 100% bajo root). Para
-  endurecerlo, mover a un usuario `skudo` con `sudo` limitado a `systemctl
-  restart skudo` y a `alembic`. `TODO` marcado en `skudo.service`.
-- `EnvironmentFile=/etc/skudo/skudo.env` exige formato `CLAVE=valor` plano
-  (systemd no soporta `export` ni expansión de shell). Verificar el archivo.
+- La app corre como `User=ingmar` (no root). El runner, en cambio, corre como
+  root porque necesita `systemctl restart skudo`; para endurecerlo, un usuario
+  dedicado con sudo NOPASSWD acotado a `systemctl restart skudo`.
+- `EnvironmentFile=/etc/skudo/skudo.env` y `/opt/skudo/deploy/jwt-secret.env`
+  exigen formato `CLAVE=valor` plano (systemd no soporta `export` ni expansión
+  de shell). El `jwt-secret.env` (SKUDO_JWT_SECRET) vive solo en el servidor y
+  está gitignoreado: sin él, los tokens se regeneran en cada restart.
 - `SKUDO_RUNNER_VERSION` en `install-runner.sh` es orientativo: si GitHub pide
   otra versión, copiar la URL exacta de la página "New self-hosted runner".
 - El primer deploy (el que trae estos archivos) se hace a mano con `git pull` en

@@ -16,3 +16,6 @@ magento-module/.phpunit.cache/
 # Worktrees aislados de subagent-driven-development
 .worktrees/
 .superpowers/
+
+# Secretos del deploy (JWT, etc.) — nunca al repo.
+deploy/*.env
