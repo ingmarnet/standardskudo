@@ -33,7 +33,7 @@ from skudo.auth.users import (
 from skudo.auth.users import (
     list_users as auth_list_users,
 )
-from skudo.config import default_token_env_var
+from skudo.config import default_token_env_var, write_tenant_token
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
 from skudo.mirror.models import Attribute, AttributeSet, ProductRecord, Tenant
@@ -285,6 +285,7 @@ def create_tenant(
         raise HTTPException(409, "ya existe un tenant con ese código")
 
     token = secrets.token_urlsafe(32)
+    write_tenant_token(code, token)  # persiste en disco, nunca en la base
     tenant = Tenant(
         code=code,
         name=(body.name or "").strip() or code,

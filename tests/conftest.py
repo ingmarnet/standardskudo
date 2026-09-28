@@ -44,6 +44,16 @@ TEST_URL = require_test_database(
 )
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _tenant_token_dir(tmp_path_factory):
+    """El onboarding persiste el token en un archivo por tenant. Redirige ese
+    directorio a un tmp para que ningún test escriba en /var/lib/skudo/tokens."""
+    d = tmp_path_factory.mktemp("tenant-tokens")
+    os.environ["SKUDO_TOKEN_DIR"] = str(d)
+    yield d
+    os.environ.pop("SKUDO_TOKEN_DIR", None)
+
+
 @pytest.fixture(scope="session")
 def migrated_engine():
     engine = create_engine(TEST_URL)
