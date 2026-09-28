@@ -262,6 +262,8 @@ FK_ENFORCED_TABLES = {
     "concept_map",
     # Permisos de plataforma: FK a usuario y tenant, con borrado en cascada.
     "platform_user_tenant_access",
+    # Bitácora inmutable: FK al tenant (NULL para eventos de plataforma).
+    "audit_log",
 }
 
 

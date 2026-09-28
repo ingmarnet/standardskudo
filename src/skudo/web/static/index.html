@@ -844,6 +844,10 @@ body {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
         Usuarios
       </a>
+      <a data-view="audit" id="nav-audit" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        Auditoría
+      </a>
     </nav>
     <div class="sidebar-footer">
       <div class="user-info" id="user-email"></div>
@@ -2204,6 +2208,47 @@ async function renderUsers() {
   }
 }
 
+async function renderAudit() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '';
+  if (!puedeGestionarUsuarios()) {
+    main.append(el('div', { class: 'empty-state' }, el('p', null, 'Tu usuario no tiene permiso para ver la bitácora.')));
+    return;
+  }
+  main.append(
+    el('div', { class: 'main-header' }, el('h1', null, 'Bitácora de auditoría')),
+    el('p', { class: 'section-intro' }, 'Registro inmutable de toda escritura (curaciones, alta de tenants y usuarios). No se puede modificar ni borrar.'),
+    renderLoading(),
+  );
+  try {
+    const rows = await API.get('/api/audit');
+    main.querySelector('.loading')?.remove();
+    if (!rows.length) {
+      main.append(el('div', { class: 'empty-state' }, el('p', null, 'Sin actividad registrada todavía.')));
+      return;
+    }
+    const table = el('table', { class: 'findings-table' });
+    table.append(el('thead', null, el('tr', null,
+      el('th', null, 'Fecha'), el('th', null, 'Actor'), el('th', null, 'Acción'), el('th', null, 'Detalle')
+    )));
+    const tbody = el('tbody');
+    for (const r of rows) {
+      const detalle = r.detail ? JSON.stringify(r.detail) : (r.entity_type && r.entity_id ? `${r.entity_type} #${r.entity_id}` : '');
+      tbody.append(el('tr', null,
+        el('td', null, formatDate(r.created_at)),
+        el('td', null, r.actor_email),
+        el('td', null, r.action),
+        el('td', null, detalle),
+      ));
+    }
+    table.append(tbody);
+    main.append(el('div', { class: 'card' }, table));
+  } catch (e) {
+    main.innerHTML = '';
+    main.append(el('div', { class: 'empty-state' }, el('p', null, `Error: ${e.message}`)));
+  }
+}
+
 // --- Navigation ---
 
 function navigate(view) {
@@ -2219,6 +2264,7 @@ function navigate(view) {
     case 'products': renderProducts(); break;
     case 'catalog-design': renderCatalogDesign(); break;
     case 'users': renderUsers(); break;
+    case 'audit': renderAudit(); break;
   }
 }
 
@@ -2268,6 +2314,8 @@ function showApp() {
   document.getElementById('user-email').textContent = API.user?.email || '';
   const usersNav = document.getElementById('nav-users');
   if (usersNav) usersNav.hidden = !puedeGestionarUsuarios();
+  const auditNav = document.getElementById('nav-audit');
+  if (auditNav) auditNav.hidden = !puedeGestionarUsuarios();
   navigate('tenants');
 }
 

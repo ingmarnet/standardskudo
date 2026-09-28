@@ -17,6 +17,8 @@ from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from skudo.audit.log import record
+from skudo.audit.models import AuditLog
 from skudo.auth.models import ROLES, PlatformUser
 from skudo.auth.passwords import hash_password
 from skudo.auth.users import (
@@ -206,6 +208,7 @@ def create_platform_user(
     try:
         new_user = auth_create_user(db, body.email, body.password, body.role)
         set_tenant_access(db, new_user, [r.model_dump() for r in body.tenant_roles])
+        record(db, action="user.create", actor_email=user["email"], entity_type="user", entity_id=new_user.id, detail={"role": body.role})
         db.commit()
         db.refresh(new_user)
     except ValueError as e:
@@ -241,6 +244,7 @@ def update_platform_user(
             target.is_active = body.is_active
         if body.tenant_roles is not None:
             set_tenant_access(db, target, [r.model_dump() for r in body.tenant_roles])
+        record(db, action="user.update", actor_email=user["email"], entity_type="user", entity_id=target.id)
         db.commit()
         db.refresh(target)
     except ValueError as e:
@@ -288,6 +292,8 @@ def create_tenant(
         token_env_var=default_token_env_var(code),
     )
     db.add(tenant)
+    db.flush()
+    record(db, action="tenant.create", actor_email=user["email"], tenant_id=tenant.id, entity_type="tenant", entity_id=tenant.id, detail={"code": code})
     db.commit()
     db.refresh(tenant)
     return {
@@ -298,6 +304,37 @@ def create_tenant(
         "token_env_var": tenant.token_env_var,
         "token": token,
     }
+
+
+@app.get("/api/audit")
+def audit_log(
+    tenant_code: str | None = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    user=Depends(require_role(*ADMIN_ROLES)),
+):
+    """Bitácora inmutable de escrituras. Solo administradores de plataforma."""
+    q = select(AuditLog)
+    if tenant_code:
+        tid = db.scalar(select(Tenant.id).where(Tenant.code == tenant_code))
+        if tid is None:
+            raise HTTPException(404, "Tenant no encontrado")
+        q = q.where(AuditLog.tenant_id == tid)
+    q = q.order_by(AuditLog.id.desc()).limit(min(max(limit, 1), 1000))
+    filas = db.scalars(q).all()
+    return [
+        {
+            "id": r.id,
+            "tenant_id": r.tenant_id,
+            "actor_email": r.actor_email,
+            "action": r.action,
+            "entity_type": r.entity_type,
+            "entity_id": r.entity_id,
+            "detail": r.detail,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in filas
+    ]
 
 
 @app.get("/api/tenants")
@@ -586,6 +623,7 @@ def accept_rule(
             db, [regla.id], actor=user["email"],
             confirmar_ambiguo=body.confirmar_ambiguo,
         )
+        record(db, action="rule.accept", actor_email=user["email"], tenant_id=regla.tenant_id, entity_type="rule", entity_id=regla.id)
     except curation.ReglaAmbiguaSinConfirmar as e:
         raise HTTPException(409, detail={"needs_confirm": True, "message": str(e)})
     except TransicionInvalida as e:
@@ -606,6 +644,7 @@ def reject_rule(
     regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
         curation.rechazar(db, regla.id, actor=user["email"], motivo=body.motivo)
+        record(db, action="rule.reject", actor_email=user["email"], tenant_id=regla.tenant_id, entity_type="rule", entity_id=regla.id, detail={"motivo": body.motivo})
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
     except TransicionInvalida as e:
@@ -626,6 +665,7 @@ def limit_rule(
     regla = _regla_del_tenant(db, tenant_code, rule_id, user)
     try:
         curation.acotar(db, regla.id, actor=user["email"], motivo=body.motivo)
+        record(db, action="rule.limit", actor_email=user["email"], tenant_id=regla.tenant_id, entity_type="rule", entity_id=regla.id, detail={"motivo": body.motivo})
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
     except TransicionInvalida as e:
@@ -648,6 +688,7 @@ def snapshot_rules(
     _check_tenant_access(db, tenant, user)
     _require_tenant_role(db, tenant, user, *CURATION_ROLES)
     snap = curation.snapshot(db, tenant_id=tenant.id, store_view=store)
+    record(db, action="rule.snapshot", actor_email=user["email"], tenant_id=tenant.id, entity_type="snapshot", entity_id=snap.id, detail={"store": store, "version": snap.version})
     db.commit()
     return {"version": snap.version, "rule_count": len(snap.rule_ids)}
 
@@ -819,6 +860,7 @@ def create_rule(
             attribute=body.attribute, actor=user["email"],
             minimo=body.minimo, maximo=body.maximo,
         )
+        record(db, action="rule.create", actor_email=user["email"], tenant_id=regla.tenant_id, entity_type="rule", entity_id=regla.id)
     except curation.ReglaDuplicada as e:
         raise HTTPException(409, detail=str(e))
     except ValueError as e:

@@ -20,6 +20,7 @@ from skudo.mirror.models import Base  # se crea en la Task 4
 import skudo.profile.models  # noqa: F401  (registra las tablas de perfil en Base)
 import skudo.findings.models  # noqa: F401  (registra las tablas de hallazgos)
 import skudo.auth.models  # noqa: F401  (registra la tabla de usuarios)
+import skudo.audit.models  # noqa: F401  (registra la bitácora inmutable)
 import skudo.score.models  # noqa: F401  (registra las tablas de nota)
 import skudo.rules.models  # noqa: F401  (registra las tablas de reglas)
 
