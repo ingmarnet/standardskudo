@@ -37,7 +37,7 @@ from skudo.config import default_token_env_var, write_tenant_token
 from skudo.evidence.service import conflicts_for_subject, list_for_subject
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
-from skudo.mirror.models import Attribute, AttributeSet, ProductRecord, Tenant
+from skudo.mirror.models import Attribute, AttributeSet, ProductRecord, ProductSignal, Tenant
 from skudo.rules import curation
 from skudo.rules.models import Rule
 from skudo.rules.transitions import TransicionInvalida
@@ -494,17 +494,57 @@ def finding_details(
     filas = db.scalars(
         select(Finding)
         .where(Finding.run_id == run.id, Finding.code == finding_code)
+        .order_by(Finding.id)
         .limit(1000)
     ).all()
-    
+
+    # Enriquecer los hallazgos de producto con el nombre y el stock, para que el
+    # panel muestre QUÉ producto es (no solo su SKU) y priorice los que tienen
+    # stock. Para subjects no-producto (atributo, categoría, ...) quedan en None.
+    skus = [f.subject_key for f in filas if f.subject_type == "producto"]
+    nombres: dict[str, str] = {}
+    stock: dict[str, bool | None] = {}
+    if skus:
+        for sku, attrs in db.execute(
+            select(ProductRecord.sku, ProductRecord.attributes).where(
+                ProductRecord.tenant_id == tenant.id,
+                ProductRecord.store_view_magento_id == store,
+                ProductRecord.sku.in_(skus),
+            )
+        ).all():
+            nombre = (attrs or {}).get("name")
+            if nombre:
+                nombres[sku] = nombre.strip()
+        for sku, is_in_stock in db.execute(
+            select(ProductSignal.sku, ProductSignal.is_in_stock).where(
+                ProductSignal.tenant_id == tenant.id,
+                ProductSignal.store_view_magento_id == store,
+                ProductSignal.sku.in_(skus),
+            )
+        ).all():
+            stock[sku] = is_in_stock
+
+    def _prioridad(f: Finding) -> int:
+        if f.subject_type != "producto":
+            return 3  # no-producto, al final
+        s = stock.get(f.subject_key)
+        if s is True:
+            return 0  # con stock primero
+        if s is None:
+            return 1  # sin datos de stock
+        return 2  # sin stock
+
     return {
         "items": [
             {
                 "subject_key": f.subject_key,
+                "subject_type": f.subject_type,
+                "name": nombres.get(f.subject_key) if f.subject_type == "producto" else None,
+                "is_in_stock": stock.get(f.subject_key) if f.subject_type == "producto" else None,
                 "evidence": f.evidence,
-                "severity": f.severity
+                "severity": f.severity,
             }
-            for f in filas
+            for f in sorted(filas, key=_prioridad)
         ]
     }
 # --- Reglas activas por store view ------------------------------------------
