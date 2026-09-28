@@ -7,6 +7,7 @@ está en el perfil, falta en el perfil (cambio de S1a), no se busca por otro lad
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from skudo.evidence.service import record
 from skudo.profile.models import (
     AttributeCoverage,
     ProfilePartition,
@@ -74,6 +75,33 @@ def _scope(part: ProfilePartition) -> tuple[str, str]:
     return "attribute_set", str(part.attribute_set_id)
 
 
+def _adjuntar_evidencia(session: Session, run: ProfileRun, regla: Rule) -> None:
+    """Deja constancia de de dónde salió cada regla inferida (spec §6.6).
+
+    La fuente es el perfil; el fragmento nombra el run, la partición y el
+    atributo exactos, y el valor es lo que la medición sostiene (definición +
+    confianza + nº de productos). Sin transformación: los números del perfil se
+    usan tal cual.
+    """
+    record(
+        session,
+        tenant_id=run.tenant_id,
+        subject_type="rule",
+        subject_id=regla.id,
+        datum=regla.kind,
+        source="perfil",
+        fragment=(
+            f"perfil {run.id}, partición {regla.scope_kind}:{regla.scope_key}, "
+            f"atributo {regla.definition.get('attribute', '?')}"
+        ),
+        value={
+            "definition": regla.definition,
+            "confidence": regla.confidence,
+            "evidence_count": regla.evidence_count,
+        },
+    )
+
+
 def inferir(session: Session, profile_run_id: int) -> list[Rule]:
     """Genera y persiste las reglas borrador de un ProfileRun. Devuelve las reglas.
 
@@ -102,6 +130,8 @@ def inferir(session: Session, profile_run_id: int) -> list[Rule]:
     for r in reglas:
         session.add(r)
     session.flush()
+    for r in reglas:
+        _adjuntar_evidencia(session, run, r)
     for r in reglas:
         session.add(RuleVersion(
             rule_id=r.id, from_status=None, to_status="borrador",

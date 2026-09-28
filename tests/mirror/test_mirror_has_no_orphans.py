@@ -264,6 +264,8 @@ FK_ENFORCED_TABLES = {
     "platform_user_tenant_access",
     # Bitácora inmutable: FK al tenant (NULL para eventos de plataforma).
     "audit_log",
+    # Evidencia por dato (S2): FK al tenant; el subject es polimórfico sin FK.
+    "evidence",
 }
 
 

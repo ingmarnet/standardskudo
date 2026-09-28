@@ -34,6 +34,7 @@ from skudo.auth.users import (
     list_users as auth_list_users,
 )
 from skudo.config import default_token_env_var, write_tenant_token
+from skudo.evidence.service import conflicts_for_subject, list_for_subject
 from skudo.findings.models import Finding, FindingRun
 from skudo.findings.run import findings_report
 from skudo.mirror.models import Attribute, AttributeSet, ProductRecord, Tenant
@@ -869,6 +870,49 @@ def create_rule(
     db.commit()
     db.refresh(regla)
     return _regla_json(regla)
+
+
+@app.get("/api/tenants/{tenant_code}/rules/{rule_id}/evidence")
+def rule_evidence(
+    tenant_code: str,
+    rule_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_user),
+):
+    """La evidencia de una regla, con los conflictos entre fuentes declarados.
+
+    S2: toda propuesta muestra de dónde salió cada valor (fuente, fragmento,
+    fecha, identidad, transformación) y un desacuerdo entre fuentes aparece
+    como conflicto, sin resolverse en silencio.
+    """
+    tenant = db.scalars(select(Tenant).where(Tenant.code == tenant_code)).first()
+    if not tenant:
+        raise HTTPException(404, "Tenant no encontrado")
+    _check_tenant_access(db, tenant, user)
+    regla = db.get(Rule, rule_id)
+    if regla is None or regla.tenant_id != tenant.id:
+        raise HTTPException(404, "Regla no encontrada")
+
+    def _json(e):
+        return {
+            "id": e.id,
+            "datum": e.datum,
+            "source": e.source,
+            "fragment": e.fragment,
+            "product_sku": e.product_sku,
+            "observed_at": e.observed_at.isoformat() if e.observed_at else None,
+            "transformation": e.transformation,
+            "value": e.value,
+            "conflict_state": e.conflict_state,
+            "conflict_group": e.conflict_group,
+        }
+
+    return {
+        "evidence": [_json(e) for e in list_for_subject(db, "rule", rule_id)],
+        "conflicts": [
+            [_json(e) for e in g] for g in conflicts_for_subject(db, "rule", rule_id)
+        ],
+    }
 
 
 # --- Productos con peor nota ------------------------------------------------
