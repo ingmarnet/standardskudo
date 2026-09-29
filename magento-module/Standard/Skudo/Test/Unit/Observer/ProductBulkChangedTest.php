@@ -39,6 +39,25 @@ class ProductBulkChangedTest extends TestCase
     }
 
     /**
+     * `ResourceModel\Category::_saveCategoryProducts()` despacha
+     * `catalog_category_change_products` con `product_ids` (entity_id) al
+     * asignar/desasignar productos de una categoría. Sin esta suscripción el
+     * hallazgo "sin categoría" quedaría rancio hasta el próximo full-sync.
+     */
+    public function testTheCategoryProductsChangeEventRecordsEveryResolvedSku(): void
+    {
+        $log = $this->createMock(ChangeLog::class);
+        $log->expects($this->once())->method('recordMany')
+            ->with(['SKU-CAT'], 'save');
+
+        $this->makeObserver($log, new SkuResolution(['SKU-CAT'], []))
+            ->execute($this->eventWith(
+                'catalog_category_change_products',
+                ['category' => new \stdClass(), 'product_ids' => [2001]]
+            ));
+    }
+
+    /**
      * `Product\Action::updateWebsites()` despacha
      * `catalog_product_to_website_change` con `products`, y es el camino
      * donde `updated_at` NO se mueve: sin este observer, ni la cola ni el

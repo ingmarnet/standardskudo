@@ -36,4 +36,20 @@
         <observer name="standard_skudo_product_websites_changed"
                   instance="Standard\Skudo\Observer\ProductBulkChanged"/>
     </event>
+    <!--
+        Asignación/desasignación de productos a categorías por la pestaña
+        "Productos de la categoría" del admin. Magento\Catalog\Model\
+        ResourceModel\Category::_saveCategoryProducts() escribe la tabla
+        satélite `catalog_category_product` y despacha ÚNICAMENTE
+        `catalog_category_change_products` con `product_ids` (entity_id):
+        no despacha `catalog_product_save_after`, no mueve
+        `catalog_product_entity.updated_at`, y el digest de contenido por
+        partición de `/checksums` tampoco lo ve. Sin esta entrada, un
+        producto al que se asigna (o quita) una categoría queda con el
+        hallazgo "sin categoría" rancio hasta el próximo full-sync.
+    -->
+    <event name="catalog_category_change_products">
+        <observer name="standard_skudo_category_products_changed"
+                  instance="Standard\Skudo\Observer\ProductBulkChanged"/>
+    </event>
 </config>

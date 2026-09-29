@@ -30,6 +30,15 @@ use Standard\Skudo\Model\SkuResolver;
  * digest de contenido por partición; esta clase es la otra mitad, la que
  * hace que el cambio se vea en segundos y no en la próxima reconciliación.
  *
+ * El tercer camino que cubre, y por qué el digest no lo tapaba:
+ * `ResourceModel\Category::_saveCategoryProducts()` —asignar productos a
+ * una categoría desde el admin, la pestaña "Productos de la categoría"—
+ * escribe la tabla satélite `catalog_category_product` y despacha
+ * `catalog_category_change_products` con `product_ids` (entity_id). No mueve
+ * `catalog_product_entity.updated_at`, así que el digest de contenido por
+ * partición de `/checksums` no lo ve, y un producto recién categorizado
+ * seguiría figurando "sin categoría" hasta el próximo full-sync.
+ *
  * POR QUÉ HACE FALTA IGUAL, aunque exista el digest de contenido: la
  * medición de H1 sobre la instancia de desarrollo muestra que
  * `catalog_product_entity.updated_at` NO se mueve en todos los caminos.
@@ -70,7 +79,10 @@ class ProductBulkChanged implements ObserverInterface
      * registra cero en silencio: queda una línea de log que lo nombra.
      *
      * - `product_ids`: `catalog_product_attribute_update_before`
-     *   (`Product\Action::updateAttributes()`)
+     *   (`Product\Action::updateAttributes()`) y
+     *   `catalog_category_change_products`
+     *   (`ResourceModel\Category::_saveCategoryProducts()`, la pestaña
+     *   "Productos de la categoría" del admin).
      * - `products`: `catalog_product_to_website_change`
      *   (`Product\Action::updateWebsites()`)
      */

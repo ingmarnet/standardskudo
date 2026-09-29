@@ -35,6 +35,7 @@ class EventWiringTest extends TestCase
         'catalog_product_delete_after' => \Standard\Skudo\Observer\ProductChanged::class,
         'catalog_product_attribute_update_before' => \Standard\Skudo\Observer\ProductBulkChanged::class,
         'catalog_product_to_website_change' => \Standard\Skudo\Observer\ProductBulkChanged::class,
+        'catalog_category_change_products' => \Standard\Skudo\Observer\ProductBulkChanged::class,
     ];
 
     public function testEveryWriteEventTheModuleDependsOnIsSubscribed(): void
